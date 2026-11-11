@@ -148,6 +148,15 @@ export function createMcpHandler(config: Config, prs: PrService): (req: Request)
 				? { bot: d.bot.login, unresolved: d.bot.open, fix: d.bot.blocking, minor: d.bot.open - d.bot.blocking, onOutdatedCode: d.bot.outdated }
 				: null,
 			participants: d.participants.map((p) => ({ who: nameOf(p.login), lastActive: p.lastActive })),
+			lastActivity: d.lastActivity
+				? {
+						who: nameOf(d.lastActivity.login),
+						at: d.lastActivity.at,
+						kind: d.lastActivity.kind,
+						isAuthor: d.lastActivity.login === d.author.login,
+						isMe: Object.values(me.logins).includes(d.lastActivity.login),
+					}
+				: null,
 			checks: d.checks,
 			mergeConflicts: d.mergeable === 'CONFLICTING',
 			size: d.size,
@@ -309,7 +318,7 @@ export function createMcpHandler(config: Config, prs: PrService): (req: Request)
 			name: 'get_pr',
 			title: 'Pull request details',
 			description:
-				'Full status of one pull request: reviewers waiting, approvals, every unresolved AI-review bot finding (severity, file, link), participants and when each was last active (who to ping), checks, conflicts, Linear tickets and stacked PRs. Give a PR URL, or a repo plus number.',
+				'Full status of one pull request: reviewers waiting, approvals, every unresolved AI-review bot finding (severity, file, link), participants and when each was last active (who to ping), the most recent activity (who acted last, and whether it was the author or "me"), checks, conflicts, Linear tickets and stacked PRs. Give a PR URL, or a repo plus number.',
 			inputSchema: {
 				type: 'object',
 				properties: {

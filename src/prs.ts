@@ -7,6 +7,7 @@ import {
 	type BotSummary,
 	type Config,
 	type LightPr,
+	type LastActivity,
 	type MiniPr,
 	type Participant,
 	type PrDetail,
@@ -92,6 +93,7 @@ interface RawDetailPr {
 	participants: { totalCount: number; nodes: { login: string; name: string | null }[] };
 	comments: { nodes: { author: RawAuthor | null; createdAt: string }[] };
 	reviews: { nodes: { author: RawAuthor | null; submittedAt: string | null }[] };
+	commits: { nodes: { commit: { committedDate: string; author: { user: { login: string } | null } | null } }[] };
 	reviewThreads: {
 		nodes: {
 			isResolved: boolean;
@@ -150,6 +152,7 @@ const DETAIL_QUERY = `query($owner:String!, $name:String!, $n:Int!, $head:String
 			participants(first:50) { totalCount nodes { login name } }
 			comments(last:50) { nodes { author { login } createdAt } }
 			reviews(last:50) { nodes { author { login } submittedAt } }
+			commits(last:50) { nodes { commit { committedDate author { user { login } } } } }
 			reviewThreads(first:100) { nodes {
 				isResolved isOutdated path line
 				comments(first:1) { nodes { author { login } body url createdAt } }
@@ -382,22 +385,27 @@ export function createPrService(config: Config, gh: GhRunner): PrService {
 		};
 	}
 
-	function shapeParticipants(pr: RawDetailPr): { participants: Participant[]; lastActive: Map<string, string> } {
+	function shapeParticipants(pr: RawDetailPr): { participants: Participant[]; lastActive: Map<string, string>; lastActivity: LastActivity | null } {
 		const lastActive = new Map<string, string>();
-		const touch = (login: string | undefined, at: string | null | undefined) => {
+		let lastActivity: LastActivity | null = null;
+		const touch = (login: string | undefined, at: string | null | undefined, kind: LastActivity['kind']) => {
 			if (!login || !at) return;
 			const prev = lastActive.get(login);
 			if (!prev || prev < at) lastActive.set(login, at);
+			if (!isBot(login) && (!lastActivity || lastActivity.at < at)) lastActivity = { login, at, kind };
 		};
-		for (const c of pr.comments.nodes) touch(c.author?.login, c.createdAt);
-		for (const r of pr.reviews.nodes) touch(r.author?.login, r.submittedAt);
-		for (const t of pr.reviewThreads.nodes) touch(t.comments.nodes[0]?.author?.login, t.comments.nodes[0]?.createdAt);
+		for (const c of pr.comments.nodes) touch(c.author?.login, c.createdAt, 'comment');
+		for (const r of pr.reviews.nodes) touch(r.author?.login, r.submittedAt, 'review');
+		for (const t of pr.reviewThreads.nodes) touch(t.comments.nodes[0]?.author?.login, t.comments.nodes[0]?.createdAt, 'review');
+		for (const c of pr.commits.nodes) touch(c.commit.author?.user?.login, c.commit.committedDate, 'commit');
+		// Participation means a comment, a review or a commit; mentions and review requests alone don't count.
 		const authorLogin = pr.author?.login;
-		const participants = pr.participants.nodes
-			.filter((p) => p.login !== authorLogin && !isBot(p.login))
-			.map((p) => ({ login: p.login, name: p.name, lastActive: lastActive.get(p.login) ?? null }))
-			.sort((a, b) => (b.lastActive ?? '').localeCompare(a.lastActive ?? ''));
-		return { participants, lastActive };
+		const nameByLogin = new Map(pr.participants.nodes.map((p) => [p.login, p.name]));
+		const participants = [...lastActive.entries()]
+			.filter(([login]) => login !== authorLogin && !isBot(login))
+			.map(([login, at]) => ({ login, name: nameByLogin.get(login) ?? null, lastActive: at }))
+			.sort((a, b) => b.lastActive.localeCompare(a.lastActive));
+		return { participants, lastActive, lastActivity };
 	}
 
 	function shapeDetail(hostKey: string, owner: string, repo: string, data: DetailData): PrDetail | null {
@@ -420,7 +428,7 @@ export function createPrService(config: Config, gh: GhRunner): PrService {
 			else if (r && r.__typename === 'Team' && 'slug' in r) teams.push({ slug: r.slug, name: r.name });
 		}
 		const mini = (p: RawMiniPr): MiniPr => ({ number: p.number, title: p.title, url: p.url, author: p.author?.login ?? 'ghost' });
-		const { participants, lastActive } = shapeParticipants(pr);
+		const { participants, lastActive, lastActivity } = shapeParticipants(pr);
 		const parent = data.repository.parent?.nodes[0];
 
 		return {
@@ -452,6 +460,7 @@ export function createPrService(config: Config, gh: GhRunner): PrService {
 			bot: shapeBot(hostKey, pr),
 			participants,
 			authorLastActive: (pr.author && lastActive.get(pr.author.login)) ?? null,
+			lastActivity,
 			linear: [...linear],
 			refs: refs.filter((r) => r.key !== key),
 			hashRefs: hashRefs.filter((n) => n !== pr.number),

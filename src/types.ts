@@ -136,6 +136,12 @@ export interface Participant {
 	lastActive: string | null;
 }
 
+export interface LastActivity {
+	login: string;
+	at: string;
+	kind: 'comment' | 'review' | 'commit';
+}
+
 export interface PrRef {
 	key: string;
 	host: string;
@@ -181,9 +187,11 @@ export interface PrDetail {
 	reviews: PrReview[];
 	/** Null on hosts without an AI-review bot. */
 	bot: BotSummary | null;
-	/** Everyone involved except the author and bots, most recently active first. */
+	/** Everyone who commented, reviewed or committed, except the author and bots, most recently active first. */
 	participants: Participant[];
 	authorLastActive: string | null;
+	/** The most recent human activity on the PR, including the author's comments and pushes. */
+	lastActivity: LastActivity | null;
 	linear: string[];
 	refs: PrRef[];
 	hashRefs: number[];

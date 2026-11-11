@@ -3,6 +3,7 @@
 // so rows refresh independently and update in place.
 
 import type {
+	LastActivity,
 	BotFinding,
 	DetailResponse,
 	LightPr,
@@ -59,7 +60,10 @@ interface Settings {
 	theme: Theme | null;
 	/** Null until boot defaults it to `[cfg.me]`. */
 	reviewers: string[] | null;
+	/** Show only PRs written by these team member ids. */
 	people: string[];
+	/** Show only PRs that directly request a review from these team member ids. */
+	waitingOn: string[];
 	repos: string[];
 	drafts: boolean;
 	dormant: boolean;
@@ -155,6 +159,7 @@ function loadSettings(): Settings {
 		theme: null,
 		reviewers: null,
 		people: [],
+		waitingOn: [],
 		repos: [],
 		drafts: true,
 		dormant: false,
@@ -307,6 +312,12 @@ function isApproved(row: Row): boolean {
 	if (!d || d.state !== 'OPEN') return false;
 	if (d.reviewDecision === 'APPROVED') return true;
 	return d.reviews.some((r) => r.state === 'APPROVED') && !d.reviews.some((r) => r.state === 'CHANGES_REQUESTED');
+}
+
+/** True when the PR directly requests a review from this team member. */
+function waitingOnMember(row: Row, id: string): boolean {
+	if (row.detail) return row.detail.requested.users.some((u) => member(u.login)?.id === id);
+	return row.light.requestedFor.includes(id);
 }
 
 function waitingOnMe(row: Row): boolean {
@@ -537,10 +548,11 @@ function cellParticipants(row: Row): string {
 	const host = row.light.host;
 	const people = d.participants || [];
 	const latest = people[0];
-	if (!latest) return `<span class="muted">Nobody yet</span>`;
 	const label = (p: { login: string }): string => (isMe(p.login, host) ? 'You' : displayName(p.login));
+	const last = lastActivityLine(row);
+	if (!latest) return `<div class="ppl-top"><span class="muted">Nobody yet</span></div>${last}`;
 	const shown = people.slice(0, 5).map((p) => {
-		const when = p.lastActive ? `active ${relTime(p.lastActive)}` : 'requested or mentioned, no comments yet';
+		const when = p.lastActive ? `active ${relTime(p.lastActive)}` : 'no activity yet';
 		return `<span class="avatar-wrap ${isMe(p.login, host) ? 'you' : ''}" title="${esc(member(p.login)?.name || p.name || p.login)} · ${esc(when)}">${avatar(p.login, host)}</span>`;
 	});
 	const more = people.length > 5 ? `<span class="pile-more" title="${esc(people.slice(5).map(label).join(', '))}">+${people.length - 5}</span>` : '';
@@ -548,7 +560,32 @@ function cellParticipants(row: Row): string {
 		people.length <= 2
 			? people.map(label).join(', ')
 			: `${label(latest)}${latest.lastActive ? ` ${relTime(latest.lastActive).replace(' ago', '')}` : ''}`;
-	return `<div class="pile">${shown.join('')}${more}</div><span class="appr-names" title="Most recently active first">${esc(names)}</span>`;
+	return `<div class="ppl-top"><div class="pile">${shown.join('')}${more}</div><span class="appr-names" title="Most recently active first">${esc(names)}</span></div>${last}`;
+}
+
+const ACTIVITY_ICONS: Record<LastActivity['kind'], string> = {
+	comment: 'fa-regular fa-comment',
+	review: 'fa-regular fa-eye',
+	commit: 'fa-solid fa-code-commit',
+};
+
+/**
+ * Who acted last (author included, bots excluded). Marked as "your turn" when someone else
+ * had the last word on a PR you wrote or took part in.
+ */
+function lastActivityLine(row: Row): string {
+	const d = row.detail;
+	const a = d?.lastActivity;
+	if (!d || !a) return '';
+	const host = row.light.host;
+	const mine = isMe(a.login, host);
+	const involved = isMe(d.author.login, host) || d.participants.some((p) => isMe(p.login, host));
+	const yourTurn = !mine && involved;
+	const isAuthor = a.login === d.author.login;
+	const who = mine ? 'You' : displayName(a.login);
+	const verb = { comment: 'commented', review: 'reviewed', commit: 'pushed' }[a.kind];
+	const title = `${mine ? 'You' : member(a.login)?.name || a.login}${isAuthor ? ' (author)' : ''} ${verb} ${relTime(a.at)}${yourTurn ? ' — your turn' : ''}`;
+	return `<span class="last-act ${yourTurn ? 'turn' : ''}" title="${esc(title)}"><i class="${ACTIVITY_ICONS[a.kind]}"></i>${esc(who)}${isAuthor && !mine ? ' (author)' : ''} · ${esc(relTime(a.at).replace(' ago', ''))}</span>`;
 }
 
 const CI_ICONS: Record<string, string> = {
@@ -612,11 +649,12 @@ function matchesFilters(row: Row, { ignoreTile = false }: { ignoreTile?: boolean
 	if (!inScope(row)) return false;
 	const l = row.light;
 	if (S.repos.length && !S.repos.includes(repoShort(l.host, l.owner, l.repo))) return false;
+	// Names filter by owner; clocks by whose review is waiting. Each is "any of", and the two combine with AND.
 	if (S.people.length) {
 		const authorId = member(l.author.login)?.id;
-		const requested = (row.detail?.requested.users || []).map((u) => member(u.login)?.id).filter((id): id is string => !!id);
-		if (!(authorId !== undefined && S.people.includes(authorId)) && !requested.some((id) => S.people.includes(id))) return false;
+		if (authorId === undefined || !S.people.includes(authorId)) return false;
 	}
+	if (S.waitingOn.length && !S.waitingOn.some((id) => waitingOnMember(row, id))) return false;
 	if (S.q) {
 		const hay = `${l.title} ${l.headRefName} ${l.repo} #${l.number} ${l.author.login} ${displayName(l.author.login)} ${[...linearKeys(row)].join(' ')}`.toLowerCase();
 		if (!S.q.toLowerCase().split(/\s+/).every((t) => hay.includes(t))) return false;
@@ -795,10 +833,13 @@ function renderChrome(): void {
 		.map((m) => {
 			const n = inScopeRows.filter((r) => member(r.light.author.login)?.id === m.id).length;
 			const on = S.people.includes(m.id);
+			const waiting = S.waitingOn.includes(m.id);
+			const waitN = inScopeRows.filter((r) => waitingOnMember(r, m.id)).length;
 			const bell = reviewers().includes(m.id);
 			const who = m.id === cfg.me ? 'you' : m.short;
 			return `<span class="person ${on ? 'on' : ''}">
-				<button class="p-main" data-person="${m.id}" title="Show only ${esc(m.name)}'s pull requests">${avatar(Object.values(m.logins)[0] ?? '', Object.keys(m.logins)[0] ?? '')}${esc(m.short)} <span class="count">${n}</span></button>
+				<button class="p-main" data-person="${m.id}" title="Show only pull requests ${m.id === cfg.me ? 'you' : esc(m.name)} wrote">${avatar(Object.values(m.logins)[0] ?? '', Object.keys(m.logins)[0] ?? '')}${esc(m.short)} <span class="count">${n}</span></button>
+				<button class="p-wait ${waiting ? 'on' : ''}" data-wait="${m.id}" title="Show only pull requests waiting on ${esc(who)}'s review (${waitN})"><i class="fa-${waiting ? 'solid' : 'regular'} fa-hourglass-half"></i>${waitN ? `<span class="count">${waitN}</span>` : ''}</button>
 				<button class="p-bell ${bell ? 'on' : ''}" data-bell="${m.id}" title="${bell ? 'Hide' : 'Include'} pull requests that request a review from ${esc(who)}"><i class="fa-${bell ? 'solid' : 'regular'} fa-bell"></i></button>
 			</span>`;
 		})
@@ -1148,6 +1189,8 @@ document.addEventListener('click', (e) => {
 		S.tile = tile && isTileId(tile) && S.tile !== tile ? tile : null;
 	} else if (ds.person) {
 		toggleIn(S.people, ds.person);
+	} else if (ds.wait) {
+		toggleIn(S.waitingOn, ds.wait);
 	} else if (ds.bell) {
 		toggleIn((S.reviewers ??= []), ds.bell);
 		save();

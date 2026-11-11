@@ -9,7 +9,7 @@ Shepherd tracks your team's open pull requests across one or more GitHub hosts (
 - **What is waiting on my review?** PRs that request your review directly, at the top and marked in orange.
 - **What is ready to go out?** Approved work sits at the top with a green border, with approvers and change requests named.
 - **What has the AI reviewer flagged that nobody has resolved?** The count of unresolved threads opened by your code-review bot, split into "fix" and "minor", with links to each finding.
-- **Who do I ping?** Everyone who has commented or reviewed, most recently active first.
+- **Who do I ping, and is it my turn?** Everyone who has commented, reviewed or committed, most recently active first, plus who acted last. When someone else had the last word on a PR you're part of, it's marked as your turn.
 - **How does this work fit together?** Stacked PRs share one row, and each row links its Linear tickets and related PRs.
 
 Rows refresh on their own, one at a time, and update in place. The same data is available to agents over MCP.
@@ -114,7 +114,7 @@ claude mcp list
 | **Waiting on** | Reviewers asked directly. Your request is an orange **You** pill; teammates whose bell is on get an orange ring. Team requests (for example from CODEOWNERS) are grey chips. |
 | **Approvals** | Who approved (green check) and who asked for changes (red cross), with names. |
 | **AI review** | Unresolved review threads opened by the host's AI-review `bot`. **fix** means severity medium or higher and not a nit; **minor** covers everything else. Click the count to list every finding with its file and a link. Shows "n/a" on hosts with no bot. The column name comes from `aiReviewLabel`. |
-| **Participants** | Everyone who commented, reviewed or was mentioned, except the author and bots, most recently active first. Hover an avatar to see when that person was last active. |
+| **Participants** | Everyone who commented, reviewed or committed, except the author and bots, most recently active first. Hover an avatar to see when that person was last active. Below them, a small line shows who acted last (author included) and how: comment, review or push. It turns orange as **your turn** when someone else had the last word on a PR you wrote or took part in. |
 | **Status** | Draft, checks, merge conflicts, a thumbs-up when the review decision is approved, and lines added and removed. |
 | **Updated** | When the PR last changed. Hover the row for a refresh button that reloads just that row. |
 
@@ -136,7 +136,12 @@ A PR counts as approved when GitHub's review decision is approved, or when at le
 - **Refresh now.** The button in the header, or press `R`. It reloads every row.
 - **Theme.** Light or dark. It follows your system until you choose.
 - **Summary tiles.** Click one to filter: Waiting on you, Approved, Changes requested, AI review open. **Open PRs** clears the filter.
-- **People.** Click a name to show only that person's PRs and the PRs that wait on their review. The bell next to a name adds PRs from anyone that request that person's review. Yours is on by default.
+- **People.** Each person has three buttons:
+  - **Name** (with their PR count): show only PRs they wrote.
+  - **Hourglass** (with a count): show only PRs waiting on their review.
+  - **Bell:** add PRs from anyone that request that person's review, and ring them in orange in **Waiting on**. Yours is on by default.
+
+  Selecting several names shows PRs by any of them, and the same goes for hourglasses. Names and hourglasses combine, so Miguel's name plus your hourglass shows Miguel's PRs waiting on you. An hourglass only sees PRs already on the dashboard, so turn on that person's bell to include PRs from outside the team.
 - **Repo and approval chips.** These narrow the list. With none selected in a cluster, nothing is filtered; select any combination to show only those.
   - **Repos:** one chip per tracked repo.
   - **Approved** (approved PRs and fully approved stacks) and **Partially approved** (stacks where only some PRs are approved). They act on whole stacks, never splitting one, and each chip counts its groups. Select both to see all approved work.
@@ -153,7 +158,7 @@ The same process answers MCP at `http://127.0.0.1:5050/mcp`. It uses the Streama
 | --- | --- | --- |
 | `review_queue` | "What is waiting on my review?" or on someone else's | `person` (default `me`) |
 | `list_prs` | The team's open PRs, filtered | `author`, `repo`, `waiting_on`, `include_drafts`, `include_dormant`, `has_ai_review_findings`, `limit` |
-| `get_pr` | One PR in full: every unresolved AI-review finding, participants with last-active times, stack, checks | `url`, or `repo` and `number` |
+| `get_pr` | One PR in full: every unresolved AI-review finding, participants with last-active times, who acted last (and whether that was you or the author), stack, checks | `url`, or `repo` and `number` |
 | `team` | The roster with each person's logins, the tracked repos, the AI-review bots and the Linear workspace | |
 
 Agents can name people by `id`, first name or any of their logins, and repos by short name or owner/name. Data is at most 60 seconds old. An unknown person or repo returns an error that lists the valid names.
