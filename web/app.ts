@@ -47,6 +47,10 @@ interface Group {
 	key: string;
 	members: Row[];
 	you: boolean;
+	/** Every open PR in the group (the whole stack) is approved. */
+	approved: boolean;
+	/** A stack where some, but not all, open PRs are approved. */
+	partial: boolean;
 	updated: number;
 }
 
@@ -59,6 +63,9 @@ interface Settings {
 	repos: string[];
 	drafts: boolean;
 	dormant: boolean;
+	/** Filter like the repo chips: when either is set, show only groups of the selected kinds. */
+	onlyApproved: boolean;
+	onlyPartial: boolean;
 	tile: TileId | null;
 	q: string;
 }
@@ -151,6 +158,8 @@ function loadSettings(): Settings {
 		repos: [],
 		drafts: true,
 		dormant: false,
+		onlyApproved: false,
+		onlyPartial: false,
 		tile: null,
 		q: '',
 	};
@@ -189,6 +198,8 @@ let lastList: number | null = null;
 let hostErrors: Record<string, string> = {};
 let rate: Record<string, RateLimit> = {};
 let listBusy = false;
+/** Groups from the latest layout, for the approval chip counts. */
+let lastGroups: Group[] = [];
 let tickTimer: ReturnType<typeof setTimeout> | undefined;
 
 /** A member's login on a host key. */
@@ -288,6 +299,14 @@ function linearKeysLight(light: LightPr): Set<string> {
 
 function linearKeys(row: Row): Set<string> {
 	return row.detail ? new Set(row.detail.linear) : linearKeysLight(row.light);
+}
+
+/** Approved: GitHub's review decision says so, or someone approved and nobody asked for changes. */
+function isApproved(row: Row): boolean {
+	const d = row.detail;
+	if (!d || d.state !== 'OPEN') return false;
+	if (d.reviewDecision === 'APPROVED') return true;
+	return d.reviews.some((r) => r.state === 'APPROVED') && !d.reviews.some((r) => r.state === 'CHANGES_REQUESTED');
 }
 
 function waitingOnMe(row: Row): boolean {
@@ -566,7 +585,8 @@ function cellUpdated(row: Row): string {
 
 function renderRow(row: Row): void {
 	row.el.root.classList.toggle('child', row.depth > 0);
-	row.el.root.style.setProperty('--depth', String(Math.min(row.depth, 4)));
+	// One level of indent shows the stack; deeper PRs stay in order at the same inset.
+	row.el.root.style.setProperty('--depth', String(Math.min(row.depth, 1)));
 	row.el.root.classList.toggle('merged', row.detail?.state === 'MERGED');
 	row.el.root.classList.toggle('closed', row.detail?.state === 'CLOSED');
 	setCell(row, 'pr', cellPr(row), false);
@@ -604,7 +624,7 @@ function matchesFilters(row: Row, { ignoreTile = false }: { ignoreTile?: boolean
 	if (!ignoreTile && S.tile) {
 		const d = row.detail;
 		if (S.tile === 'me' && !waitingOnMe(row)) return false;
-		if (S.tile === 'approved' && !d?.reviews.some((r) => r.state === 'APPROVED')) return false;
+		if (S.tile === 'approved' && !isApproved(row)) return false;
 		if (S.tile === 'changes' && !d?.reviews.some((r) => r.state === 'CHANGES_REQUESTED')) return false;
 		if (S.tile === 'bot' && !((d?.bot?.open ?? 0) > 0)) return false;
 	}
@@ -658,14 +678,22 @@ function computeGroups(): Group[] {
 			for (const c of (children.get(node.key) || []).sort((a, b) => a.light.number - b.light.number)) walk(c, depth + 1);
 		};
 		walk(r, 0);
+		const open = members.filter((m) => !m.gone);
+		const approvedCount = open.filter(isApproved).length;
 		groups.push({
 			key: r.key,
 			members,
 			you: members.some(waitingOnMe),
+			// A stack is ready only when all of it is; rows already leaving (merged) don't count.
+			approved: open.length > 0 && approvedCount === open.length,
+			partial: approvedCount > 0 && approvedCount < open.length,
 			updated: Math.max(...members.map((m) => new Date(m.light.updatedAt).getTime())),
 		});
 	}
-	groups.sort((a, b) => Number(b.you) - Number(a.you) || b.updated - a.updated);
+	// Approved work first (ready to land), then what waits on you, then most recently updated.
+	groups.sort(
+		(a, b) => Number(b.approved) - Number(a.approved) || Number(b.you) - Number(a.you) || b.updated - a.updated
+	);
 	return groups;
 }
 
@@ -685,9 +713,12 @@ function layout(): void {
 	for (const el of container.children) before.set(el, el.getBoundingClientRect().top);
 
 	const groups = computeGroups();
+	lastGroups = groups;
 	const wanted: HTMLDivElement[] = [];
 	const usedKeys = new Set<string>();
 	for (const g of groups) {
+		// Approval chips filter whole groups (a stack is never split), like the repo chips: none selected shows all.
+		if ((S.onlyApproved || S.onlyPartial) && !((S.onlyApproved && g.approved) || (S.onlyPartial && g.partial))) continue;
 		if (!g.members.some((m) => matchesFilters(m) || m.leavingVisible)) continue;
 		let gel = groupEls.get(g.key);
 		if (!gel) {
@@ -702,6 +733,7 @@ function layout(): void {
 		});
 		while (gel.children.length > g.members.length) gel.lastElementChild?.remove();
 		gel.classList.toggle('you', g.you);
+		gel.classList.toggle('approved', g.approved);
 		usedKeys.add(g.key);
 		wanted.push(gel);
 	}
@@ -741,7 +773,7 @@ function renderChrome(): void {
 	const botOpen = scoped.reduce((n, r) => n + (r.detail?.bot?.open || 0), 0);
 	const tiles: Tile[] = [
 		{ id: 'me', cls: 'you', icon: 'fa-solid fa-hand-point-right', label: 'Waiting on you', value: count(waitingOnMe) },
-		{ id: 'approved', cls: 'ok', icon: 'fa-solid fa-check', label: 'Approved', value: count((r) => r.detail?.reviews.some((x) => x.state === 'APPROVED')) },
+		{ id: 'approved', cls: 'ok', icon: 'fa-solid fa-check', label: 'Approved', value: count(isApproved) },
 		{ id: 'changes', cls: 'bad', icon: 'fa-solid fa-arrow-rotate-left', label: 'Changes requested', value: count((r) => r.detail?.reviews.some((x) => x.state === 'CHANGES_REQUESTED')) },
 		{ id: 'bot', cls: 'bot', icon: 'fa-solid fa-robot', label: `${cfg.aiReviewLabel} open`, value: count((r) => (r.detail?.bot?.open ?? 0) > 0), note: botOpen ? `${botOpen} threads` : '' },
 		{ id: null, cls: 'all', icon: 'fa-solid fa-code-pull-request', label: 'Open PRs', value: scoped.length },
@@ -787,6 +819,15 @@ function renderChrome(): void {
 
 	const dormantN = [...rows.values()].filter((r) => !r.gone && isDormant(r)).length;
 	const draftN = [...rows.values()].filter((r) => !r.gone && r.light.isDraft).length;
+	const scopedGroups = lastGroups.filter((g) => g.members.some(inScope));
+	const approvedN = scopedGroups.filter((g) => g.approved).length;
+	const partialN = scopedGroups.filter((g) => g.partial).length;
+	// Approval chips filter like the repo chips: select any combination, or none for all.
+	const approvals = `
+		<button class="chip-btn ${S.onlyApproved ? 'on' : ''}" data-toggle="onlyApproved" title="Show only approved pull requests and fully approved stacks (combine with Partially approved)"><i class="fa-solid fa-check"></i>Approved <span class="count">${approvedN}</span></button>
+		<button class="chip-btn ${S.onlyPartial ? 'on' : ''}" data-toggle="onlyPartial" title="Show only stacks where some pull requests are approved (combine with Approved)"><i class="fa-solid fa-list-check"></i>Partially approved <span class="count">${partialN}</span></button>`;
+	const approvalsEl = $('#approvals');
+	if (approvalsEl.innerHTML !== approvals) approvalsEl.innerHTML = approvals;
 	const toggles = `
 		<button class="chip-btn ${S.drafts ? 'on' : ''}" data-toggle="drafts" title="Show draft pull requests"><i class="fa-regular fa-file-lines"></i>Drafts <span class="count">${draftN}</span></button>
 		<button class="chip-btn ${S.dormant ? 'on' : ''}" data-toggle="dormant" title="Show pull requests idle for 60+ days"><i class="fa-solid fa-moon"></i>Dormant 60d+ <span class="count">${dormantN}</span></button>`;
@@ -1114,7 +1155,7 @@ document.addEventListener('click', (e) => {
 		return;
 	} else if (ds.repo) {
 		toggleIn(S.repos, ds.repo);
-	} else if (ds.toggle === 'drafts' || ds.toggle === 'dormant') {
+	} else if (ds.toggle === 'drafts' || ds.toggle === 'dormant' || ds.toggle === 'onlyApproved' || ds.toggle === 'onlyPartial') {
 		S[ds.toggle] = !S[ds.toggle];
 		// Newly in-scope rows (e.g. dormant ones) need their details.
 		for (const row of rows.values()) if (inScope(row) && !row.detail) enqueue(row);

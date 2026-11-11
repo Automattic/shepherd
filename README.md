@@ -7,7 +7,7 @@
 Shepherd tracks your team's open pull requests across one or more GitHub hosts (github.com and any GitHub Enterprise Server) in one table. It answers the questions a lead asks several times a day:
 
 - **What is waiting on my review?** PRs that request your review directly, at the top and marked in orange.
-- **What is approved, and by whom?** Approvers and change requests, with names.
+- **What is ready to go out?** Approved work sits at the top with a green border, with approvers and change requests named.
 - **What has the AI reviewer flagged that nobody has resolved?** The count of unresolved threads opened by your code-review bot, split into "fix" and "minor", with links to each finding.
 - **Who do I ping?** Everyone who has commented or reviewed, most recently active first.
 - **How does this work fit together?** Stacked PRs share one row, and each row links its Linear tickets and related PRs.
@@ -118,9 +118,15 @@ claude mcp list
 | **Status** | Draft, checks, merge conflicts, a thumbs-up when the review decision is approved, and lines added and removed. |
 | **Updated** | When the PR last changed. Hover the row for a refresh button that reloads just that row. |
 
+### Order and approved work
+
+Rows are sorted in three bands: approved work first, then PRs waiting on your review (orange left bar), then everything else by most recent update.
+
+A PR counts as approved when GitHub's review decision is approved, or when at least one person approved and nobody requested changes. A stack counts as approved, and gets the green border, only when every open PR in it is approved. A partly approved stack stays in the normal order; its Approvals column shows which parts are done.
+
 ### Related pull requests
 
-- **Stacks.** A PR whose base branch is another tracked PR's head branch in the same repo shares that PR's row, at any depth. If the parent is not tracked (for example, someone outside the team wrote it), the row shows an **on #N** chip that links to it.
+- **Stacks.** A PR whose base branch is another tracked PR's head branch in the same repo shares that PR's row, at any depth. Every PR after the first sits one level in, in stack order. If the parent is not tracked (for example, someone outside the team wrote it), the row shows an **on #N** chip that links to it.
 - **Chips.** Dashed chips link to PRs that share a Linear ticket, PRs linked in the description, and untracked PRs stacked on this one. A row shows at most five, then **+N**.
 - **Linear tickets.** When `linear` is configured: taken from `linear.app` links in the description, and from the configured team keys (such as `ENG-1234`) in the title or branch name.
 
@@ -131,7 +137,10 @@ claude mcp list
 - **Theme.** Light or dark. It follows your system until you choose.
 - **Summary tiles.** Click one to filter: Waiting on you, Approved, Changes requested, AI review open. **Open PRs** clears the filter.
 - **People.** Click a name to show only that person's PRs and the PRs that wait on their review. The bell next to a name adds PRs from anyone that request that person's review. Yours is on by default.
-- **Repos, Drafts and Dormant 60d+.** Dormant PRs (no update for 60 days) are hidden by default, unless they wait on you.
+- **Repo and approval chips.** These narrow the list. With none selected in a cluster, nothing is filtered; select any combination to show only those.
+  - **Repos:** one chip per tracked repo.
+  - **Approved** (approved PRs and fully approved stacks) and **Partially approved** (stacks where only some PRs are approved). They act on whole stacks, never splitting one, and each chip counts its groups. Select both to see all approved work.
+- **Drafts and Dormant 60d+.** Show or hide those PRs. Drafts are shown by default. Dormant PRs (no update for 60 days) are hidden by default, unless they wait on you.
 - **Search.** Matches title, branch, repo, number, author and ticket. Press `/` to focus it.
 
 Your choices are saved in the browser.

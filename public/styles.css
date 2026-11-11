@@ -27,7 +27,7 @@
 	--radius: 12px;
 	--font: 'Geist', ui-sans-serif, system-ui, -apple-system, sans-serif;
 	--mono: 'Geist Mono', ui-monospace, 'SF Mono', Menlo, monospace;
-	--cols: minmax(0, 1fr) 170px 150px 130px 160px 124px 84px;
+	--cols: minmax(0, 1fr) 170px 150px 160px 150px 124px 84px;
 	color-scheme: light;
 }
 
@@ -208,6 +208,8 @@ main { padding: 22px 28px 60px; max-width: 1560px; margin: 0 auto; }
 
 .filter-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 .repos, .toggles { display: flex; flex-wrap: wrap; gap: 6px; }
+/* Divide the chip groups: repos | approval filters | drafts and dormant. */
+#approvals, .toggles { padding-left: 10px; border-left: 1px solid var(--line); }
 .chip-btn {
 	display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; border-radius: 8px; cursor: pointer;
 	border: 1px solid var(--line); background: var(--surface); color: var(--text-2); font-size: 12.5px;
@@ -240,6 +242,8 @@ main { padding: 22px 28px 60px; max-width: 1560px; margin: 0 auto; }
 	transition: border-color .2s, opacity .5s, transform .5s;
 }
 .group.you { border-color: var(--you-line); }
+/* Approved wins the border; a group that also waits on you keeps its orange left bar. */
+.group.approved { border-color: var(--ok); box-shadow: 0 0 0 1px var(--ok), var(--shadow); }
 .group.you::before {
 	content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--you);
 }
@@ -343,7 +347,8 @@ main { padding: 22px 28px 60px; max-width: 1560px; margin: 0 auto; }
 .bot-btn:hover { border-color: color-mix(in srgb, var(--bot) 40%, transparent); }
 .bot-btn .n { font-weight: 650; font-size: 15px; font-variant-numeric: tabular-nums; }
 .bot-btn .split { display: inline-flex; gap: 4px; }
-.sev { font-family: var(--mono); font-size: 10.5px; padding: 0 5px; border-radius: 4px; line-height: 17px; }
+.sev { font-family: var(--mono); font-size: 10.5px; padding: 0 5px; border-radius: 4px; line-height: 17px; white-space: nowrap; }
+.bot-btn { white-space: nowrap; max-width: 100%; }
 .sev.block { background: var(--bad-soft); color: var(--bad); }
 .sev.minor { background: var(--surface); color: var(--text-2); }
 .bot-clear { color: var(--ok); font-size: 12.5px; display: inline-flex; align-items: center; gap: 6px; }
@@ -405,7 +410,7 @@ main { padding: 22px 28px 60px; max-width: 1560px; margin: 0 auto; }
 
 /* ---------- Responsive ---------- */
 @media (max-width: 1180px) {
-	:root { --cols: minmax(0, 1fr) 140px 120px 110px 130px 104px 72px; }
+	:root { --cols: minmax(0, 1fr) 140px 120px 140px 120px 104px 72px; }
 	.tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 @media (max-width: 900px) {
