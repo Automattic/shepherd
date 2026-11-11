@@ -46,6 +46,8 @@ export interface Config {
 	linear?: LinearConfig | null;
 	/** Name shown for the AI-review column and tile. Defaults to "AI review". */
 	aiReviewLabel?: string;
+	/** Optional herdr integration; on by default whenever herdr is installed and running. */
+	herdr?: { enabled?: boolean; transcriptTailKb?: number };
 	ignoreParticipants?: string[];
 }
 
@@ -217,6 +219,49 @@ export interface ListResponse {
 export interface DetailResponse {
 	pr: PrDetail;
 	rate: RateLimit | null;
+}
+
+// ---------------------------------------------------------------------------
+// herdr (terminal workspace manager) pane links
+
+/** How a pane was tied to a PR, strongest first. */
+export type PaneSignal = 'tag' | 'transcript' | 'branch';
+
+/** What the client sends to match panes against. */
+export interface PaneMatchPr {
+	key: string;
+	host: string;
+	owner: string;
+	repo: string;
+	number: number;
+	url: string;
+	headRefName: string;
+}
+
+export interface PaneLink {
+	paneId: string;
+	workspaceId: string;
+	tabId: string;
+	workspaceLabel: string | null;
+	tabLabel: string | null;
+	title: string | null;
+	agent: string | null;
+	/** herdr's agent state: idle, working, blocked, done or unknown. */
+	agentStatus: string | null;
+	signals: PaneSignal[];
+	/** Git state of the pane's checkout, when it is in a repo. */
+	git: { branch: string; dirty: number; unpushed: number | null; worktree: boolean } | null;
+	/** When Shepherd last saw the pane change (ms since epoch), if it has. */
+	lastChangeAt: number | null;
+	focused: boolean;
+}
+
+export interface HerdrLinksResponse {
+	available: boolean;
+	/** Why herdr links are unavailable (not installed, not running, turned off). */
+	reason?: string;
+	links: Record<string, PaneLink[]>;
+	scannedAt: string;
 }
 
 export interface ErrorResponse {

@@ -139,6 +139,26 @@ The **Waiting on you** tile, the orange left bar, the sort order and each person
 
 A PR counts as approved when GitHub's review decision is approved, or when at least one person approved and nobody requested changes. A stack counts as approved only when every open PR in it is approved, and it is green only when none of them has conflicts or failed checks. A partly approved stack stays in the normal order; its Approvals column shows which parts are done.
 
+### herdr terminal panes
+
+If [herdr](https://herdr.dev) is installed and running on the same machine (macOS or Linux), PR rows show a chip for each herdr pane working on that PR. Click a chip to focus that pane in herdr. Without herdr, nothing changes. Set `"herdr": { "enabled": false }` in `config.json` to turn it off.
+
+A pane is linked to a PR by any of these, strongest first:
+
+| Signal | Chip icon | Meaning |
+| --- | --- | --- |
+| Tag | tag | The pane has a `pr` token naming the PR: `herdr pane report-metadata <pane> --source shepherd --token pr=<url or repo#number>`. |
+| Transcript | speech bubbles | The pane runs an agent (Claude Code or Codex) whose recent transcript mentions the PR's URL, `owner/repo#number`, `repo#number`, or its branch. Only focused sessions count: one that mentions more than four tracked PRs is surveying, not working, unless one PR has 40% or more of its mentions. |
+| Branch | branch | The pane's checkout is the PR's repo, on the PR's head branch, and no other tracked PR uses that branch. |
+
+The chip also shows:
+- **Status dot:** the agent's state from herdr. It pulses while working, is orange when blocked, green when done, grey when idle, and hollow for a plain shell.
+- **Git counts:** a pencil with the number of uncommitted changes, and an up arrow with the number of unpushed commits.
+
+Panes are ordered by signal strength, then agent state, then work in progress, then most recent change. Hover a chip for the pane title, branch and why it was linked.
+
+Shepherd reads only the last 192 KB of each agent transcript (`herdr.transcriptTailKb` changes this), searches it for PR identifiers, and keeps nothing.
+
 ### Related pull requests
 
 - **Stacks.** A PR whose base branch is another tracked PR's head branch in the same repo shares that PR's row, at any depth. Every PR after the first sits one level in, in stack order. If the parent is not tracked (for example, someone outside the team wrote it), the row shows an **on #N** chip that links to it.
@@ -173,7 +193,7 @@ The same process answers MCP at `http://127.0.0.1:5050/mcp`. It uses the Streama
 | --- | --- | --- |
 | `review_queue` | "What is waiting on me?" or on someone else, with the reason for each PR (`requested`, `turn` or `author`) | `person` (default `me`) |
 | `list_prs` | The team's open PRs, filtered | `author`, `repo`, `waiting_on`, `include_drafts`, `include_dormant`, `has_ai_review_findings`, `limit` |
-| `get_pr` | One PR in full: every unresolved AI-review finding, participants with last-active times, who acted last (and whether that was you or the author), stack, checks | `url`, or `repo` and `number` |
+| `get_pr` | One PR in full: every unresolved AI-review finding, participants with last-active times, who acted last (and whether that was you or the author), stack, checks, and any herdr panes working on it | `url`, or `repo` and `number` |
 | `team` | The roster with each person's logins, the tracked repos, the AI-review bots and the Linear workspace | |
 
 Agents can name people by `id`, first name or any of their logins, and repos by short name or owner/name. Data is at most 60 seconds old. An unknown person or repo returns an error that lists the valid names.
@@ -204,6 +224,7 @@ curl -s http://127.0.0.1:5050/mcp -H 'content-type: application/json' \
 | `repos[]` | `host` (a key from `hosts`), `owner`, `name`, and `short` (the label on screen). |
 | `linear` | Optional. `workspace` (the slug in Linear URLs) and `keys` (team prefixes to find in titles and branch names). Use `null` to turn ticket links off. |
 | `aiReviewLabel` | Optional. The name shown for the AI-review column and tile. Defaults to `AI review`. |
+| `herdr` | Optional. `enabled` (default `true`; used only when herdr is installed and running) and `transcriptTailKb` (how much of each agent transcript to search, default 192). |
 | `ignoreParticipants` | Logins to leave out of Participants. Use it for bots and service accounts that appear as ordinary users. Logins ending in `[bot]` or `-bot` are always left out. |
 
 The server binds to `127.0.0.1` only and has no authentication. The MCP endpoint refuses browser requests from other origins.
@@ -291,6 +312,8 @@ bun run check       # typecheck, plus a bundle of the browser client
 | `src/gh.ts` | Runs `gh api graphql` with per-host concurrency caps and optional proxychains |
 | `src/prs.ts` | List and detail GraphQL queries, parsing (AI-review findings, Linear keys, participants) and caches |
 | `src/mcp.ts` | The MCP endpoint and its tools |
+| `src/waiting.ts` | What "waiting on" means, shared by the dashboard and the MCP tools |
+| `src/herdr.ts` | Optional herdr integration: pane scan, PR matching and pane focus over herdr's socket |
 | `src/types.ts` | Types shared by the server, the MCP endpoint and the browser client |
 | `web/app.ts` | The dashboard client: no framework, bundled by Bun into `/app.js` |
 | `public/` | `index.html` and `styles.css` |

@@ -306,6 +306,24 @@ main { padding: 22px 28px 60px; max-width: 1560px; margin: 0 auto; }
 .assoc .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-3); }
 .assoc .dot.open { background: var(--ok); }
 .assoc .dot.merged { background: var(--merged); }
+/* herdr terminal pane linked to this PR; click to focus it. */
+.herdr-chip {
+	display: inline-flex; align-items: center; gap: 5px; padding: 1px 7px; border-radius: 6px; cursor: pointer;
+	border: 1px solid var(--line-strong); background: var(--surface); color: var(--text-2);
+	font-family: var(--mono); font-size: 11px; transition: border-color .15s, background .15s;
+}
+.herdr-chip:hover { border-color: var(--accent); color: var(--text); }
+.herdr-chip .hd-sig { opacity: .7; font-size: 10px; }
+.herdr-chip .hd-git { display: inline-flex; align-items: center; gap: 2px; color: var(--warn); }
+.herdr-chip .hd-git i { font-size: 8px; }
+.herdr-chip .hd-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-3); flex: none; }
+.herdr-chip.st-working .hd-dot { background: var(--accent); animation: pulse 1.4s ease-in-out infinite; }
+.herdr-chip.st-blocked .hd-dot { background: var(--you); }
+.herdr-chip.st-done .hd-dot { background: var(--ok); }
+.herdr-chip.st-shell .hd-dot { background: transparent; border: 1px solid var(--text-3); }
+.herdr-chip.hd-ok { border-color: var(--ok); background: var(--ok-soft); }
+.herdr-chip.hd-fail { border-color: var(--bad); background: var(--bad-soft); }
+@keyframes pulse { 50% { opacity: .35; } }
 .branch { font-family: var(--mono); font-size: 11px; color: var(--text-3); max-width: 280px; overflow: hidden; text-overflow: ellipsis; }
 
 /* Avatars */

@@ -4,6 +4,9 @@
 
 import type {
 	LastActivity,
+	PaneLink,
+	PaneMatchPr,
+	PaneSignal,
 	BotFinding,
 	DetailResponse,
 	LightPr,
@@ -421,6 +424,7 @@ function cellPr(row: Row): string {
 	for (const k of linearKeys(row)) {
 		meta.push(`<a class="linear" href="${linearUrl(k)}" target="_blank" rel="noopener" title="Open ${k} in Linear"><i class="fa-solid fa-ticket"></i>${k}</a>`);
 	}
+	meta.push(...herdrChips(row));
 	meta.push(...assocChips(row));
 	if (row.depth === 0 && !DEFAULT_BRANCHES.has(l.baseRefName) && !d?.parent) {
 		meta.push(`<span class="branch" title="Base branch"><i class="fa-solid fa-code-branch"></i> ${esc(l.baseRefName)}</span>`);
@@ -1101,7 +1105,83 @@ async function refreshList({ force = false }: { force?: boolean } = {}): Promise
 		listBusy = false;
 		$('#refresh').classList.remove('busy');
 		scheduleLayout();
+		void refreshHerdr();
 	}
+}
+
+// ---------------------------------------------------------------------------
+// herdr: link terminal panes to PRs (only when herdr is installed and running)
+
+let herdrLinks: Record<string, PaneLink[]> = {};
+let herdrBusy = false;
+
+async function refreshHerdr(): Promise<void> {
+	if (herdrBusy || !cfg) return;
+	herdrBusy = true;
+	try {
+		const prs: PaneMatchPr[] = [...rows.values()]
+			.filter((r) => !r.gone)
+			.map(({ light: l }) => ({ key: l.key, host: l.host, owner: l.owner, repo: l.repo, number: l.number, url: l.url, headRefName: l.headRefName }));
+		const res = await fetch('/api/herdr/links', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ prs }) });
+		const body: unknown = await res.json();
+		const next = res.ok && isRecord(body) && body.available === true && isRecord(body.links) ? (body.links as Record<string, PaneLink[]>) : {};
+		if (JSON.stringify(next) !== JSON.stringify(herdrLinks)) {
+			herdrLinks = next;
+			scheduleLayout();
+		}
+	} catch {
+		/* herdr links are optional; keep the last ones */
+	} finally {
+		herdrBusy = false;
+	}
+}
+
+const HERDR_SIGNAL_TEXT: Record<PaneSignal, { icon: string; text: string }> = {
+	tag: { icon: 'fa-solid fa-tag', text: 'tagged with this PR' },
+	transcript: { icon: 'fa-regular fa-comments', text: 'running an agent that has been discussing this PR' },
+	branch: { icon: 'fa-solid fa-code-branch', text: "checked out on this PR's branch" },
+};
+
+function herdrChips(row: Row): string[] {
+	const links = herdrLinks[row.key] ?? [];
+	if (!links.length) return [];
+	const chips = links.slice(0, 2).map((p) => {
+		const status = p.agentStatus && p.agent ? p.agentStatus : 'shell';
+		const where = p.workspaceLabel || p.workspaceId;
+		const best = p.signals[0] ?? 'branch';
+		const g = p.git;
+		const gitBits = [
+			g && g.dirty ? `<span class="hd-git" title="${g.dirty} uncommitted change${g.dirty === 1 ? '' : 's'}"><i class="fa-solid fa-pen"></i>${g.dirty}</span>` : '',
+			g && g.unpushed ? `<span class="hd-git" title="${g.unpushed} unpushed commit${g.unpushed === 1 ? '' : 's'}"><i class="fa-solid fa-arrow-up"></i>${g.unpushed}</span>` : '',
+		].join('');
+		const changed = p.lastChangeAt ? `; changed ${relTime(new Date(p.lastChangeAt).toISOString())}` : '';
+		const title = [
+			`${p.title || where} (${p.agent ? `${p.agent} ${p.agentStatus ?? ''}`.trim() : 'shell'})`,
+			`Linked because the pane is ${p.signals.map((s) => HERDR_SIGNAL_TEXT[s].text).join(', and ')}`,
+			g ? `Branch ${g.branch}${g.worktree ? ' (worktree)' : ''}: ${g.dirty} uncommitted, ${g.unpushed ?? '?'} unpushed` : '',
+			`Click to focus pane ${p.paneId} in herdr${changed}`,
+		]
+			.filter(Boolean)
+			.join('\n');
+		return `<button class="herdr-chip st-${esc(status)}" data-herdr-pane="${esc(p.paneId)}" title="${esc(title)}"><span class="hd-dot"></span><i class="fa-solid fa-terminal"></i>${esc(where)}<i class="hd-sig ${HERDR_SIGNAL_TEXT[best].icon}"></i>${gitBits}</button>`;
+	});
+	if (links.length > 2) {
+		chips.push(`<span class="assoc" title="${esc(links.slice(2).map((p) => p.workspaceLabel || p.paneId).join(', '))}">+${links.length - 2} panes</span>`);
+	}
+	return chips;
+}
+
+async function focusHerdrPane(button: HTMLElement, paneId: string): Promise<void> {
+	button.classList.remove('hd-ok', 'hd-fail');
+	try {
+		const res = await fetch('/api/herdr/focus', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ paneId }) });
+		button.classList.add(res.ok ? 'hd-ok' : 'hd-fail');
+		if (!res.ok) button.title = `Could not focus the pane: ${(await res.json().catch(() => ({ error: res.statusText }))).error}`;
+	} catch (e) {
+		button.classList.add('hd-fail');
+		button.title = `Could not focus the pane: ${errorMessage(e)}`;
+	}
+	setTimeout(() => button.classList.remove('hd-ok', 'hd-fail'), 1500);
 }
 
 // ---------------------------------------------------------------------------
@@ -1212,6 +1292,10 @@ document.addEventListener('click', (e) => {
 	if (ds.refresh) {
 		const row = rows.get(ds.refresh);
 		if (row) enqueue(row, { force: true, priority: true });
+		return;
+	}
+	if (ds.herdrPane) {
+		void focusHerdrPane(t, ds.herdrPane);
 		return;
 	}
 	if ('tile' in ds) {

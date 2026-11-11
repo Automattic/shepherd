@@ -2,6 +2,7 @@
 // Streamable HTTP transport, stateless: POST /mcp with JSON-RPC, answered with application/json.
 // It reuses the dashboard's gh runner and caches, so agents and the page share one budget.
 
+import type { HerdrService } from './herdr.ts';
 import type { PrService } from './prs.ts';
 import type { Config, LightPr, PrDetail, RepoConfig, TeamMember } from './types.ts';
 import { changesRequestedPending, waitReasons, type WaitReason } from './waiting.ts';
@@ -69,7 +70,7 @@ function isRequest(msg: unknown): msg is JsonRpcRequest {
 
 // ---------------------------------------------------------------------------
 
-export function createMcpHandler(config: Config, prs: PrService): (req: Request) => Promise<Response> {
+export function createMcpHandler(config: Config, prs: PrService, herdr: HerdrService): (req: Request) => Promise<Response> {
 	const team = config.team;
 	const me = team.find((m) => m.id === config.me)!; // loadConfig guarantees it
 
@@ -338,7 +339,7 @@ export function createMcpHandler(config: Config, prs: PrService): (req: Request)
 			name: 'get_pr',
 			title: 'Pull request details',
 			description:
-				'Full status of one pull request: reviewers waiting, approvals, every unresolved AI-review bot finding (severity, file, link), participants and when each was last active (who to ping), the most recent activity (who acted last, and whether it was the author or "me"), checks, conflicts, Linear tickets and stacked PRs. Give a PR URL, or a repo plus number.',
+				'Full status of one pull request: reviewers waiting, approvals, every unresolved AI-review bot finding (severity, file, link), participants and when each was last active (who to ping), the most recent activity (who acted last, and whether it was the author or "me"), checks, conflicts, Linear tickets, stacked PRs, and any local herdr terminal panes working on it. Give a PR URL, or a repo plus number.',
 			inputSchema: {
 				type: 'object',
 				properties: {
@@ -361,7 +362,27 @@ export function createMcpHandler(config: Config, prs: PrService): (req: Request)
 					target = { host: r.host, owner: r.owner, repo: r.name, number };
 				}
 				const d = await prs.getDetail({ ...target, maxAgeMs: DETAIL_MAX_AGE_MS });
-				return summarize(d, { findings: true });
+				// Panes in the local herdr session working on this PR (only when herdr is installed and running).
+				// Match against every tracked PR, as the dashboard does, so a session that surveys many PRs
+				// isn't mistaken for one working on this PR.
+				const { prs: tracked } = await collect([]);
+				const matchList = tracked
+					.filter((p) => p.key !== d.key)
+					.map((p) => ({ key: p.key, host: p.host, owner: p.owner, repo: p.repo, number: p.number, url: p.url, headRefName: p.headRefName }));
+				matchList.push({ key: d.key, host: d.host, owner: d.owner, repo: d.repo, number: d.number, url: d.url, headRefName: d.headRefName });
+				const h = await herdr.links(matchList);
+				const herdrPanes = h.available
+					? (h.links[d.key] ?? []).map((p) => ({
+							paneId: p.paneId,
+							where: [p.workspaceLabel, p.tabLabel].filter(Boolean).join(' / ') || p.workspaceId,
+							title: p.title,
+							agent: p.agent,
+							agentStatus: p.agentStatus,
+							linkedBy: p.signals,
+							git: p.git,
+						}))
+					: { unavailable: h.reason };
+				return { ...summarize(d, { findings: true }), herdrPanes };
 			},
 		},
 	];

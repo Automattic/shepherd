@@ -4,9 +4,10 @@
 import { join, normalize } from 'node:path';
 import { DEFAULT_PORT, loadConfig, publicConfig, ROOT } from './config.ts';
 import { createGh } from './gh.ts';
+import { createHerdr } from './herdr.ts';
 import { createMcpHandler } from './mcp.ts';
 import { createPrService, NotFoundError } from './prs.ts';
-import type { DetailResponse, ErrorResponse, LightPr, ListResponse } from './types.ts';
+import type { DetailResponse, ErrorResponse, HerdrLinksResponse, LightPr, ListResponse, PaneMatchPr } from './types.ts';
 
 const PUBLIC_DIR = join(ROOT, 'public');
 const CLIENT_ENTRY = join(ROOT, 'web', 'app.ts');
@@ -15,7 +16,8 @@ const config = await loadConfig();
 const port = Number(process.env.PORT || config.port || DEFAULT_PORT);
 const gh = createGh(config);
 const prs = createPrService(config, gh);
-const handleMcp = createMcpHandler(config, prs);
+const herdr = createHerdr(config);
+const handleMcp = createMcpHandler(config, prs, herdr);
 
 // Bundle the browser client once at startup; `bun run dev` restarts on change.
 const clientBundle = await (async () => {
@@ -68,6 +70,41 @@ async function getPr(url: URL): Promise<Response> {
 	}
 }
 
+/** Browser requests that change state must come from the dashboard itself (guards against other sites). */
+function sameOrigin(req: Request): boolean {
+	const origin = req.headers.get('origin');
+	return !origin || /^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/.test(origin);
+}
+
+function isMatchPr(v: unknown): v is PaneMatchPr {
+	const p = v as PaneMatchPr;
+	return (
+		typeof v === 'object' && v !== null &&
+		typeof p.key === 'string' && typeof p.host === 'string' && typeof p.owner === 'string' && typeof p.repo === 'string' &&
+		typeof p.number === 'number' && typeof p.url === 'string' && typeof p.headRefName === 'string'
+	);
+}
+
+async function herdrLinks(req: Request): Promise<Response> {
+	if (req.method !== 'POST' || !sameOrigin(req)) return json<ErrorResponse>(405, { error: 'POST from the dashboard only' });
+	const body = (await req.json().catch(() => null)) as { prs?: unknown } | null;
+	const list = Array.isArray(body?.prs) ? body.prs.filter(isMatchPr).slice(0, 500) : [];
+	return json<HerdrLinksResponse>(200, await herdr.links(list));
+}
+
+async function herdrFocus(req: Request): Promise<Response> {
+	if (req.method !== 'POST' || !sameOrigin(req)) return json<ErrorResponse>(405, { error: 'POST from the dashboard only' });
+	const body = (await req.json().catch(() => null)) as { paneId?: unknown } | null;
+	const paneId = typeof body?.paneId === 'string' && /^[\w:.-]{1,64}$/.test(body.paneId) ? body.paneId : null;
+	if (!paneId) return json<ErrorResponse>(400, { error: 'paneId is required' });
+	try {
+		await herdr.focus(paneId);
+		return json(200, { ok: true });
+	} catch (e) {
+		return json<ErrorResponse>(502, { error: (e as Error).message });
+	}
+}
+
 async function serveStatic(pathname: string): Promise<Response> {
 	if (pathname === '/app.js') {
 		return new Response(clientBundle, { headers: { 'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'no-cache' } });
@@ -91,6 +128,8 @@ const server = Bun.serve({
 			if (url.pathname === '/api/config') return json(200, publicConfig(config));
 			if (url.pathname === '/api/prs') return await listPrs(url);
 			if (url.pathname === '/api/pr') return await getPr(url);
+			if (url.pathname === '/api/herdr/links') return await herdrLinks(req);
+			if (url.pathname === '/api/herdr/focus') return await herdrFocus(req);
 			if (url.pathname.startsWith('/api/')) return json<ErrorResponse>(404, { error: 'not found' });
 			return await serveStatic(url.pathname);
 		} catch (e) {
