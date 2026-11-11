@@ -461,6 +461,7 @@ export function createPrService(config: Config, gh: GhRunner): PrService {
 			participants,
 			authorLastActive: (pr.author && lastActive.get(pr.author.login)) ?? null,
 			lastActivity,
+			lastCommitAt: pr.commits.nodes.map((c) => c.commit.committedDate).sort().at(-1) ?? null,
 			linear: [...linear],
 			refs: refs.filter((r) => r.key !== key),
 			hashRefs: hashRefs.filter((n) => n !== pr.number),

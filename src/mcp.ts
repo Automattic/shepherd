@@ -4,6 +4,7 @@
 
 import type { PrService } from './prs.ts';
 import type { Config, LightPr, PrDetail, RepoConfig, TeamMember } from './types.ts';
+import { changesRequestedPending, waitReasons, type WaitReason } from './waiting.ts';
 
 const PROTOCOL_VERSIONS = ['2025-06-18', '2025-03-26', '2024-11-05'] as const;
 const DETAIL_MAX_AGE_MS = 60_000; // agents get data at most a minute old
@@ -144,6 +145,7 @@ export function createMcpHandler(config: Config, prs: PrService): (req: Request)
 			approvedBy: d.reviews.filter((r) => r.state === 'APPROVED').map((r) => nameOf(r.login)),
 			changesRequestedBy: d.reviews.filter((r) => r.state === 'CHANGES_REQUESTED').map((r) => nameOf(r.login)),
 			reviewDecision: d.reviewDecision,
+			waitingOnAuthor: changesRequestedPending(d),
 			aiReview: d.bot
 				? { bot: d.bot.login, unresolved: d.bot.open, fix: d.bot.blocking, minor: d.bot.open - d.bot.blocking, onOutdatedCode: d.bot.outdated }
 				: null,
@@ -300,7 +302,7 @@ export function createMcpHandler(config: Config, prs: PrService): (req: Request)
 			name: 'review_queue',
 			title: 'Review queue for a person',
 			description:
-				`Open PRs in the tracked repos that directly request a review from one person (default: "me", the dashboard owner). Use it to answer "what is waiting on my review?" or "on ${exampleMember}'s?". Results include who else participated and who already approved.`,
+				`Open PRs in the tracked repos that are waiting on one person (default: "me", the dashboard owner), with the reason for each: "requested" (their review is directly requested), "turn" (someone else had the last word on a PR they wrote or took part in), or "author" (they wrote it, changes were requested, and nothing was pushed since). Use it to answer "what is waiting on me?" or "on ${exampleMember}?". PRs idle for more than 60 days are left out unless their review is requested.`,
 			inputSchema: {
 				type: 'object',
 				properties: { person: { type: 'string', default: 'me', description: 'Team id, first name or GitHub login.' } },
@@ -310,8 +312,26 @@ export function createMcpHandler(config: Config, prs: PrService): (req: Request)
 			run: async (args) => {
 				const person = requireMember(str(args, 'person') ?? 'me');
 				const { prs: all, errors } = await collect([person.id]);
-				const picked = all.filter((p) => p.requestedFor.includes(person.id)).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-				return { person: person.name, count: picked.length, errors, pullRequests: await details(picked) };
+				// Every non-dormant candidate needs details: "turn" and "author" depend on activity, not just requests.
+				const candidates = all.filter(
+					(p) => p.requestedFor.includes(person.id) || Date.now() - new Date(p.updatedAt).getTime() <= DORMANT_MS
+				);
+				const settled = await Promise.allSettled(
+					candidates.map((p) =>
+						prs.getDetail({ host: p.host, owner: p.owner, repo: p.repo, number: p.number, head: p.headRefName, base: p.baseRefName, maxAgeMs: DETAIL_MAX_AGE_MS })
+					)
+				);
+				const waiting: (Summary & { waitingBecause: WaitReason[] })[] = [];
+				settled.forEach((s, i) => {
+					if (s.status === 'rejected') {
+						errors.push(`${candidates[i]!.url}: ${(s.reason as Error).message}`);
+						return;
+					}
+					const reasons = waitReasons(s.value, person);
+					if (reasons.length) waiting.push({ ...summarize(s.value), waitingBecause: reasons });
+				});
+				waiting.sort((a, b) => b.updated.localeCompare(a.updated));
+				return { person: person.name, count: waiting.length, errors, pullRequests: waiting };
 			},
 		},
 		{

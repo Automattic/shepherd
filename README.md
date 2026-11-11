@@ -6,8 +6,8 @@
 
 Shepherd tracks your team's open pull requests across one or more GitHub hosts (github.com and any GitHub Enterprise Server) in one table. It answers the questions a lead asks several times a day:
 
-- **What is waiting on my review?** PRs that request your review directly, at the top and marked in orange.
-- **What is ready to go out?** Approved work sits at the top with a green border, with approvers and change requests named.
+- **What is waiting on me?** PRs that request your review, PRs where someone else had the last word, and your own PRs with requested changes, marked in orange.
+- **What is ready to go out?** Approved work with no conflicts or failed checks sits at the top with a green border. Approved work that is blocked follows with a dark cyan border. Approvers and change requests are named.
 - **What has the AI reviewer flagged that nobody has resolved?** The count of unresolved threads opened by your code-review bot, split into "fix" and "minor", with links to each finding.
 - **Who do I ping, and is it my turn?** Everyone who has commented, reviewed or committed, most recently active first, plus who acted last. When someone else had the last word on a PR you're part of, it's marked as your turn.
 - **How does this work fit together?** Stacked PRs share one row, and each row links its Linear tickets and related PRs.
@@ -111,7 +111,7 @@ claude mcp list
 | Column | What it shows |
 | --- | --- |
 | **Pull request** | State icon, title and number, repo, author, Linear tickets, and related PRs. A stacked PR sits under its parent in smaller, inset text. |
-| **Waiting on** | Reviewers asked directly. Your request is an orange **You** pill; teammates whose bell is on get an orange ring. Team requests (for example from CODEOWNERS) are grey chips. |
+| **Waiting on** | Reviewers asked directly, plus an orange **You** pill whenever the PR is waiting on you for any reason (hover it for why). A red **Author** pill means changes were requested and the author hasn't pushed since. Teammates whose bell is on get an orange ring. Team requests (for example from CODEOWNERS) are grey chips. |
 | **Approvals** | Who approved (green check) and who asked for changes (red cross), with names. |
 | **AI review** | Unresolved review threads opened by the host's AI-review `bot`. **fix** means severity medium or higher and not a nit; **minor** covers everything else. Click the count to list every finding with its file and a link. Shows "n/a" on hosts with no bot. The column name comes from `aiReviewLabel`. |
 | **Participants** | Everyone who commented, reviewed or committed, except the author and bots, most recently active first. Hover an avatar to see when that person was last active. Below them, a small line shows who acted last (author included) and how: comment, review or push. It turns orange as **your turn** when someone else had the last word on a PR you wrote or took part in. |
@@ -120,9 +120,24 @@ claude mcp list
 
 ### Order and approved work
 
-Rows are sorted in three bands: approved work first, then PRs waiting on your review (orange left bar), then everything else by most recent update.
+Rows are sorted in four bands:
 
-A PR counts as approved when GitHub's review decision is approved, or when at least one person approved and nobody requested changes. A stack counts as approved, and gets the green border, only when every open PR in it is approved. A partly approved stack stays in the normal order; its Approvals column shows which parts are done.
+1. **Ready to ship** (green border): approved, with no merge conflicts and no failed checks. Pending checks don't block.
+2. **Approved but blocked** (dark cyan border): approved, but a PR has merge conflicts or failed checks.
+3. **Waiting on you** (orange left bar).
+4. Everything else, most recently updated first.
+
+### What "waiting on" means
+
+A PR is waiting on someone when any of these is true:
+
+- **Requested:** GitHub lists them as a pending reviewer, asked directly rather than through a team. Submitting any review clears it; the author can re-request it.
+- **Their turn:** someone else commented, reviewed or pushed most recently on a PR they wrote or took part in.
+- **Author:** they wrote it, someone requested changes, and nothing has been pushed since.
+
+The **Waiting on you** tile, the orange left bar, the sort order and each person's hourglass all use this definition, as does the `review_queue` MCP tool. The rules live in `src/waiting.ts`.
+
+A PR counts as approved when GitHub's review decision is approved, or when at least one person approved and nobody requested changes. A stack counts as approved only when every open PR in it is approved, and it is green only when none of them has conflicts or failed checks. A partly approved stack stays in the normal order; its Approvals column shows which parts are done.
 
 ### Related pull requests
 
@@ -156,7 +171,7 @@ The same process answers MCP at `http://127.0.0.1:5050/mcp`. It uses the Streama
 
 | Tool | Use it for | Arguments |
 | --- | --- | --- |
-| `review_queue` | "What is waiting on my review?" or on someone else's | `person` (default `me`) |
+| `review_queue` | "What is waiting on me?" or on someone else, with the reason for each PR (`requested`, `turn` or `author`) | `person` (default `me`) |
 | `list_prs` | The team's open PRs, filtered | `author`, `repo`, `waiting_on`, `include_drafts`, `include_dormant`, `has_ai_review_findings`, `limit` |
 | `get_pr` | One PR in full: every unresolved AI-review finding, participants with last-active times, who acted last (and whether that was you or the author), stack, checks | `url`, or `repo` and `number` |
 | `team` | The roster with each person's logins, the tracked repos, the AI-review bots and the Linear workspace | |
@@ -253,7 +268,7 @@ When a PR leaves the list, the page checks it directly before changing anything,
 | Red banner: **\<host\> could not be reached** | `gh` is not signed in to that host, or its proxy is down. Run the `gh auth status` check for that host. |
 | Red banner: **Dashboard server could not be reached** | The server stopped. Start it again with `bun run start`. |
 | A row shows a red triangle instead of the refresh icon | That row's last reload failed; hover it to read why. The row keeps its last data and tries again on the next tick. |
-| "Waiting on you" is lower than GitHub's review count | Shepherd counts only requests made to you directly. Requests to a team you belong to show as grey chips, not as **You**. |
+| "Waiting on you" differs from GitHub's review count | Shepherd counts direct review requests, PRs where it's your turn, and your PRs with requested changes. Requests to a team you belong to show as grey chips and don't count. See [What "waiting on" means](#what-waiting-on-means). |
 | A PR you expect is missing | Check the filters, then **Drafts** and **Dormant 60d+**. Only PRs by people in `team`, or PRs that request a review from someone whose bell is on, are tracked. |
 | A teammate's avatar shows initials | They have no `github` login in `logins`; avatars come from github.com. |
 | A bot appears in Participants | Add its login to `ignoreParticipants` and restart. |

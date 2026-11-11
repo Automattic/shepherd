@@ -15,6 +15,7 @@
 	--you-line: #f0c27f;
 	--ok: #1f8a4c;
 	--ok-soft: #e1f3e8;
+	--blocked: #0e7490;
 	--bad: #c93a32;
 	--bad-soft: #fbe5e3;
 	--warn: #b7791f;
@@ -49,6 +50,7 @@
 		--you-line: #7a5420;
 		--ok: #4cc584;
 		--ok-soft: #14291e;
+	--blocked: #1aa3bd;
 		--bad: #f07a72;
 		--bad-soft: #301917;
 		--warn: #e6b450;
@@ -79,6 +81,7 @@
 	--you-line: #7a5420;
 	--ok: #4cc584;
 	--ok-soft: #14291e;
+	--blocked: #1aa3bd;
 	--bad: #f07a72;
 	--bad-soft: #301917;
 	--warn: #e6b450;
@@ -247,7 +250,9 @@ main { padding: 22px 28px 60px; max-width: 1560px; margin: 0 auto; }
 }
 .group.you { border-color: var(--you-line); }
 /* Approved wins the border; a group that also waits on you keeps its orange left bar. */
-.group.approved { border-color: var(--ok); box-shadow: 0 0 0 1px var(--ok), var(--shadow); }
+.group.approved { border-color: var(--ok); }
+/* Approved, but conflicts or failed checks block the merge. */
+.group.approved-blocked { border-color: var(--blocked); }
 .group.you::before {
 	content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--you);
 }
@@ -324,6 +329,11 @@ main { padding: 22px 28px 60px; max-width: 1560px; margin: 0 auto; }
 	background: var(--you-soft); color: var(--you); font-size: 12px; font-weight: 600;
 }
 .you-pill .avatar { box-shadow: none; }
+/* Changes were requested and the author hasn't pushed since. */
+.author-pill {
+	display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px 2px 2px; border-radius: 999px;
+	background: var(--bad-soft); color: var(--bad); font-size: 12px; font-weight: 600;
+}
 .team-chip {
 	display: inline-flex; align-items: center; gap: 4px; padding: 1px 6px; border-radius: 6px;
 	background: var(--surface-2); color: var(--text-3); font-size: 11px; border: 1px solid var(--line);

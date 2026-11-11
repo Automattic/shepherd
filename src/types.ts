@@ -192,6 +192,8 @@ export interface PrDetail {
 	authorLastActive: string | null;
 	/** The most recent human activity on the PR, including the author's comments and pushes. */
 	lastActivity: LastActivity | null;
+	/** When the newest commit was made, by anyone. */
+	lastCommitAt: string | null;
 	linear: string[];
 	refs: PrRef[];
 	hashRefs: number[];

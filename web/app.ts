@@ -14,6 +14,7 @@ import type {
 	Severity,
 	TeamMember,
 } from '../src/types.ts';
+import { changesRequestedPending, isTurnOf, WAIT_REASON_TEXT, waitReasons, type WaitReason } from '../src/waiting.ts';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -52,6 +53,8 @@ interface Group {
 	approved: boolean;
 	/** A stack where some, but not all, open PRs are approved. */
 	partial: boolean;
+	/** Approved, but a PR in the group has merge conflicts or failed checks. */
+	blocked: boolean;
 	updated: number;
 }
 
@@ -307,6 +310,14 @@ function linearKeys(row: Row): Set<string> {
 }
 
 /** Approved: GitHub's review decision says so, or someone approved and nobody asked for changes. */
+/** Merge conflicts or failed checks stand between this PR and merging. Pending checks don't count. */
+function hasBlockers(row: Row): boolean {
+	const d = row.detail;
+	if (!d) return false;
+	const checks = (d.checks ?? '').toUpperCase();
+	return d.mergeable === 'CONFLICTING' || checks === 'FAILURE' || checks === 'ERROR';
+}
+
 function isApproved(row: Row): boolean {
 	const d = row.detail;
 	if (!d || d.state !== 'OPEN') return false;
@@ -315,14 +326,20 @@ function isApproved(row: Row): boolean {
 }
 
 /** True when the PR directly requests a review from this team member. */
+/** Why a PR waits on a team member (see src/waiting.ts); before details load, only direct review requests are known. */
+function waitReasonsFor(row: Row, id: string): WaitReason[] {
+	const m = cfg.team.find((t) => t.id === id);
+	if (!m) return [];
+	if (row.detail) return waitReasons(row.detail, m);
+	return row.light.requestedFor.includes(id) ? ['requested'] : [];
+}
+
 function waitingOnMember(row: Row, id: string): boolean {
-	if (row.detail) return row.detail.requested.users.some((u) => member(u.login)?.id === id);
-	return row.light.requestedFor.includes(id);
+	return waitReasonsFor(row, id).length > 0;
 }
 
 function waitingOnMe(row: Row): boolean {
-	if (row.detail) return row.detail.requested.users.some((u) => isMe(u.login, row.light.host));
-	return row.light.requestedFor.includes(cfg.me);
+	return waitingOnMember(row, cfg.me);
 }
 
 function isDormant(row: Row): boolean {
@@ -496,6 +513,17 @@ function cellWait(row: Row): string {
 		const watched = m && reviewers().includes(m.id);
 		parts.push(`<span class="avatar-wrap ${watched ? 'watch' : ''}" title="${esc(m?.name || u.name || u.login)}">${avatar(u.login, host)}</span>`);
 	}
+	// Beyond review requests: your turn, and changes waiting on the author.
+	const mine = waitReasonsFor(row, cfg.me);
+	if (!mine.includes('requested') && mine.length) {
+		const why = mine.map((r) => WAIT_REASON_TEXT[r]).join('; ');
+		parts.unshift(`<span class="you-pill" title="Waiting on you: ${esc(why)}">${avatar(loginOn(meMember(), host) ?? '', host)}You</span>`);
+	}
+	if (changesRequestedPending(d) && !isMe(d.author.login, host)) {
+		parts.push(
+			`<span class="author-pill" title="Changes requested; waiting on ${esc(member(d.author.login)?.name || d.author.login)} to push">${avatar(d.author.login, host)}Author</span>`
+		);
+	}
 	const teams = d.requested.teams;
 	for (const t of teams.slice(0, 2)) parts.push(`<span class="team-chip" title="Team: ${esc(t.name)}"><i class="fa-solid fa-users"></i>${esc(t.slug)}</span>`);
 	if (teams.length > 2) parts.push(`<span class="team-chip" title="${esc(teams.slice(2).map((t) => t.slug).join(', '))}">+${teams.length - 2}</span>`);
@@ -579,8 +607,8 @@ function lastActivityLine(row: Row): string {
 	if (!d || !a) return '';
 	const host = row.light.host;
 	const mine = isMe(a.login, host);
-	const involved = isMe(d.author.login, host) || d.participants.some((p) => isMe(p.login, host));
-	const yourTurn = !mine && involved;
+	const me = meMember();
+	const yourTurn = me ? isTurnOf(d, me) : false;
 	const isAuthor = a.login === d.author.login;
 	const who = mine ? 'You' : displayName(a.login);
 	const verb = { comment: 'commented', review: 'reviewed', commit: 'pushed' }[a.kind];
@@ -725,13 +753,14 @@ function computeGroups(): Group[] {
 			// A stack is ready only when all of it is; rows already leaving (merged) don't count.
 			approved: open.length > 0 && approvedCount === open.length,
 			partial: approvedCount > 0 && approvedCount < open.length,
+			blocked: open.length > 0 && approvedCount === open.length && open.some(hasBlockers),
 			updated: Math.max(...members.map((m) => new Date(m.light.updatedAt).getTime())),
 		});
 	}
-	// Approved work first (ready to land), then what waits on you, then most recently updated.
-	groups.sort(
-		(a, b) => Number(b.approved) - Number(a.approved) || Number(b.you) - Number(a.you) || b.updated - a.updated
-	);
+	// Ready to land first (approved, no conflicts, no failed checks), then approved but blocked,
+	// then what waits on you, then most recently updated.
+	const band = (g: Group): number => (g.approved ? (g.blocked ? 1 : 2) : 0);
+	groups.sort((a, b) => band(b) - band(a) || Number(b.you) - Number(a.you) || b.updated - a.updated);
 	return groups;
 }
 
@@ -771,7 +800,8 @@ function layout(): void {
 		});
 		while (gel.children.length > g.members.length) gel.lastElementChild?.remove();
 		gel.classList.toggle('you', g.you);
-		gel.classList.toggle('approved', g.approved);
+		gel.classList.toggle('approved', g.approved && !g.blocked);
+		gel.classList.toggle('approved-blocked', g.blocked);
 		usedKeys.add(g.key);
 		wanted.push(gel);
 	}
