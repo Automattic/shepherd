@@ -1,0 +1,21 @@
+# Local config: holds your team's logins. Copy config.example.json to start.
+config.json
+
+# Dependencies and Bun/Node output
+node_modules/
+*.log
+npm-debug.log*
+
+# Local environment
+.env
+.env.*
+
+# Browser-test and check artifacts
+.playwright-mcp/
+.check-build/
+
+# OS and editor files
+.DS_Store
+.idea/
+.vscode/
+*.swp

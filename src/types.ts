@@ -1,0 +1,214 @@
+// Shared types for the Shepherd server, its MCP endpoint and the browser client.
+
+// ---------------------------------------------------------------------------
+// Config (config.json)
+
+export interface TeamMember {
+	id: string;
+	name: string;
+	/** Label shown on screen. */
+	short: string;
+	/** Login per host, keyed by a key of `Config.hosts` (e.g. { "github": "octocat" }). */
+	logins: Record<string, string>;
+}
+
+export interface HostConfig {
+	hostname: string;
+	label: string;
+	/** Path to a proxychains config, for hosts reachable only through a SOCKS proxy. */
+	proxychains?: string;
+	/** Cap on parallel `gh` processes for this host. */
+	concurrency?: number;
+	/** Login of an AI code-review bot on this host whose unresolved threads are counted, or null. */
+	bot: string | null;
+}
+
+export interface RepoConfig {
+	/** A key of `Config.hosts`. */
+	host: string;
+	owner: string;
+	name: string;
+	short: string;
+}
+
+export interface LinearConfig {
+	workspace: string;
+	keys: string[];
+}
+
+export interface Config {
+	port?: number;
+	me: string;
+	team: TeamMember[];
+	hosts: Record<string, HostConfig>;
+	repos: RepoConfig[];
+	/** Optional: link Linear tickets found in titles, branches and descriptions. */
+	linear?: LinearConfig | null;
+	/** Name shown for the AI-review column and tile. Defaults to "AI review". */
+	aiReviewLabel?: string;
+	ignoreParticipants?: string[];
+}
+
+/** What GET /api/config returns: the config without local-only details. */
+export interface PublicConfig {
+	me: string;
+	team: TeamMember[];
+	repos: RepoConfig[];
+	hosts: Record<string, Pick<HostConfig, 'hostname' | 'label' | 'bot'>>;
+	linear: LinearConfig | null;
+	aiReviewLabel: string;
+}
+
+// ---------------------------------------------------------------------------
+// Pull requests
+
+export interface RateLimit {
+	remaining: number;
+	limit: number;
+	resetAt: string;
+	cost?: number;
+	/** When the server recorded it (ms since epoch). */
+	at: number;
+}
+
+export interface PrAuthor {
+	login: string;
+	name: string | null;
+}
+
+/** The light record from the list search. */
+export interface LightPr {
+	key: string;
+	host: string;
+	owner: string;
+	repo: string;
+	number: number;
+	title: string;
+	url: string;
+	isDraft: boolean;
+	updatedAt: string;
+	createdAt: string;
+	headRefName: string;
+	baseRefName: string;
+	author: PrAuthor;
+	authoredByTeam: boolean;
+	/** Team member ids whose direct review request matched this PR. */
+	requestedFor: string[];
+}
+
+export type Severity = 'critical' | 'high' | 'medium' | 'low' | 'info';
+export const SEVERITIES: readonly Severity[] = ['critical', 'high', 'medium', 'low', 'info'];
+
+export interface BotFinding {
+	title: string;
+	severity: Severity;
+	/** e.g. "fix here", "follow-up", "nit". */
+	kind: string;
+	category: string | null;
+	belowThreshold: boolean;
+	outdated: boolean;
+	url: string;
+	path: string | null;
+	line: number | null;
+	createdAt: string;
+}
+
+export interface BotSummary {
+	login: string;
+	open: number;
+	/** Medium or higher, not nits, not below the reporting threshold. */
+	blocking: number;
+	outdated: number;
+	bySeverity: Record<Severity, number>;
+	findings: BotFinding[];
+}
+
+export interface MiniPr {
+	number: number;
+	title: string;
+	url: string;
+	author: string;
+}
+
+export interface Participant {
+	login: string;
+	name: string | null;
+	lastActive: string | null;
+}
+
+export interface PrRef {
+	key: string;
+	host: string;
+	owner: string;
+	repo: string;
+	number: number;
+	url: string;
+}
+
+export type PrState = 'OPEN' | 'CLOSED' | 'MERGED';
+export type ReviewState = 'APPROVED' | 'CHANGES_REQUESTED' | 'COMMENTED' | 'DISMISSED' | 'PENDING';
+
+export interface PrReview {
+	login: string;
+	state: ReviewState;
+	submittedAt: string | null;
+}
+
+/** The full record for one PR. */
+export interface PrDetail {
+	key: string;
+	host: string;
+	owner: string;
+	repo: string;
+	number: number;
+	title: string;
+	url: string;
+	state: PrState;
+	mergedAt: string | null;
+	isDraft: boolean;
+	updatedAt: string;
+	createdAt: string;
+	headRefName: string;
+	baseRefName: string;
+	author: PrAuthor;
+	mergeable: 'MERGEABLE' | 'CONFLICTING' | 'UNKNOWN' | null;
+	reviewDecision: 'APPROVED' | 'CHANGES_REQUESTED' | 'REVIEW_REQUIRED' | null;
+	/** statusCheckRollup state, e.g. SUCCESS, FAILURE, PENDING; null when there are no checks. */
+	checks: string | null;
+	size: { additions: number; deletions: number; files: number };
+	requested: { users: { login: string; name: string | null }[]; teams: { slug: string; name: string }[] };
+	/** Latest opinionated review per reviewer. */
+	reviews: PrReview[];
+	/** Null on hosts without an AI-review bot. */
+	bot: BotSummary | null;
+	/** Everyone involved except the author and bots, most recently active first. */
+	participants: Participant[];
+	authorLastActive: string | null;
+	linear: string[];
+	refs: PrRef[];
+	hashRefs: number[];
+	parent: MiniPr | null;
+	stackedOnThis: MiniPr[];
+	fetchedAt: string;
+	throttled?: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// HTTP API responses
+
+export interface ListResponse {
+	prs: LightPr[];
+	errors: Record<string, string>;
+	throttled: Record<string, boolean>;
+	rate: Record<string, RateLimit>;
+	fetchedAt: string;
+}
+
+export interface DetailResponse {
+	pr: PrDetail;
+	rate: RateLimit | null;
+}
+
+export interface ErrorResponse {
+	error: string;
+}

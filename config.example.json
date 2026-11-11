@@ -1,0 +1,19 @@
+{
+  "port": 5050,
+  "me": "you",
+  "team": [
+    { "id": "you", "name": "Your Name", "short": "You", "logins": { "github": "your-github-login" } },
+    { "id": "alex", "name": "Alex Example", "short": "Alex", "logins": { "github": "alex-github-login" } }
+  ],
+  "hosts": {
+    "github": { "hostname": "github.com", "label": "GitHub", "concurrency": 4, "bot": null }
+  },
+  "repos": [
+    { "host": "github", "owner": "borkweb", "name": "skills", "short": "skills" },
+    { "host": "github", "owner": "borkweb", "name": "shepherd", "short": "shepherd" },
+    { "host": "github", "owner": "borkweb", "name": "dotfiles", "short": "dotfiles" }
+  ],
+  "linear": null,
+  "aiReviewLabel": "AI review",
+  "ignoreParticipants": ["Copilot", "copilot-pull-request-reviewer", "github-actions", "dependabot"]
+}

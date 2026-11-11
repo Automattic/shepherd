@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Shepherd</title>
+	<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%231c1b19'/%3E%3Ccircle cx='11' cy='9' r='3' fill='none' stroke='%23fff' stroke-width='2.4'/%3E%3Ccircle cx='11' cy='23' r='3' fill='none' stroke='%23fff' stroke-width='2.4'/%3E%3Ccircle cx='21' cy='23' r='3' fill='none' stroke='%23f3a640' stroke-width='2.4'/%3E%3Cpath d='M11 12v8M21 20v-7a3 3 0 0 0-3-3h-3' fill='none' stroke='%23fff' stroke-width='2.4'/%3E%3C/svg%3E">
+	<script>
+		// Apply the saved theme before first paint.
+		try {
+			const saved = localStorage.getItem('shepherd.settings') || localStorage.getItem('teamwork.settings');
+			const t = JSON.parse(saved || '{}').theme;
+			if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t;
+		} catch {}
+	</script>
+	<link rel="preconnect" href="https://fonts.googleapis.com">
+	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+	<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap">
+	<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+	<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+	<header class="topbar">
+		<div class="brand">
+			<span class="brand-mark"><i class="fa-solid fa-code-pull-request"></i></span>
+			<div>
+				<h1>Shepherd</h1>
+				<p class="brand-sub" id="brand-sub">Open pull requests across the team</p>
+			</div>
+		</div>
+		<div class="controls">
+			<div class="rate" id="rate" title="github.com GraphQL budget"></div>
+			<div class="seg" id="interval" role="radiogroup" aria-label="Refresh interval"></div>
+			<button class="icon-btn" id="refresh" title="Refresh now (R)" aria-label="Refresh now"><i class="fa-solid fa-rotate"></i></button>
+			<button class="icon-btn" id="theme" title="Toggle light and dark" aria-label="Toggle theme"><i class="fa-solid fa-moon"></i></button>
+		</div>
+		<div class="tickbar"><span id="tick"></span></div>
+	</header>
+
+	<main>
+		<div class="banner" id="banner" hidden></div>
+
+		<section class="tiles" id="tiles" aria-label="Summary"></section>
+
+		<section class="filters">
+			<div class="people" id="people" aria-label="People"></div>
+			<div class="filter-row">
+				<div class="repos" id="repos"></div>
+				<div class="toggles" id="toggles"></div>
+				<label class="search">
+					<i class="fa-solid fa-magnifying-glass"></i>
+					<input id="q" type="search" placeholder="Filter by title, branch, ticket" autocomplete="off">
+				</label>
+			</div>
+		</section>
+
+		<section class="board" aria-label="Pull requests">
+			<div class="grid-head" role="row">
+				<div>Pull request</div>
+				<div><i class="fa-regular fa-hourglass-half"></i> Waiting on</div>
+				<div><i class="fa-regular fa-circle-check"></i> Approvals</div>
+				<div><i class="fa-solid fa-robot"></i> <span id="ai-review-label">AI review</span></div>
+				<div title="Everyone who commented or reviewed, most recently active first"><i class="fa-solid fa-comments"></i> Participants</div>
+				<div><i class="fa-solid fa-signal"></i> Status</div>
+				<div class="right">Updated</div>
+			</div>
+			<div id="groups"></div>
+			<div class="empty" id="empty" hidden></div>
+		</section>
+	</main>
+
+	<div class="popover" id="popover" hidden></div>
+	<script src="app.js" type="module"></script>
+</body>
+</html>
