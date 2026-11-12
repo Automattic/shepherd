@@ -406,6 +406,8 @@ main { padding: 22px 28px 60px; max-width: 1560px; margin: 0 auto; }
 .status .conflict { color: var(--bad); }
 .draft-pill { padding: 1px 7px; border-radius: 6px; background: var(--surface-3); color: var(--text-2); font-size: 11px; font-weight: 500; }
 .merged-pill { padding: 1px 7px; border-radius: 6px; background: var(--merged); color: #fff; font-size: 11px; font-weight: 600; }
+.base-pill { padding: 1px 7px; border-radius: 6px; background: var(--surface-3); color: var(--text-2); font-size: 11px; font-weight: 500; white-space: nowrap; }
+.base-pill.old { background: var(--warn-soft); color: var(--warn); font-weight: 600; }
 .size { font-family: var(--mono); font-size: 11px; }
 .size .add { color: var(--ok); }
 .size .del { color: var(--bad); }

@@ -2,6 +2,7 @@
 // Streamable HTTP transport, stateless: POST /mcp with JSON-RPC, answered with application/json.
 // It reuses the dashboard's gh runner and caches, so agents and the page share one budget.
 
+import { baseAgeHours, baseTooOld } from './base-age.ts';
 import type { HerdrService } from './herdr.ts';
 import type { PrService } from './prs.ts';
 import type { Config, LightPr, PrDetail, RepoConfig, TeamMember } from './types.ts';
@@ -123,6 +124,7 @@ export function createMcpHandler(config: Config, prs: PrService, herdr: HerdrSer
 	// ---- shaping ----
 
 	function summarize(d: PrDetail, { findings = false } = {}) {
+		const baseHours = baseAgeHours(d.baseAge);
 		return {
 			ref: `${repoShort(d.host, d.owner, d.repo)}#${d.number}`,
 			repo: `${d.owner}/${d.repo}`,
@@ -162,6 +164,11 @@ export function createMcpHandler(config: Config, prs: PrService, herdr: HerdrSer
 				: null,
 			checks: d.checks,
 			mergeConflicts: d.mergeable === 'CONFLICTING',
+			// Hours since the commit this PR branched from; null when merged, closed or unknown (not fresh).
+			baseAgeHours: baseHours === null ? null : Math.round(baseHours * 10) / 10,
+			...(d.baseAge?.limitHours != null ? { baseTooOld: baseTooOld(d.baseAge) } : {}),
+			...(d.baseAge ? { baseBehindBy: d.baseAge.behindBy } : {}),
+			...(d.baseAge?.error ? { baseAgeError: d.baseAge.error } : {}),
 			size: d.size,
 			relatedPrs: d.refs.map((r) => r.url),
 			...(findings && d.bot
@@ -339,7 +346,7 @@ export function createMcpHandler(config: Config, prs: PrService, herdr: HerdrSer
 			name: 'get_pr',
 			title: 'Pull request details',
 			description:
-				'Full status of one pull request: reviewers waiting, approvals, every unresolved AI-review bot finding (severity, file, link), participants and when each was last active (who to ping), the most recent activity (who acted last, and whether it was the author or "me"), checks, conflicts, Linear tickets, stacked PRs, and any local herdr terminal panes working on it. Give a PR URL, or a repo plus number.',
+				'Full status of one pull request: reviewers waiting, approvals, every unresolved AI-review bot finding (severity, file, link), participants and when each was last active (who to ping), the most recent activity (who acted last, and whether it was the author or "me"), checks, conflicts, how old the base is (baseAgeHours, and baseTooOld when the repo sets maxBaseAgeHours), Linear tickets, stacked PRs, and any local herdr terminal panes working on it. Give a PR URL, or a repo plus number.',
 			inputSchema: {
 				type: 'object',
 				properties: {

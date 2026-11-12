@@ -17,6 +17,7 @@ import type {
 	Severity,
 	TeamMember,
 } from '../src/types.ts';
+import { baseAgeHours, baseTooOld } from '../src/base-age.ts';
 import { changesRequestedPending, isTurnOf, WAIT_REASON_TEXT, waitReasons, type WaitReason } from '../src/waiting.ts';
 
 // ---------------------------------------------------------------------------
@@ -628,6 +629,27 @@ const CI_ICONS: Record<string, string> = {
 	expected: 'fa-regular fa-clock',
 };
 
+const QUIET_BASE_AGE_HOURS = 7 * 24;
+
+/** A pill for an open PR's base age: past the repo limit it warns; without a limit it only shows once the base is a week old. */
+function baseAgePill(d: PrDetail): string {
+	const b = d.baseAge;
+	if (!b) return '';
+	const limit = b.limitHours;
+	const hours = baseAgeHours(b);
+	if (hours === null) {
+		// Unknown is never shown as fresh, but only matters when there is a limit to check against.
+		return limit === null ? '' : `<span class="base-pill" title="${esc(`Could not check how old the base is: ${b.error ?? 'unknown error'}`)}">base ?</span>`;
+	}
+	const old = baseTooOld(b) === true;
+	const showFrom = limit === null ? QUIET_BASE_AGE_HOURS : limit / 2;
+	if (!old && hours < showFrom) return '';
+	const age = hours < 48 ? `${Math.floor(hours)}h` : `${Math.floor(hours / 24)}d`;
+	const behind = b.behindBy === null ? '' : `, ${b.behindBy} commit${b.behindBy === 1 ? '' : 's'} behind`;
+	const title = `Branched from ${b.against} ${age} ago${behind}${limit === null ? '' : ` · limit ${limit}h`}`;
+	return `<span class="${old ? 'base-pill old' : 'base-pill'}" title="${esc(title)}"><i class="fa-solid fa-code-branch"></i> base ${age} old</span>`;
+}
+
 function cellStatus(row: Row): string {
 	const d = row.detail;
 	const parts: string[] = [];
@@ -638,6 +660,7 @@ function cellStatus(row: Row): string {
 	const ci = (d.checks || '').toLowerCase();
 	const ciIcon = CI_ICONS[ci];
 	if (ciIcon) parts.push(`<i class="ci-${ci} ${ciIcon}" title="Checks: ${ci}"></i>`);
+	parts.push(baseAgePill(d));
 	if (d.mergeable === 'CONFLICTING') parts.push(`<i class="conflict fa-solid fa-code-compare" title="Merge conflicts"></i>`);
 	if (d.reviewDecision === 'APPROVED' && d.state === 'OPEN') parts.push(`<i class="fa-solid fa-thumbs-up" style="color:var(--ok)" title="Review decision: approved"></i>`);
 	if (d.size) parts.push(`<span class="size" title="${d.size.files} files"><span class="add">+${d.size.additions}</span> <span class="del">−${d.size.deletions}</span></span>`);

@@ -50,6 +50,9 @@ function problems(c: Partial<Config>): string[] {
 	for (const [i, r] of c.repos!.entries()) {
 		if (!c.hosts![r.host]) out.push(`repos[${i}] (${r.owner}/${r.name}) uses unknown host "${r.host}"`);
 		if (!r.owner || !r.name || !r.short) out.push(`repos[${i}] needs owner, name and short`);
+		if (r.maxBaseAgeHours !== undefined && !(typeof r.maxBaseAgeHours === 'number' && r.maxBaseAgeHours > 0)) {
+			out.push(`repos[${i}] (${r.owner}/${r.name}) needs "maxBaseAgeHours" to be a positive number, or no such field`);
+		}
 	}
 	return out;
 }

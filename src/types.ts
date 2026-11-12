@@ -29,6 +29,8 @@ export interface RepoConfig {
 	owner: string;
 	name: string;
 	short: string;
+	/** Optional: flag open PRs whose merge base with the base branch is older than this many hours. */
+	maxBaseAgeHours?: number;
 }
 
 export interface LinearConfig {
@@ -162,6 +164,19 @@ export interface PrReview {
 	submittedAt: string | null;
 }
 
+/** How old the commit a PR branched from is. */
+export interface BaseAge {
+	/** The branch the merge base is measured against: the PR's base, or the default branch for a stacked PR. */
+	against: string;
+	/** Committer date of the merge base. Null when the compare call failed, which means unknown, not fresh. */
+	mergeBaseAt: string | null;
+	/** Commits on `against` that the PR branch doesn't have yet. */
+	behindBy: number | null;
+	/** The repo's `maxBaseAgeHours`, or null when it has none. */
+	limitHours: number | null;
+	error?: string;
+}
+
 /** The full record for one PR. */
 export interface PrDetail {
 	key: string;
@@ -201,6 +216,8 @@ export interface PrDetail {
 	hashRefs: number[];
 	parent: MiniPr | null;
 	stackedOnThis: MiniPr[];
+	/** Null for merged and closed PRs. */
+	baseAge: BaseAge | null;
 	fetchedAt: string;
 	throttled?: boolean;
 }
