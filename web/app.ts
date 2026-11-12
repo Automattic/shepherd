@@ -197,6 +197,28 @@ const save = (): void => {
 
 const reviewers = (): string[] => S.reviewers ?? [];
 
+// The server prints a `#token=` link when SHEPHERD_TOKEN is set. Keep the token in this
+// origin's storage (other ports on 127.0.0.1 can't read it) and send it as a header.
+const TOKEN_KEY = 'shepherd.token';
+let token = new URLSearchParams(location.hash.slice(1)).get('token') ?? '';
+if (token) history.replaceState(null, '', location.pathname + location.search);
+try {
+	if (token) localStorage.setItem(TOKEN_KEY, token);
+	else token = localStorage.getItem(TOKEN_KEY) ?? '';
+} catch {
+	/* storage unavailable: a token from the link still works for this page load */
+}
+// Pasting the link into an open dashboard only changes the hash, so reload to pick it up.
+addEventListener('hashchange', () => {
+	if (new URLSearchParams(location.hash.slice(1)).has('token')) location.reload();
+});
+
+const api = (path: string, init: RequestInit = {}): Promise<Response> => {
+	const headers = new Headers(init.headers);
+	if (token) headers.set('authorization', `Bearer ${token}`);
+	return fetch(path, { ...init, headers });
+};
+
 // ---------------------------------------------------------------------------
 // State
 
@@ -985,7 +1007,7 @@ async function fetchDetail(row: Row): Promise<void> {
 	if (row.force) params.set('force', '1');
 	row.force = false;
 	try {
-		const res = await fetch(`/api/pr?${params}`, { signal: ctrl.signal });
+		const res = await api(`/api/pr?${params}`, { signal: ctrl.signal });
 		const body: unknown = await res.json();
 		if (res.status === 404) {
 			removeRow(row);
@@ -1061,7 +1083,7 @@ async function refreshList({ force = false }: { force?: boolean } = {}): Promise
 	listBusy = true;
 	$('#refresh').classList.add('busy');
 	try {
-		const res = await fetch(`/api/prs?reviewers=${encodeURIComponent(reviewers().join(','))}`);
+		const res = await api(`/api/prs?reviewers=${encodeURIComponent(reviewers().join(','))}`);
 		const body: unknown = await res.json();
 		const list = isListResponse(body) ? body : null;
 		hostErrors = list?.errors || {};
@@ -1123,7 +1145,7 @@ async function refreshHerdr(): Promise<void> {
 		const prs: PaneMatchPr[] = [...rows.values()]
 			.filter((r) => !r.gone)
 			.map(({ light: l }) => ({ key: l.key, host: l.host, owner: l.owner, repo: l.repo, number: l.number, url: l.url, headRefName: l.headRefName }));
-		const res = await fetch('/api/herdr/links', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ prs }) });
+		const res = await api('/api/herdr/links', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ prs }) });
 		const body: unknown = await res.json();
 		const next = res.ok && isRecord(body) && body.available === true && isRecord(body.links) ? (body.links as Record<string, PaneLink[]>) : {};
 		if (JSON.stringify(next) !== JSON.stringify(herdrLinks)) {
@@ -1175,7 +1197,7 @@ function herdrChips(row: Row): string[] {
 async function focusHerdrPane(button: HTMLElement, paneId: string): Promise<void> {
 	button.classList.remove('hd-ok', 'hd-fail');
 	try {
-		const res = await fetch('/api/herdr/focus', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ paneId }) });
+		const res = await api('/api/herdr/focus', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ paneId }) });
 		button.classList.add(res.ok ? 'hd-ok' : 'hd-fail');
 		if (!res.ok) button.title = `Could not focus the pane: ${(await res.json().catch(() => ({ error: res.statusText }))).error}`;
 	} catch (e) {
@@ -1374,7 +1396,14 @@ setInterval(() => {
 
 void (async function boot(): Promise<void> {
 	applyTheme();
-	const config: unknown = await (await fetch('/api/config')).json();
+	const res = await api('/api/config');
+	if (res.status === 401) {
+		const banner = $('#banner');
+		banner.hidden = false;
+		banner.textContent = 'This server needs a token. Open the dashboard link it printed at startup (the one ending in #token=…).';
+		return;
+	}
+	const config: unknown = await res.json();
 	if (!isPublicConfig(config)) throw new Error('Unexpected response from /api/config');
 	cfg = config;
 	for (const m of cfg.team) {
