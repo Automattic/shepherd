@@ -6,10 +6,10 @@
 
 Shepherd tracks your team's open pull requests across one or more GitHub hosts (github.com and any GitHub Enterprise Server) in one table. It answers the questions a lead asks several times a day:
 
-- **What is waiting on me?** PRs that request your review, PRs where someone else had the last word, and your own PRs with requested changes, marked in orange.
+- **What is waiting on me?** PRs that request your review, PRs where someone else had the last word (unless you already approved), and your own PRs with requested changes, marked in orange.
 - **What is ready to go out?** Approved work with no conflicts or failed checks sits at the top with a green border. Approved work that is blocked follows with a dark cyan border. Approvers and change requests are named.
 - **What has the AI reviewer flagged that nobody has resolved?** The count of unresolved threads opened by your code-review bot, split into "fix" and "minor", with links to each finding.
-- **Who do I ping, and is it my turn?** Everyone who has commented, reviewed or committed, most recently active first, plus who acted last. When someone else had the last word on a PR you're part of, it's marked as your turn.
+- **Who do I ping, and is it my turn?** Everyone who has commented, reviewed or committed, most recently active first, plus who acted last. When someone else had the last word on a PR you're part of and you haven't already approved it, it's marked as your turn.
 - **How does this work fit together?** Stacked PRs share one row, and each row links its Linear tickets and related PRs.
 
 Rows refresh on their own, one at a time, and update in place. The same data is available to agents over MCP.
@@ -114,7 +114,7 @@ claude mcp list
 | **Waiting on** | Reviewers asked directly, plus an orange **You** pill whenever the PR is waiting on you for any reason (hover it for why). A red **Author** pill means changes were requested and the author hasn't pushed since. Teammates whose bell is on get an orange ring. Team requests (for example from CODEOWNERS) are grey chips. |
 | **Approvals** | Who approved (green check) and who asked for changes (red cross), with names. |
 | **AI review** | Unresolved review threads opened by the host's AI-review `bot`. **fix** means severity medium or higher and not a nit; **minor** covers everything else. Click the count to list every finding with its file and a link. Shows "n/a" on hosts with no bot. The column name comes from `aiReviewLabel`. |
-| **Participants** | Everyone who commented, reviewed or committed, except the author and bots, most recently active first. Hover an avatar to see when that person was last active. Below them, a small line shows who acted last (author included) and how: comment, review or push. It turns orange as **your turn** when someone else had the last word on a PR you wrote or took part in. |
+| **Participants** | Everyone who commented, reviewed or committed, except the author and bots, most recently active first. Hover an avatar to see when that person was last active. Below them, a small line shows who acted last (author included) and how: comment, review or push. It turns orange as **your turn** when someone else had the last word on a PR you wrote or took part in, unless your approval still stands. |
 | **Status** | Draft, checks, merge conflicts, a thumbs-up when the review decision is approved, and lines added and removed. |
 | **Updated** | When the PR last changed. Hover the row for a refresh button that reloads just that row. |
 

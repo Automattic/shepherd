@@ -303,7 +303,7 @@ export function createMcpHandler(config: Config, prs: PrService, herdr: HerdrSer
 			name: 'review_queue',
 			title: 'Review queue for a person',
 			description:
-				`Open PRs in the tracked repos that are waiting on one person (default: "me", the dashboard owner), with the reason for each: "requested" (their review is directly requested), "turn" (someone else had the last word on a PR they wrote or took part in), or "author" (they wrote it, changes were requested, and nothing was pushed since). Use it to answer "what is waiting on me?" or "on ${exampleMember}?". PRs idle for more than 60 days are left out unless their review is requested.`,
+				`Open PRs in the tracked repos that are waiting on one person (default: "me", the dashboard owner), with the reason for each: "requested" (their review is directly requested), "turn" (someone else had the last word on a PR they wrote or took part in, and they have not already approved it), or "author" (they wrote it, changes were requested, and nothing was pushed since). Use it to answer "what is waiting on me?" or "on ${exampleMember}?". PRs idle for more than 60 days are left out unless their review is requested.`,
 			inputSchema: {
 				type: 'object',
 				properties: { person: { type: 'string', default: 'me', description: 'Team id, first name or GitHub login.' } },

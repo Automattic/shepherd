@@ -2,7 +2,8 @@
 //
 // A PR is waiting on a team member when any of these is true:
 //   - requested: GitHub lists them as a pending reviewer (a direct request, not via a team).
-//   - turn:      someone else acted last (comment, review or push) on a PR they wrote or took part in.
+//   - turn:      someone else acted last (comment, review or push) on a PR they wrote or took part in,
+//                unless they already approved it and that approval still stands (not dismissed).
 //   - author:    they wrote it, someone requested changes, and nothing was pushed since.
 
 import type { PrDetail, TeamMember } from './types.ts';
@@ -23,10 +24,16 @@ export function changesRequestedPending(d: PrDetail): boolean {
 	return !d.lastCommitAt || d.lastCommitAt < latest;
 }
 
-/** Someone else had the last word on a PR this member wrote or took part in. */
+/** This member's latest opinionated review is an approval. A dismissed approval shows as DISMISSED. */
+export function hasStandingApproval(d: PrDetail, m: TeamMember): boolean {
+	return d.reviews.some((r) => r.state === 'APPROVED' && owns(m, r.login));
+}
+
+/** Someone else had the last word on a PR this member wrote or took part in, and they haven't already approved it. */
 export function isTurnOf(d: PrDetail, m: TeamMember): boolean {
 	const last = d.lastActivity;
 	if (!last || owns(m, last.login)) return false;
+	if (hasStandingApproval(d, m)) return false;
 	return owns(m, d.author.login) || d.participants.some((p) => owns(m, p.login));
 }
 
