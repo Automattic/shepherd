@@ -516,7 +516,8 @@ export function createPrService(config: Config, gh: GhRunner): PrService {
 		let value: BaseAge;
 		let at = Date.now();
 		try {
-			const c = await gh.get<CompareData>(hostKey, `repos/${owner}/${repo}/compare/${againstOid}...${pr.headRefOid}?per_page=1`);
+			// GitHub lists changed files (with patches) on page 1 only; page 2 keeps behind_by and the merge base without them.
+			const c = await gh.get<CompareData>(hostKey, `repos/${owner}/${repo}/compare/${againstOid}...${pr.headRefOid}?per_page=1&page=2`);
 			const date = c.merge_base_commit?.commit.committer?.date ?? null;
 			value = date
 				? { against, mergeBaseAt: date, behindBy: c.behind_by, limitHours }
