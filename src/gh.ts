@@ -1,4 +1,4 @@
-// Runs GraphQL queries through the `gh` CLI, which owns authentication.
+// Runs GraphQL queries and REST GETs through the `gh` CLI, which owns authentication.
 // Hosts with a `proxychains` config (e.g. a GitHub Enterprise behind a SOCKS proxy) go through it.
 
 import { expandHome } from './config.ts';
@@ -33,6 +33,8 @@ interface GraphQLResponse<T> {
 export interface GhRunner {
 	/** Runs one GraphQL query. Resolves with the data even when GitHub also reports partial errors. */
 	query<T>(hostKey: string, query: string, variables?: Record<string, unknown>): Promise<T>;
+	/** Runs one REST GET, e.g. `repos/o/r/compare/a...b`. Rejects on any HTTP error. */
+	get<T>(hostKey: string, path: string): Promise<T>;
 	/** The latest GraphQL budget seen per host (GitHub Enterprise servers often report none). */
 	readonly rate: Record<string, RateLimit>;
 }
@@ -48,15 +50,16 @@ export function createGh(config: Config): GhRunner {
 	delete env.GH_HOST;
 	delete env.GH_ENTERPRISE_TOKEN_HOST;
 
-	async function spawnGh<T>(hostKey: string, query: string, variables: Record<string, unknown>): Promise<T> {
+	/** Runs `gh api <args>` for a host and returns stdout, stderr and the exit code. */
+	async function spawnGh(hostKey: string, args: string[], stdin?: string): Promise<{ out: string; err: string; code: number }> {
 		const host = config.hosts[hostKey];
 		if (!host) throw new Error(`Unknown host "${hostKey}"`);
-		const ghArgs = ['gh', 'api', 'graphql', '--hostname', host.hostname, '--input', '-'];
+		const ghArgs = ['gh', 'api', ...args, '--hostname', host.hostname];
 		const cmd = host.proxychains ? ['proxychains4', '-q', '-f', expandHome(host.proxychains), ...ghArgs] : ghArgs;
 
 		const proc = Bun.spawn(cmd, {
 			env,
-			stdin: new Blob([JSON.stringify({ query, variables })]),
+			stdin: stdin === undefined ? 'ignore' : new Blob([stdin]),
 			stdout: 'pipe',
 			stderr: 'pipe',
 		});
@@ -68,29 +71,43 @@ export function createGh(config: Config): GhRunner {
 				proc.exited,
 			]);
 			if (proc.signalCode) throw new Error(`gh timed out after ${TIMEOUT_MS / 1000}s (${host.hostname})`);
-
-			let json: GraphQLResponse<T> | null = null;
-			try {
-				json = out ? (JSON.parse(out) as GraphQLResponse<T>) : null;
-			} catch {
-				/* not JSON: fall through to the error below */
-			}
-			const rl = json?.data?.rateLimit;
-			if (rl) rate[hostKey] = { ...rl, at: Date.now() };
-			if (json?.data) return json.data; // partial data is still useful
-			const msg = json?.errors?.map((e) => e.message).join('; ') || err.trim() || `gh exited ${code}`;
-			throw new Error(msg);
+			return { out, err, code };
 		} finally {
 			clearTimeout(timer);
 		}
 	}
 
+	async function graphql<T>(hostKey: string, query: string, variables: Record<string, unknown>): Promise<T> {
+		const { out, err, code } = await spawnGh(hostKey, ['graphql', '--input', '-'], JSON.stringify({ query, variables }));
+		let json: GraphQLResponse<T> | null = null;
+		try {
+			json = out ? (JSON.parse(out) as GraphQLResponse<T>) : null;
+		} catch {
+			/* not JSON: fall through to the error below */
+		}
+		const rl = json?.data?.rateLimit;
+		if (rl) rate[hostKey] = { ...rl, at: Date.now() };
+		if (json?.data) return json.data; // partial data is still useful
+		const msg = json?.errors?.map((e) => e.message).join('; ') || err.trim() || `gh exited ${code}`;
+		throw new Error(msg);
+	}
+
+	async function rest<T>(hostKey: string, path: string): Promise<T> {
+		const { out, err, code } = await spawnGh(hostKey, [path]);
+		if (code !== 0) throw new Error(err.trim() || `gh exited ${code}`);
+		return JSON.parse(out) as T;
+	}
+
+	function limited<T>(hostKey: string, fn: () => Promise<T>): Promise<T> {
+		const sem = semaphores.get(hostKey);
+		if (!sem) return Promise.reject(new Error(`Unknown host "${hostKey}"`));
+		return sem.run(fn);
+	}
+
 	return {
 		rate,
-		query<T>(hostKey: string, query: string, variables: Record<string, unknown> = {}) {
-			const sem = semaphores.get(hostKey);
-			if (!sem) return Promise.reject(new Error(`Unknown host "${hostKey}"`));
-			return sem.run(() => spawnGh<T>(hostKey, query, variables));
-		},
+		query: <T>(hostKey: string, query: string, variables: Record<string, unknown> = {}) =>
+			limited(hostKey, () => graphql<T>(hostKey, query, variables)),
+		get: <T>(hostKey: string, path: string) => limited(hostKey, () => rest<T>(hostKey, path)),
 	};
 }

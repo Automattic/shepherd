@@ -3,6 +3,7 @@
 import type { GhRunner } from './gh.ts';
 import {
 	SEVERITIES,
+	type BaseAge,
 	type BotFinding,
 	type BotSummary,
 	type Config,
@@ -23,6 +24,9 @@ const DETAIL_TTL_MS = 3_000;
 const FORCED_DETAIL_TTL_MS = 1_000;
 const LOW_BUDGET_LIST = 300; // below this, reuse the last list for up to 5 minutes
 const LOW_BUDGET_DETAIL = 150; // below this, serve cached details
+const BASE_AGE_TTL_MS = 10 * 60_000; // the merge base only moves with the head; this refreshes behindBy
+const BASE_AGE_RETRY_MS = 60_000; // a failed compare call is retried after this
+const BASE_AGE_CACHE_MAX = 1_000;
 
 // ---------------------------------------------------------------------------
 // Raw GraphQL shapes
@@ -72,6 +76,10 @@ interface RawDetailPr {
 	createdAt: string;
 	headRefName: string;
 	baseRefName: string;
+	headRefOid: string;
+	/** The base tip when the head last moved; `baseRef` has the current tip. */
+	baseRefOid: string;
+	baseRef: { target: { oid: string } | null } | null;
 	body: string | null;
 	mergeable: PrDetail['mergeable'];
 	reviewDecision: PrDetail['reviewDecision'];
@@ -107,10 +115,16 @@ interface RawDetailPr {
 
 interface DetailData {
 	repository: {
+		defaultBranchRef: { name: string; target: { oid: string } | null } | null;
 		pullRequest: RawDetailPr | null;
 		parent?: { nodes: RawMiniPr[] };
 		stackedOnThis: { nodes: RawMiniPr[] };
 	} | null;
+}
+
+interface CompareData {
+	behind_by: number;
+	merge_base_commit: { commit: { committer: { date: string } | null } } | null;
 }
 
 interface RefsData {
@@ -138,9 +152,10 @@ const SEARCH_QUERY = `query($q:String!, $after:String) {
 const DETAIL_QUERY = `query($owner:String!, $name:String!, $n:Int!, $head:String!, $base:String!, $withParent:Boolean!) {
 	rateLimit { remaining limit resetAt cost }
 	repository(owner:$owner, name:$name) {
+		defaultBranchRef { name target { oid } }
 		pullRequest(number:$n) {
 			number title url state merged mergedAt isDraft updatedAt createdAt
-			headRefName baseRefName body mergeable reviewDecision additions deletions changedFiles
+			headRefName baseRefName headRefOid baseRefOid baseRef { target { oid } } body mergeable reviewDecision additions deletions changedFiles
 			author { login ... on User { name } }
 			statusCheckRollup { state }
 			reviewRequests(first:30) { nodes { requestedReviewer {
@@ -467,8 +482,59 @@ export function createPrService(config: Config, gh: GhRunner): PrService {
 			hashRefs: hashRefs.filter((n) => n !== pr.number),
 			parent: parent ? mini(parent) : null,
 			stackedOnThis: data.repository.stackedOnThis.nodes.map(mini),
+			baseAge: null,
 			fetchedAt: new Date().toISOString(),
 		};
+	}
+
+	// ---- base age ----
+
+	// Keyed by the head commit and the base branch name, not its tip: on a busy repo the tip moves all the time,
+	// but the merge base only changes when the head does.
+	const baseAgeCache = new Map<string, { at: number; value: BaseAge }>();
+
+	async function baseAge(hostKey: string, owner: string, repo: string, data: DetailData): Promise<BaseAge | null> {
+		const pr = data.repository?.pullRequest;
+		if (!pr || pr.merged || pr.state !== 'OPEN') return null;
+		if (!/^[\w.-]+$/.test(owner) || !/^[\w.-]+$/.test(repo)) return null; // they go into a REST path
+		// A stacked PR's base is another PR's branch; what matters is how far behind the default branch it is.
+		const repoDefault = data.repository?.defaultBranchRef;
+		const def = data.repository?.parent?.nodes.length ? repoDefault : null;
+		const against = def?.target ? def.name : pr.baseRefName;
+		const againstOid = def?.target ? def.target.oid : (pr.baseRef?.target?.oid ?? pr.baseRefOid);
+		// The limit is about the default branch; a PR into a release branch, say, only gets the age.
+		const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
+		const limitHours =
+			against === repoDefault?.name
+				? (config.repos.find((r) => r.host === hostKey && same(r.owner, owner) && same(r.name, repo))?.maxBaseAgeHours ?? null)
+				: null;
+
+		const key = `${hostKey}:${owner}/${repo}:${against}...${pr.headRefOid}`;
+		const hit = baseAgeCache.get(key);
+		if (hit && Date.now() - hit.at < (hit.value.mergeBaseAt ? BASE_AGE_TTL_MS : BASE_AGE_RETRY_MS)) return hit.value;
+
+		let value: BaseAge;
+		let at = Date.now();
+		try {
+			// GitHub lists changed files (with patches) on page 1 only; page 2 keeps behind_by and the merge base without them.
+			const c = await gh.get<CompareData>(hostKey, `repos/${owner}/${repo}/compare/${againstOid}...${pr.headRefOid}?per_page=1&page=2`);
+			const date = c.merge_base_commit?.commit.committer?.date ?? null;
+			value = date
+				? { against, mergeBaseAt: date, behindBy: c.behind_by, limitHours }
+				: { against, mergeBaseAt: null, behindBy: null, limitHours, error: 'No merge base' };
+		} catch (e) {
+			if (hit?.value.mergeBaseAt) {
+				// Same head, so the known merge base still holds; keep it and try again in a minute.
+				value = hit.value;
+				at = Date.now() - BASE_AGE_TTL_MS + BASE_AGE_RETRY_MS;
+			} else {
+				value = { against, mergeBaseAt: null, behindBy: null, limitHours, error: (e as Error).message.slice(0, 200) };
+			}
+		}
+		baseAgeCache.delete(key);
+		if (baseAgeCache.size >= BASE_AGE_CACHE_MAX) baseAgeCache.delete(baseAgeCache.keys().next().value!);
+		baseAgeCache.set(key, { at, value });
+		return value;
 	}
 
 	async function getDetail(req: DetailRequest): Promise<PrDetail> {
@@ -505,6 +571,7 @@ export function createPrService(config: Config, gh: GhRunner): PrService {
 			});
 			const value = shapeDetail(host, owner, repo, data);
 			if (!value) throw new NotFoundError('Pull request not found');
+			value.baseAge = await baseAge(host, owner, repo, data);
 			detailCache.set(key, { at: Date.now(), value });
 			return value;
 		})().finally(() => inflight.delete(key));

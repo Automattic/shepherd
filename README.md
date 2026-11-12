@@ -115,7 +115,7 @@ claude mcp list
 | **Approvals** | Who approved (green check) and who asked for changes (red cross), with names. |
 | **AI review** | Unresolved review threads opened by the host's AI-review `bot`. **fix** means severity medium or higher and not a nit; **minor** covers everything else. Click the count to list every finding with its file and a link. Shows "n/a" on hosts with no bot. The column name comes from `aiReviewLabel`. |
 | **Participants** | Everyone who commented, reviewed or committed, except the author and bots, most recently active first. Hover an avatar to see when that person was last active. Below them, a small line shows who acted last (author included) and how: comment, review or push. It turns orange as **your turn** when someone else had the last word on a PR you wrote or took part in, unless your approval still stands. |
-| **Status** | Draft, checks, merge conflicts, a thumbs-up when the review decision is approved, and lines added and removed. |
+| **Status** | Draft, checks, merge conflicts, a thumbs-up when the review decision is approved, how old the base is (see below), and lines added and removed. |
 | **Updated** | When the PR last changed. Hover the row for a refresh button that reloads just that row. |
 
 ### Order and approved work
@@ -126,6 +126,17 @@ Rows are sorted in four bands:
 2. **Approved but blocked** (dark cyan border): approved, but a PR has merge conflicts or failed checks.
 3. **Waiting on you** (orange left bar).
 4. Everything else, most recently updated first.
+
+### How old the base is
+
+Some hosts reject a push when the PR's base is older than a set number of hours. Shepherd shows a **base 26h old** pill so you see it before the push fails.
+
+- The age is the committer date of the merge base between the PR branch and its base branch, from GitHub's compare API.
+- For a stacked PR, the age is measured against the repo's default branch, since that is what the bottom of the stack has to catch up with.
+- Set `maxBaseAgeHours` on a repo to get a limit. It only applies to PRs measured against the default branch; a PR into another branch, such as a release branch, shows its age without the limit. The pill appears at half the limit and turns orange past it. If the age can't be checked, the pill reads **base ?** instead of looking fresh.
+- Without a limit, the pill only appears once the base is a week old, and never warns.
+
+The MCP tools return `baseAgeHours` for every open PR, and `baseTooOld` when the repo has a limit.
 
 ### What "waiting on" means
 
@@ -228,7 +239,7 @@ curl -s http://127.0.0.1:5050/mcp -H 'content-type: application/json' \
 | `me` | The `id` of the team member the dashboard treats as "you". |
 | `team[]` | `id`, `name`, `short` (the label on screen), and `logins`: one login per host key, for example `{ "github": "octocat", "work": "ocat" }`. |
 | `hosts.<key>` | `hostname`, `label`, `concurrency` (the cap on parallel `gh` processes, default 4), `bot` (the AI-review bot's login, or `null`), and optional `proxychains` (a proxychains config path). |
-| `repos[]` | `host` (a key from `hosts`), `owner`, `name`, and `short` (the label on screen). |
+| `repos[]` | `host` (a key from `hosts`), `owner`, `name`, and `short` (the label on screen). Optional `maxBaseAgeHours`: flag PRs whose base is older than this many hours. |
 | `linear` | Optional. `workspace` (the slug in Linear URLs) and `keys` (team prefixes to find in titles and branch names). Use `null` to turn ticket links off. |
 | `aiReviewLabel` | Optional. The name shown for the AI-review column and tile. Defaults to `AI review`. |
 | `herdr` | Optional. `enabled` (default `true`; used only when herdr is installed and running) and `transcriptTailKb` (how much of each agent transcript to search, default 192). |
@@ -288,6 +299,8 @@ On each tick, the page:
 2. Reloads any row whose **updated** time changed.
 3. Reloads any row older than the interval, with a floor of 20 seconds on hosts without a rate limit and 2 minutes on github.com.
 
+Loading a PR's details also makes one REST compare call to measure the base age. The result is cached per head commit for 10 minutes, so new commits on the base branch don't trigger a call on every refresh. A failed call is retried after a minute.
+
 The github.com floor exists because it allows 5,000 GraphQL points an hour, and a 5-second interval would use them up. The header shows the remaining github.com budget. Below 500, rows reload at most every 10 minutes; below 300, the server reuses the last list.
 
 Refreshing pauses while the tab is in the background and catches up when you return. **Refresh now** ignores the floors.
@@ -327,10 +340,11 @@ bun run check       # typecheck, plus a bundle of the browser client
 | --- | --- |
 | `src/server.ts` | HTTP server (`Bun.serve`), routes, static files, and the browser bundle built at startup |
 | `src/config.ts` | Loads and checks `config.json` |
-| `src/gh.ts` | Runs `gh api graphql` with per-host concurrency caps and optional proxychains |
+| `src/gh.ts` | Runs `gh api` (GraphQL, plus REST GETs) with per-host concurrency caps and optional proxychains |
 | `src/prs.ts` | List and detail GraphQL queries, parsing (AI-review findings, Linear keys, participants) and caches |
 | `src/mcp.ts` | The MCP endpoint and its tools |
 | `src/waiting.ts` | What "waiting on" means, shared by the dashboard and the MCP tools |
+| `src/base-age.ts` | How old a PR's base is, shared by the dashboard and the MCP tools |
 | `src/herdr.ts` | Optional herdr integration: pane scan, PR matching and pane focus over herdr's socket |
 | `src/types.ts` | Types shared by the server, the MCP endpoint and the browser client |
 | `web/app.ts` | The dashboard client: no framework, bundled by Bun into `/app.js` |
