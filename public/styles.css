@@ -273,6 +273,11 @@ main { padding: 22px 28px 60px; max-width: 1560px; margin: 0 auto; }
 .row.child .avatar { width: 20px; height: 20px; font-size: 9px; }
 .row.child .pr-meta { font-size: 11.5px; }
 
+/* Faint diagonal stripes mark drafts; background-image layers over child and flash colors. */
+.row.draft {
+	background-image: repeating-linear-gradient(-45deg, color-mix(in srgb, var(--text) 3.5%, transparent) 0 6px, transparent 6px 12px);
+}
+
 .row.merged { background: var(--merged-soft); }
 .row.closed { opacity: .5; }
 

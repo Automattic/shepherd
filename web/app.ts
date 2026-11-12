@@ -658,6 +658,7 @@ function renderRow(row: Row): void {
 	row.el.root.style.setProperty('--depth', String(Math.min(row.depth, 1)));
 	row.el.root.classList.toggle('merged', row.detail?.state === 'MERGED');
 	row.el.root.classList.toggle('closed', row.detail?.state === 'CLOSED');
+	row.el.root.classList.toggle('draft', row.light.isDraft && row.detail?.state !== 'MERGED' && row.detail?.state !== 'CLOSED');
 	setCell(row, 'pr', cellPr(row), false);
 	setCell(row, 'wait', cellWait(row));
 	setCell(row, 'appr', cellApprovals(row));
