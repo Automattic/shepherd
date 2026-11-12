@@ -200,16 +200,13 @@ const reviewers = (): string[] => S.reviewers ?? [];
 // The server prints a `#token=` link when SHEPHERD_TOKEN is set. Keep the token in this
 // origin's storage (other ports on 127.0.0.1 can't read it) and send it as a header.
 const TOKEN_KEY = 'shepherd.token';
-let token = '';
+let token = new URLSearchParams(location.hash.slice(1)).get('token') ?? '';
+if (token) history.replaceState(null, '', location.pathname + location.search);
 try {
-	const fromHash = new URLSearchParams(location.hash.slice(1)).get('token');
-	if (fromHash) {
-		localStorage.setItem(TOKEN_KEY, fromHash);
-		history.replaceState(null, '', location.pathname + location.search);
-	}
-	token = fromHash || localStorage.getItem(TOKEN_KEY) || '';
+	if (token) localStorage.setItem(TOKEN_KEY, token);
+	else token = localStorage.getItem(TOKEN_KEY) ?? '';
 } catch {
-	/* storage unavailable */
+	/* storage unavailable: a token from the link still works for this page load */
 }
 // Pasting the link into an open dashboard only changes the hash, so reload to pick it up.
 addEventListener('hashchange', () => {

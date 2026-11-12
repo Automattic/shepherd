@@ -241,11 +241,11 @@ The server binds to `127.0.0.1` only. The MCP endpoint refuses browser requests 
 On a machine with more than one user, anyone on it can reach `127.0.0.1`. To lock `/mcp` and `/api/*`, start the server with a token:
 
 ```sh
-export SHEPHERD_TOKEN=$(openssl rand -hex 32)   # keep the same value across restarts, e.g. in your shell profile
+export SHEPHERD_TOKEN=$(openssl rand -hex 32)   # to keep it across restarts, store it in a file only you can read (chmod 600)
 bun run start
 ```
 
-Every request to `/mcp` and `/api/*` then needs `Authorization: Bearer <token>`, or it gets a 401. The token is read from the environment, not `config.json`, because config files are often readable by other users. The server prints the dashboard link as `http://127.0.0.1:5050/#token=…`. Open it once: the page keeps the token in this browser's storage for that address and sends it as a header. The part after `#` never reaches the server. Without `SHEPHERD_TOKEN`, nothing changes. While Shepherd is stopped, another user could listen on the same port and receive the token from an open tab or agent, so stop those too or change the token after a while.
+Every request to `/mcp` and `/api/*` then needs `Authorization: Bearer <token>`, or it gets a 401. The token is read from the environment, not `config.json`, because config files are often readable by other users. The server prints the dashboard link as `http://127.0.0.1:5050/#token=…`. Open it once: the page keeps the token in this browser's storage for that address and sends it as a header. The part after `#` never reaches the server. Without `SHEPHERD_TOKEN`, nothing changes. While Shepherd is stopped, another user could listen on the same port and receive the token from an open tab or agent. The browser also keeps the token for that address after the tab closes, so a server that takes the port later can read it the next time you open the dashboard. Stop open tabs and agents with Shepherd, and change the token after a while.
 
 ### GitHub Enterprise and proxies
 
