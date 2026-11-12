@@ -1,6 +1,7 @@
 // Shepherd: a local dashboard of the team's open pull requests, plus an MCP endpoint for agents.
 // Runs on Bun with no runtime dependencies. GitHub access goes through the `gh` CLI.
 
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { join, normalize } from 'node:path';
 import { DEFAULT_PORT, loadConfig, publicConfig, ROOT } from './config.ts';
 import { createGh } from './gh.ts';
@@ -18,6 +19,23 @@ const gh = createGh(config);
 const prs = createPrService(config, gh);
 const herdr = createHerdr(config);
 const handleMcp = createMcpHandler(config, prs, herdr);
+
+// Optional bearer token for /mcp and /api/*. It comes from the environment, not config.json,
+// because config files are often readable by other users on the same machine.
+const token = process.env.SHEPHERD_TOKEN?.trim() ?? '';
+if (process.env.SHEPHERD_TOKEN !== undefined && !token) {
+	console.error('SHEPHERD_TOKEN is set but empty. Set a value, or unset it to run without a token.');
+	process.exit(1);
+}
+const tokenHash = createHash('sha256').update(token).digest();
+
+function authorized(req: Request): boolean {
+	if (!token) return true;
+	const m = /^Bearer\s+(.+)$/i.exec(req.headers.get('authorization') ?? '');
+	if (!m) return false;
+	// Hash both sides so the comparison is constant-time and length-independent.
+	return timingSafeEqual(createHash('sha256').update(m[1]!).digest(), tokenHash);
+}
 
 // Bundle the browser client once at startup; `bun run dev` restarts on change.
 const clientBundle = await (async () => {
@@ -124,6 +142,9 @@ const server = Bun.serve({
 	async fetch(req) {
 		const url = new URL(req.url);
 		try {
+			if ((url.pathname === '/mcp' || url.pathname.startsWith('/api/')) && !authorized(req)) {
+				return json<ErrorResponse>(401, { error: 'unauthorized: open the #token= link the server printed at startup' });
+			}
 			if (url.pathname === '/mcp') return await handleMcp(req);
 			if (url.pathname === '/api/config') return json(200, publicConfig(config));
 			if (url.pathname === '/api/prs') return await listPrs(url);
@@ -139,5 +160,5 @@ const server = Bun.serve({
 	},
 });
 
-console.log(`Shepherd dashboard: http://127.0.0.1:${server.port}`);
+console.log(`Shepherd dashboard: http://127.0.0.1:${server.port}${token ? `/#token=${encodeURIComponent(token)}` : ''}`);
 console.log(`MCP endpoint:       http://127.0.0.1:${server.port}/mcp`);

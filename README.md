@@ -204,7 +204,14 @@ Example prompts once it is connected:
 - "Which of Alex's PRs have unresolved AI-review findings marked fix?"
 - "Get https://github.com/owner/repo/pull/123 from Shepherd and tell me who to ping."
 
-To check the endpoint without a client:
+If the server runs with `SHEPHERD_TOKEN`, register it with the header:
+
+```sh
+claude mcp add --transport http --scope user shepherd http://127.0.0.1:5050/mcp \
+  --header "Authorization: Bearer $SHEPHERD_TOKEN"
+```
+
+To check the endpoint without a client (add `-H "Authorization: Bearer $SHEPHERD_TOKEN"` when a token is set):
 
 ```sh
 curl -s http://127.0.0.1:5050/mcp -H 'content-type: application/json' \
@@ -227,7 +234,18 @@ curl -s http://127.0.0.1:5050/mcp -H 'content-type: application/json' \
 | `herdr` | Optional. `enabled` (default `true`; used only when herdr is installed and running) and `transcriptTailKb` (how much of each agent transcript to search, default 192). |
 | `ignoreParticipants` | Logins to leave out of Participants. Use it for bots and service accounts that appear as ordinary users. Logins ending in `[bot]` or `-bot` are always left out. |
 
-The server binds to `127.0.0.1` only and has no authentication. The MCP endpoint refuses browser requests from other origins.
+The server binds to `127.0.0.1` only. The MCP endpoint refuses browser requests from other origins.
+
+### Token (optional)
+
+On a machine with more than one user, anyone on it can reach `127.0.0.1`. To lock `/mcp` and `/api/*`, start the server with a token:
+
+```sh
+export SHEPHERD_TOKEN=$(openssl rand -hex 32)   # keep the same value across restarts, e.g. in your shell profile
+bun run start
+```
+
+Every request to `/mcp` and `/api/*` then needs `Authorization: Bearer <token>`, or it gets a 401. The token is read from the environment, not `config.json`, because config files are often readable by other users. The server prints the dashboard link as `http://127.0.0.1:5050/#token=…`. Open it once: the page keeps the token in this browser's storage for that address and sends it as a header. The part after `#` never reaches the server. Without `SHEPHERD_TOKEN`, nothing changes. While Shepherd is stopped, another user could listen on the same port and receive the token from an open tab or agent, so stop those too or change the token after a while.
 
 ### GitHub Enterprise and proxies
 
@@ -294,7 +312,7 @@ When a PR leaves the list, the page checks it directly before changing anything,
 | A teammate's avatar shows initials | They have no `github` login in `logins`; avatars come from github.com. |
 | A bot appears in Participants | Add its login to `ignoreParticipants` and restart. |
 | The rate badge in the header turns red | Fewer than 500 github.com points are left this hour. Refreshing slows down by itself and recovers at the reset time shown when you hover the badge. |
-| `claude mcp list` shows shepherd as failed | The server is not running, or it runs on another port. Start it and check the URL you registered. |
+| `claude mcp list` shows shepherd as failed | The server is not running, or it runs on another port, or it has a token and the registration has no `Authorization` header. Start it and check the URL and header you registered. |
 | `EADDRINUSE` on start | Something else uses the port. Stop it, or start with `PORT=5051 bun run start`. |
 
 ## Development
