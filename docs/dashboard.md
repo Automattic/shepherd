@@ -42,6 +42,8 @@ The **Shipped** section, collapsed under the tiles, lists the PRs the team merge
 
 Reviewers often approve with a list of asks that don't block the merge. Once the PR merges, nobody sees them again. A Shipped row shows a **3 follow-ups** pill when people left such asks on the PR; click it to list them, with who wrote each one, where (description, review, comment, or file and line) and a link.
 
+The **Needs follow-up** chip next to the range shows only the merged PRs with at least one follow-up, and the section summary says how many there are (for example **51 this week · 30 need follow-up**). The count ends in **+** while follow-ups are still loading. It appears once the section has been opened, since follow-ups load only then. The page remembers whether the chip is on.
+
 What counts as a follow-up:
 
 - Every list item under a heading, or a short line ending in a colon, that says the list doesn't block, such as **Notes that do not block:**, **Non-blocking:**, **Optional:**, **Nits:**, **Follow-ups:**, **Before merging:** or **Fix these before the next PR:**. The list ends at the next paragraph. Ticked checkboxes and empty items such as "None" are left out.

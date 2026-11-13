@@ -122,6 +122,21 @@ export function followUpLines(body: string | null): string[] {
 	return out.map(tidy).filter((t) => t.length > 1 && !EMPTY_ITEM.test(t));
 }
 
+/**
+ * The PRs in `prs` with at least one known follow-up, in the same order. `loading` says some PRs have no answer
+ * yet (neither follow-ups nor an error), so the count may still grow.
+ */
+export function needingFollowUp<T extends { key: string }>(
+	prs: T[],
+	followUps: ReadonlyMap<string, readonly unknown[]>,
+	failed: ReadonlySet<string> = new Set()
+): { prs: T[]; loading: boolean } {
+	return {
+		prs: prs.filter((p) => (followUps.get(p.key)?.length ?? 0) > 0),
+		loading: prs.some((p) => !followUps.has(p.key) && !failed.has(p.key)),
+	};
+}
+
 /** Every follow-up on a PR, oldest first (the description is dated when the PR opened). The same line said twice counts once. */
 export function extractFollowUps(texts: FollowUpText[]): FollowUp[] {
 	const ordered = [...texts].sort((a, b) => (a.at ?? '').localeCompare(b.at ?? ''));

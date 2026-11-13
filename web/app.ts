@@ -22,7 +22,7 @@ import type {
 	TeamMember,
 } from '../src/types.ts';
 import { baseAgeHours, baseTooOld } from '../src/base-age.ts';
-import { FOLLOWUPS_MAX_PRS } from '../src/followups.ts';
+import { FOLLOWUPS_MAX_PRS, needingFollowUp } from '../src/followups.ts';
 import { countByAuthor, isMergedRange, MERGED_RANGE_LABELS, MERGED_RANGES, mergedInRange, type MergedRange } from '../src/merged.ts';
 import { changesRequestedPending, isTurnOf, WAIT_REASON_TEXT, waitReasons, type WaitReason } from '../src/waiting.ts';
 
@@ -88,6 +88,8 @@ interface Settings {
 	/** The range shown in the Shipped section, and whether that section is open. */
 	mergedRange: MergedRange;
 	shippedOpen: boolean;
+	/** Show only the merged PRs that left follow-ups. */
+	shippedNeedsFollowUp: boolean;
 }
 
 interface Tile {
@@ -193,6 +195,7 @@ function loadSettings(): Settings {
 		q: '',
 		mergedRange: 'this-week',
 		shippedOpen: false,
+		shippedNeedsFollowUp: false,
 	};
 	let saved: unknown;
 	try {
@@ -204,6 +207,7 @@ function loadSettings(): Settings {
 	if (isRecord(saved)) Object.assign(settings, saved);
 	if (!isMergedRange(settings.mergedRange)) settings.mergedRange = 'this-week';
 	settings.shippedOpen = settings.shippedOpen === true;
+	settings.shippedNeedsFollowUp = settings.shippedNeedsFollowUp === true;
 	return settings;
 }
 
@@ -1230,6 +1234,8 @@ const FOLLOWUPS_RETRY_MS = 60_000;
 const followUps = new Map<string, FollowUp[]>();
 /** When each PR's follow-ups may be asked for again. */
 const followUpsNextAt = new Map<string, number>();
+/** PRs whose last fetch failed, so the filter doesn't wait on them. */
+const followUpsFailed = new Set<string>();
 let followUpsError = '';
 
 async function fetchFollowUps(keys: string[]): Promise<string[]> {
@@ -1237,11 +1243,20 @@ async function fetchFollowUps(keys: string[]): Promise<string[]> {
 		const res = await api(`/api/followups?prs=${encodeURIComponent(keys.join(','))}`);
 		const body: unknown = await res.json();
 		if (!isFollowUpsResponse(body)) throw new Error(responseError(body) || 'Unexpected response from /api/followups');
-		for (const [k, v] of Object.entries(body.followUps)) followUps.set(k, v);
-		for (const k of Object.keys(body.errors)) followUpsNextAt.set(k, Date.now() + FOLLOWUPS_RETRY_MS);
+		for (const [k, v] of Object.entries(body.followUps)) {
+			followUps.set(k, v);
+			followUpsFailed.delete(k);
+		}
+		for (const k of Object.keys(body.errors)) {
+			followUpsNextAt.set(k, Date.now() + FOLLOWUPS_RETRY_MS);
+			followUpsFailed.add(k);
+		}
 		return Object.values(body.errors);
 	} catch (e) {
-		for (const k of keys) followUpsNextAt.set(k, Date.now() + FOLLOWUPS_RETRY_MS);
+		for (const k of keys) {
+			followUpsNextAt.set(k, Date.now() + FOLLOWUPS_RETRY_MS);
+			followUpsFailed.add(k);
+		}
 		return [errorMessage(e)];
 	}
 }
@@ -1256,6 +1271,7 @@ async function refreshFollowUps(list: MergedPr[]): Promise<void> {
 	const known = new Set(merged.map((p) => p.key));
 	for (const k of followUps.keys()) if (!known.has(k)) followUps.delete(k);
 	for (const k of followUpsNextAt.keys()) if (!known.has(k)) followUpsNextAt.delete(k);
+	for (const k of followUpsFailed) if (!known.has(k)) followUpsFailed.delete(k);
 	const chunks: string[][] = [];
 	for (let i = 0; i < due.length; i += FOLLOWUPS_MAX_PRS) chunks.push(due.slice(i, i + FOLLOWUPS_MAX_PRS));
 	const errors = (await Promise.all(chunks.map(fetchFollowUps))).flat();
@@ -1273,20 +1289,28 @@ function renderShipped(): void {
 	const logins = cfg.team.flatMap((m) => Object.values(m.logins));
 	const list = mergedInRange(merged, logins, S.mergedRange, new Date());
 	const label = MERGED_RANGE_LABELS[S.mergedRange].toLowerCase();
-	$('#shipped-count').textContent = `${list.length} ${label}`;
+	const needing = needingFollowUp(list, followUps, followUpsFailed);
+	const needN = `${needing.prs.length}${needing.loading ? '+' : ''}`;
+	// Follow-ups load once the section has been opened; until then the summary shows only the merged count.
+	const known = needing.prs.length > 0 || !needing.loading;
+	$('#shipped-count').textContent = `${list.length} ${label}${known && list.length ? ` · ${needN} need${needN === '1' ? 's' : ''} follow-up` : ''}`;
 	$('#shipped-range').innerHTML = MERGED_RANGES.map(
 		(r) => `<button role="radio" aria-checked="${S.mergedRange === r}" data-merged-range="${r}">${esc(MERGED_RANGE_LABELS[r])}</button>`
 	).join('');
+	$('#shipped-filter').innerHTML = `<button class="chip-btn ${S.shippedNeedsFollowUp ? 'on' : ''}" data-shipped-followups title="Show only merged PRs that left follow-ups behind"><i class="fa-solid fa-list-check"></i>Needs follow-up <span class="count">${needN}</span></button>`;
+	const shown = S.shippedNeedsFollowUp ? needing.prs : list;
 
-	const people = countByAuthor(list, displayName).map(([n, c]) => `${esc(n)} <b>${c}</b>`).join(' · ');
+	const people = countByAuthor(shown, displayName).map(([n, c]) => `${esc(n)} <b>${c}</b>`).join(' · ');
 	const errorLine = [mergedError, followUpsError]
 		.filter(Boolean)
 		.map((e) => `<span class="shipped-error"><i class="fa-solid fa-triangle-exclamation"></i> ${esc(e)}</span>`)
 		.join('');
-	$('#shipped-people').innerHTML = (list.length ? people : `Nothing merged ${label}.`) + errorLine;
+	let empty = `Nothing merged ${label}.`;
+	if (list.length && S.shippedNeedsFollowUp) empty = needing.loading ? 'Loading follow-ups…' : `Nothing merged ${label} needs a follow-up.`;
+	$('#shipped-people').innerHTML = (shown.length ? people : empty) + errorLine;
 
 	const day: Intl.DateTimeFormatOptions = { weekday: 'short', day: 'numeric', month: 'short' };
-	$('#shipped-list').innerHTML = list
+	$('#shipped-list').innerHTML = shown
 		.map((p) => {
 			const when = p.mergedAt ? new Date(p.mergedAt) : null;
 			return `<li>
@@ -1525,6 +1549,12 @@ document.addEventListener('click', (e) => {
 	}
 	if (ds.herdrPane) {
 		void focusHerdrPane(t, ds.herdrPane);
+		return;
+	}
+	if ('shippedFollowups' in ds) {
+		S.shippedNeedsFollowUp = !S.shippedNeedsFollowUp;
+		save();
+		renderShipped();
 		return;
 	}
 	if (ds.mergedRange) {

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { extractFollowUps, followUpLines, type FollowUpText } from './followups.ts';
+import { extractFollowUps, followUpLines, needingFollowUp, type FollowUpText } from './followups.ts';
 import type { GhRunner } from './gh.ts';
 import { createMcpHandler } from './mcp.ts';
 import { createPrService, parsePrKey, prKey } from './prs.ts';
@@ -232,4 +232,28 @@ test('parsePrKey reads back what prKey writes, and nothing else', () => {
 	expect(parsePrKey(prKey('my-host', 'example-org', 'app.js', 42))).toEqual({ host: 'my-host', owner: 'example-org', repo: 'app.js', number: 42 });
 	expect(parsePrKey('my-host:example-org/app')).toBeNull();
 	expect(parsePrKey('my-host:example-org/a b#1')).toBeNull();
+});
+
+describe('needingFollowUp (the Shipped "Needs follow-up" chip)', () => {
+	const prs = [{ key: 'a' }, { key: 'b' }, { key: 'c' }, { key: 'd' }];
+	const item = { text: 'Optional: add a test' };
+
+	test('keeps only PRs with at least one follow-up, in order, and counts them', () => {
+		const fu = new Map([['a', [item, item]], ['b', []], ['c', [item]], ['d', []]]);
+		const out = needingFollowUp(prs, fu);
+		expect(out.prs.map((p) => p.key)).toEqual(['a', 'c']);
+		expect(out.loading).toBe(false);
+	});
+
+	test('nothing matched means an empty list and a count of 0', () => {
+		const out = needingFollowUp(prs, new Map(prs.map((p) => [p.key, []])));
+		expect(out).toEqual({ prs: [], loading: false });
+	});
+
+	test('says it is still loading while a PR has no answer, but not for one that failed', () => {
+		const fu = new Map([['a', [item]], ['b', []]]);
+		expect(needingFollowUp(prs, fu).loading).toBe(true);
+		expect(needingFollowUp(prs, fu, new Set(['c', 'd'])).loading).toBe(false);
+		expect(needingFollowUp(prs, fu).prs.map((p) => p.key)).toEqual(['a']);
+	});
 });
