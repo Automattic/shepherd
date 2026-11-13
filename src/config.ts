@@ -46,6 +46,9 @@ function problems(c: Partial<Config>): string[] {
 	if (!c.me || !ids.has(c.me)) out.push(`\`me\` must be one of the team ids (${[...ids].join(', ')})`);
 	for (const [key, h] of Object.entries(c.hosts!)) {
 		if (!h.hostname) out.push(`hosts.${key} needs a hostname`);
+		if (h.reviewTeams !== undefined && !(Array.isArray(h.reviewTeams) && h.reviewTeams.every((t) => typeof t === 'string' && /^[\w.-]+\/[\w.-]+$/.test(t)))) {
+			out.push(`hosts.${key}.reviewTeams must be a list of "org/team" names, or no such field`);
+		}
 	}
 	for (const [i, r] of c.repos!.entries()) {
 		if (!c.hosts![r.host]) out.push(`repos[${i}] (${r.owner}/${r.name}) uses unknown host "${r.host}"`);

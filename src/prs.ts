@@ -92,7 +92,7 @@ interface RawDetailPr {
 		nodes: {
 			requestedReviewer:
 				| { __typename: 'User'; login: string; name: string | null }
-				| { __typename: 'Team'; slug: string; name: string }
+				| { __typename: 'Team'; slug: string; combinedSlug: string; name: string }
 				| { __typename: string }
 				| null;
 		}[];
@@ -161,7 +161,7 @@ const DETAIL_QUERY = `query($owner:String!, $name:String!, $n:Int!, $head:String
 			reviewRequests(first:30) { nodes { requestedReviewer {
 				__typename
 				... on User { login name }
-				... on Team { slug name }
+				... on Team { slug combinedSlug name }
 			} } }
 			latestOpinionatedReviews(first:30) { nodes { state submittedAt author { login } } }
 			participants(first:50) { totalCount nodes { login name } }
@@ -322,6 +322,7 @@ export function createPrService(config: Config, gh: GhRunner): PrService {
 			author: { login: n.author?.login ?? 'ghost', name: n.author?.name ?? null },
 			authoredByTeam: false,
 			requestedFor: [],
+			teamRequested: false,
 		};
 	}
 
@@ -343,11 +344,16 @@ export function createPrService(config: Config, gh: GhRunner): PrService {
 			.filter((l): l is string => Boolean(l))
 			.map((l) => `author:${l}`)
 			.join(' ');
-		const searches: { kind: 'team' | 'review'; id?: string; q: string }[] = [];
+		const searches: { kind: 'team' | 'review' | 'teamReview'; id?: string; q: string }[] = [];
 		if (authors) searches.push({ kind: 'team', q: `is:pr is:open ${repos} ${authors}` });
 		for (const id of reviewerIds) {
 			const login = loginFor(teamById.get(id), hostKey);
 			if (login) searches.push({ kind: 'review', id, q: `is:pr is:open ${repos} user-review-requested:${login}` });
+		}
+		// Review teams are searched whatever the bells say: a team request waits on everyone in the team.
+		// Drafts never wait on a team (see src/waiting.ts), so skip them and their detail fetches.
+		for (const slug of config.hosts[hostKey]?.reviewTeams ?? []) {
+			searches.push({ kind: 'teamReview', q: `is:pr is:open draft:false ${repos} team-review-requested:${slug}` });
 		}
 
 		const results = await Promise.all(searches.map((s) => searchAll(hostKey, s.q)));
@@ -357,6 +363,7 @@ export function createPrService(config: Config, gh: GhRunner): PrService {
 				const pr = lightPr(hostKey, node);
 				const existing = byKey.get(pr.key) ?? pr;
 				if (s.kind === 'team') existing.authoredByTeam = true;
+				else if (s.kind === 'teamReview') existing.teamRequested = true;
 				else if (s.id) existing.requestedFor.push(s.id);
 				byKey.set(pr.key, existing);
 			}
@@ -437,10 +444,11 @@ export function createPrService(config: Config, gh: GhRunner): PrService {
 
 		const users: PrDetail['requested']['users'] = [];
 		const teams: PrDetail['requested']['teams'] = [];
+		const reviewTeams = (config.hosts[hostKey]?.reviewTeams ?? []).map((t) => t.toLowerCase());
 		for (const n of pr.reviewRequests.nodes) {
 			const r = n.requestedReviewer;
 			if (r && r.__typename === 'User' && 'login' in r) users.push({ login: r.login, name: r.name });
-			else if (r && r.__typename === 'Team' && 'slug' in r) teams.push({ slug: r.slug, name: r.name });
+			else if (r && r.__typename === 'Team' && 'slug' in r) teams.push({ slug: r.slug, combinedSlug: r.combinedSlug, name: r.name, reviewTeam: reviewTeams.includes(r.combinedSlug.toLowerCase()) });
 		}
 		const mini = (p: RawMiniPr): MiniPr => ({ number: p.number, title: p.title, url: p.url, author: p.author?.login ?? 'ghost' });
 		const { participants, lastActive, lastActivity } = shapeParticipants(pr);
