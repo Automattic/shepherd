@@ -47,7 +47,10 @@ The **Needs follow-up** chip next to the range shows only the merged PRs with at
 What counts as a follow-up:
 
 - Every list item under a heading, or a short line ending in a colon, that says the list doesn't block, such as **Notes that do not block:**, **Non-blocking:**, **Optional:**, **Nits:**, **Follow-ups:**, **Before merging:** or **Fix these before the next PR:**. The list ends at the next paragraph. Ticked checkboxes and empty items such as "None" are left out.
-- Any other line that names later work: a follow-up (but not "follow-up to #12"), a separate or next PR, needs a decision, doesn't block, an upper-case TODO, or a line that starts with "Optional:", "Non-blocking:" or "Nit:".
+- Any other line that asks for later work: "in a follow-up", "a follow-up issue", "follow-up for Domains", "(follow-up)", needs a decision, doesn't block, an upper-case TODO, or a line that starts with "Optional:", "Non-blocking:", "Nit:" or "Follow-up:". "follow-up" as a noun or adjective for something else ("the follow-up review marks it resolved", "This follow-up changes…") doesn't count.
+- In a review or comment, a line that puts work in a separate, next or later PR. In the description, the same words describe the author's own stack ("the next PR adds the loader line"), so they don't count there.
+
+A line that ends in a colon introduces what follows, so it never counts on its own. "Out of scope" never counts: it explains why something isn't part of the work.
 
 Shepherd reads the description, the last 50 reviews, the last 100 comments and the first 10 comments of the first 100 inline threads. It skips the host's AI-review `bot` (its findings have their own column), other bots, comments addressed to the bot, resolved inline threads, quoted text, tables and code blocks. Without any matching text, the row has no pill.
 

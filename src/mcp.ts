@@ -397,7 +397,7 @@ export function createMcpHandler(config: Config, prs: PrService, herdr: HerdrSer
 			name: 'merged_prs',
 			title: 'Merged team pull requests',
 			description:
-				'Pull requests written by the team in the tracked repos that merged in a range: "this-week" (since Monday 00:00), "last-week" (the Monday-to-Sunday before) or "last-30-days". Times are in the server\'s local time zone. Returns a count per person and the PRs, newest first. Each PR has `followUps`: how many non-blocking asks people left on it (items under headings like "Optional:" or "Does not block:", and lines that mention a follow-up, a separate PR or a TODO); null when they could not be fetched. Asks written before the last commit, or in a resolved or outdated thread, may be done already and are not counted or listed. Set include_follow_ups to list them, or call get_pr for one PR. Filter by author or repo.',
+				'Pull requests written by the team in the tracked repos that merged in a range: "this-week" (since Monday 00:00), "last-week" (the Monday-to-Sunday before) or "last-30-days". Times are in the server\'s local time zone. Returns a count per person and the PRs, newest first. Each PR has `followUps`: how many non-blocking asks people left on it (items under headings like "Optional:" or "Does not block:", and lines that ask for a follow-up, a separate PR or a TODO); null when they could not be fetched. Asks written before the last commit, or in a resolved or outdated thread, may be done already and are not counted or listed. Set include_follow_ups to list them, or call get_pr for one PR. Filter by author or repo.',
 			inputSchema: {
 				type: 'object',
 				properties: {

@@ -18,17 +18,32 @@ export interface FollowUpText {
 
 const words = (list: string[]) => new RegExp(list.map((p) => `\\b${p}\\b`).join('|'), 'i');
 
-/** A line that names work for later, or says it does not block. "Follow-up to #12" points back, so it doesn't count. */
-const LATER_WORK = words([
-	'follow[- ]?ups?(?! (?:to|of|on)\\b)',
-	// Not "a PR" or "new PR": "such a PR waits", "before opening a PR" and "a PR closed without merging" are prose.
+/**
+ * "follow-up" as an ask: "in a follow-up", "a follow-up issue", "follow-up for Domains", "(follow-up)". Not as a
+ * noun or adjective for something else: "the follow-up review marks it resolved", "This follow-up changes…",
+ * "tested with the follow-up activation applied".
+ */
+const FOLLOW_UP_ASK = words([
+	'(?:in|as|into|for|to|needs?|deserves?|worth|warrants?) (?:a|an|another|one more|separate) follow[- ]?up',
+	'follow[- ]?up (?:issue|ticket|task)s?',
+	'follow[- ]?ups? for',
+]);
+const FOLLOW_UP_PAREN = /\(follow[- ]?up\)/i;
+
+/**
+ * Words that put work in a later PR. A reviewer who says "fix it in a separate PR" asks for something; an author
+ * who says "the next PR adds the loader line" describes their own stack. So these count only outside the description.
+ * Not "a PR" or "new PR": "such a PR waits" and "before opening a PR" are prose.
+ */
+const SEQUENCING = words([
 	'(?:another|separate|next|later|future|subsequent) (?:pr|pull request)',
+	'follow[- ]?up (?:pr|pull request)s?',
 	'separate (?:change|issue|ticket)',
 	'before the [\\w-]+(?: [\\w-]+)? (?:pr|pull request)',
-	'needs? (?:a )?decision',
-	"(?:do|does|did)(?: not|n't) block",
-	"don'?t block",
 ]);
+
+/** Words that say something waits or doesn't block, anywhere. */
+const OTHER_LATER = words(['needs? (?:a )?decision', "(?:do|does|did)(?: not|n't) block", "don'?t block"]);
 
 
 /** Upper case only: "the todo list" is a feature, "TODO: drop the flag" is a task. */
@@ -38,10 +53,22 @@ const TODO = /\bTODO\b/;
  * Words that mark the list under a heading as non-blocking. They are too common in ordinary prose
  * ("makes the fetch non-blocking", "tested before merging") to count on a line of their own.
  */
-const HEADING_WORDS = new RegExp(
-	`${LATER_WORK.source}|${words(['optional', 'nice to have', 'for later', 'future work', 'nits?', 'non[- ]?blocking', 'not blocking', 'before (?:merg(?:e|ing)|landing|shipping)']).source}`,
-	'i'
-);
+const HEADING_ONLY = words([
+	// Any "Follow-ups" heading, but not "Follow-up to #12", which points back.
+	'follow[- ]?ups?(?! (?:to|of|on)\\b)',
+	'optional',
+	'nice to have',
+	'for later',
+	'future work',
+	'nits?',
+	'non[- ]?blocking',
+	'not blocking',
+	'before (?:merg(?:e|ing)|landing|shipping)',
+]);
+
+function isNonBlockingHeading(heading: string, description: boolean): boolean {
+	return HEADING_ONLY.test(heading) || OTHER_LATER.test(heading) || (!description && SEQUENCING.test(heading));
+}
 
 /**
  * What makes a longer lead-in line, of more than one sentence, introduce a non-blocking list:
@@ -50,8 +77,8 @@ const HEADING_WORDS = new RegExp(
  */
 const LEAD_IN_WORDS = words(["(?:do|does|did)(?: not|n't) block", "don'?t block", 'non[- ]?blocking', 'not blocking', 'optional', 'nits?', 'for later']);
 
-/** "Optional: rename this" on one line. */
-const PREFIX = /^(?:optional|nice to have|non[- ]?blocking|not blocking|nit)\s*[:,-]/i;
+/** "Optional: rename this" or "Follow-up: add docs" on one line. */
+const PREFIX = /^(?:optional|nice to have|non[- ]?blocking|not blocking|nit|follow[- ]?ups?)\s*[:,-]/i;
 
 /** What an empty template section says. */
 const EMPTY_ITEM = /^(?:none|n\/a|nothing|tbd|-+)\.?$/i;
@@ -93,11 +120,20 @@ function isLeadIn(line: string): boolean {
 }
 
 /**
- * A line that counts on its own, outside a list under a heading. "Out of scope" is not in the list: it explains
- * why something isn't part of this work, so an "Out of scope" section or line asks nothing.
+ * A line that counts on its own, outside a list under a heading. A line ending in ":" introduces something
+ * ("Open items for the author. Fix 1 and 2 before the wiring PR:"), so it never counts itself. "Out of scope" is
+ * not in the list: it explains why something isn't part of this work, so it asks nothing.
  */
-function isFollowUpLine(text: string): boolean {
-	return LATER_WORK.test(text) || TODO.test(text) || PREFIX.test(text);
+function isFollowUpLine(text: string, description: boolean): boolean {
+	if (/:\s*$/.test(text)) return false;
+	return (
+		FOLLOW_UP_ASK.test(text) ||
+		FOLLOW_UP_PAREN.test(text) ||
+		OTHER_LATER.test(text) ||
+		TODO.test(text) ||
+		PREFIX.test(text) ||
+		(!description && SEQUENCING.test(text))
+	);
 }
 
 function tidy(text: string): string {
@@ -105,18 +141,12 @@ function tidy(text: string): string {
 	return t.length > MAX_TEXT ? `${t.slice(0, MAX_TEXT - 1)}…` : t;
 }
 
-/** The follow-ups in one piece of text, in order. */
-export function followUpLines(body: string | null): string[] {
+/** The follow-ups in one piece of text, in order. `description` is true for the PR's own description. */
+export function followUpLines(body: string | null, { description = false }: { description?: boolean } = {}): string[] {
 	if (!body) return [];
 	const out: string[] = [];
 	let underHeading = false;
 	let last = -1; // index in `out` of the item that indented lines continue
-	// A lead-in line with no list under it still counts on its own when its words do.
-	let leadIn: { text: string; at: number } | null = null;
-	const endLeadIn = () => {
-		if (leadIn && out.length === leadIn.at && isFollowUpLine(leadIn.text)) out.push(leadIn.text);
-		leadIn = null;
-	};
 
 	for (const raw of cleanLines(body)) {
 		if (!raw.trim()) {
@@ -138,12 +168,11 @@ export function followUpLines(body: string | null): string[] {
 			}
 			// Any other line, such as the next paragraph, ends the list.
 			underHeading = false;
-			endLeadIn();
 		}
 		last = -1;
 
 		const heading = headingText(raw);
-		if (heading !== null && HEADING_WORDS.test(heading)) {
+		if (heading !== null && isNonBlockingHeading(heading, description)) {
 			underHeading = true;
 			continue;
 		}
@@ -151,13 +180,11 @@ export function followUpLines(body: string | null): string[] {
 		if (heading !== null) continue;
 		if (!item && isLeadIn(raw)) {
 			underHeading = true;
-			leadIn = { text: raw.trim(), at: out.length };
 			continue;
 		}
 		const text = item ? item[1]!.replace(CHECKBOX, '') : raw.trim();
-		if (isFollowUpLine(text)) out.push(text);
+		if (isFollowUpLine(text, description)) out.push(text);
 	}
-	endLeadIn();
 	return out.map(tidy).filter((t) => t.length > 1 && !EMPTY_ITEM.test(t));
 }
 
@@ -191,7 +218,7 @@ export function extractFollowUps(texts: FollowUpText[]): FollowUp[] {
 	const out: FollowUp[] = [];
 	for (const t of ordered) {
 		const stale = t.stale ?? false;
-		for (const text of followUpLines(t.body)) {
+		for (const text of followUpLines(t.body, { description: t.source === 'description' })) {
 			const key = text.toLowerCase();
 			const at = seen.get(key);
 			if (at !== undefined) {

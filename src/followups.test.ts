@@ -100,9 +100,47 @@ describe('followUpLines', () => {
 		expect(followUpLines('Split out of #12. Changes:\n- Adds the cache')).toEqual([]);
 	});
 
-	test('a lead-in with no list under it still counts on its own when its words do', () => {
-		expect(followUpLines("This doesn't block. We can rename it in a follow-up:\n\nThanks!")).toEqual(["This doesn't block. We can rename it in a follow-up:"]);
+	test('a line ending in ":" introduces something, so it never counts on its own', () => {
+		expect(followUpLines("This doesn't block. We can rename it in a follow-up:\n\nThanks!")).toEqual([]);
+		expect(followUpLines('Open items for the author. Please fix items 1 and 2 before the MCP wiring PR, because renames need aliases:')).toEqual([]);
 		expect(followUpLines('Nits are fine. Here is the plan:\n\nShip it.')).toEqual([]);
+	});
+
+	test('in the description, the author describing their own stack is not a follow-up', () => {
+		const body = [
+			'Nothing loads the new file yet. The next PR adds the `loader.php` line.',
+			'A later PR wires the abilities into the account tools.',
+			'The new writer is off by default. It gets turned on in a separate change.',
+			'I recommend that #256308 lands before the activation PR.',
+			'The follow-up PR adds write confirmation.',
+			'This needs a follow-up issue.',
+		].join('\n');
+		expect(followUpLines(body, { description: true })).toEqual(['This needs a follow-up issue.']);
+		// From a reviewer, the same words ask for later work.
+		expect(followUpLines('Fix it in a separate PR.')).toEqual(['Fix it in a separate PR.']);
+		expect(followUpLines('Next PR:\n- Rename the flag')).toEqual(['Rename the flag']);
+		expect(followUpLines('Next PR:\n- Rename the flag', { description: true })).toEqual([]);
+	});
+
+	test('"follow-up" counts only as an ask, not as a noun or adjective for something else', () => {
+		const prose = [
+			'The last review had one follow-up finding, which has a reply and is resolved.',
+			'This follow-up changes description strings only.',
+			'Review follow-up: the month-boundary tests are now covered.',
+			'I tested the flow with the follow-up activation applied.',
+			'The follow-up AI review marks it resolved.',
+			'The follow-up adds write confirmation and V2 exposure.',
+		].join('\n');
+		expect(followUpLines(prose)).toEqual([]);
+		const asks = [
+			'We can rename this in a follow-up.',
+			'Deferred to a follow-up PR.',
+			'Follow-up for Domains Engineering: reorder `disable_dnssec()`.',
+			'**One toggle, uneven inherited access (follow-up).** Mark-unread follows the toggle.',
+			'The open questions are a follow-up for the MCP owners.',
+			'Follow-up: add docs',
+		].join('\n');
+		expect(followUpLines(asks)).toHaveLength(6);
 	});
 
 	test('"out of scope" explains what the work leaves out; it asks nothing', () => {
@@ -136,10 +174,10 @@ describe('extractFollowUps', () => {
 		const list = extractFollowUps([
 			text({ author: 'bob', body: 'Optional: add a metric', at: '2026-11-10T12:00:00Z' }),
 			text({ author: 'carol', source: 'inline', path: 'src/app.ts', line: 12, body: 'Worth a look in a follow-up.', at: '2026-11-10T11:00:00Z' }),
-			text({ author: 'alice', source: 'description', body: 'Adds the parser.\n\nThe UI comes in a separate PR.', at: '2026-11-09T09:00:00Z' }),
+			text({ author: 'alice', source: 'description', body: 'Adds the parser.\n\nThe UI needs a follow-up issue.', at: '2026-11-09T09:00:00Z' }),
 		]);
 		expect(list.map((f) => [f.author, f.source, f.text])).toEqual([
-			['alice', 'description', 'The UI comes in a separate PR.'],
+			['alice', 'description', 'The UI needs a follow-up issue.'],
 			['carol', 'inline', 'Worth a look in a follow-up.'],
 			['bob', 'review', 'Optional: add a metric'],
 		]);
@@ -249,7 +287,7 @@ describe('getFollowUps', () => {
 		const later = raw(7, {
 			headRefOid: 'final',
 			commits: { nodes: [{ commit: { committedDate: '2026-11-11T12:00:00Z' } }] },
-			body: 'Adds a thing.\n\nThe UI comes in a separate PR.',
+			body: 'Adds a thing.\n\nThe UI needs a follow-up issue.',
 			reviews: {
 				nodes: [
 					// Approved an older commit; a cleanup commit followed (wpcom#258402).
@@ -273,7 +311,7 @@ describe('getFollowUps', () => {
 		const gh: GhRunner = { rate: {}, query: async <T,>() => ({ repository: { p0: later } }) as T, get: () => Promise.reject(new Error('not used')) };
 		const out = await createPrService(config, gh).getFollowUps([target(7)]);
 		expect(out.followUps['github:example-org/app#7']!.map((f) => [f.text, f.stale])).toEqual([
-			['The UI comes in a separate PR.', false], // the description describes the final code
+			['The UI needs a follow-up issue.', false], // the description describes the final code
 			['The duplicated helper is fair cleanup but does not block.', true], // review of an older commit
 			['TODO: drop the flag', true], // before the last commit
 			['Optional: add a metric', false],
