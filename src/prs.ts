@@ -156,9 +156,14 @@ interface RawFollowUpPr {
 	body: string | null;
 	createdAt: string;
 	author: { login: string } | null;
-	reviews: { nodes: (RawText & { submittedAt: string | null })[] };
+	headRefOid: string;
+	/** Only the last commit, for when the code last changed. */
+	commits: { nodes: { commit: { committedDate: string } }[] };
+	reviews: { nodes: (RawText & { submittedAt: string | null; commit: { oid: string } | null })[] };
 	comments: { nodes: (RawText & { createdAt: string })[] };
-	reviewThreads: { nodes: { path: string | null; line: number | null; comments: { nodes: (RawText & { createdAt: string })[] } }[] };
+	reviewThreads: {
+		nodes: { isResolved: boolean; isOutdated: boolean; path: string | null; line: number | null; comments: { nodes: (RawText & { createdAt: string })[] } }[];
+	};
 }
 
 interface FollowUpsData {
@@ -226,10 +231,11 @@ const DETAIL_QUERY = `query($owner:String!, $name:String!, $n:Int!, $head:String
 }`;
 
 const FOLLOWUP_FIELDS = `
-	url body createdAt author { login }
-	reviews(last:50) { nodes { author { login } body url submittedAt } }
+	url body createdAt author { login } headRefOid
+	commits(last:1) { nodes { commit { committedDate } } }
+	reviews(last:50) { nodes { author { login } body url submittedAt commit { oid } } }
 	comments(last:100) { nodes { author { login } body url createdAt } }
-	reviewThreads(first:100) { nodes { path line comments(first:10) { nodes { author { login } body url createdAt } } } }`;
+	reviewThreads(first:100) { nodes { isResolved isOutdated path line comments(first:10) { nodes { author { login } body url createdAt } } } }`;
 
 /** Several PRs of one repo in one query, aliased p0, p1, ... The numbers are integers, so they are safe to inline. */
 const followUpsQuery = (numbers: number[]) => `query($owner:String!, $name:String!) {
@@ -726,18 +732,26 @@ export function createPrService(config: Config, gh: GhRunner): PrService {
 	function shapeFollowUps(hostKey: string, pr: RawFollowUpPr): FollowUp[] {
 		const bot = config.hosts[hostKey]?.bot?.toLowerCase();
 		const texts: FollowUpText[] = [];
-		const add = (t: RawText, source: FollowUpText['source'], at: string | null, path?: string | null, line?: number | null) => {
+		const add = (t: RawText, source: FollowUpText['source'], at: string | null, stale: boolean, path?: string | null, line?: number | null) => {
 			const login = t.author?.login;
 			// The AI-review bot's findings already have their own column; other bots are noise here.
 			if (!login || isBot(login)) return;
 			// A reply addressed to the bot ("@bot rejected: ...") answers a finding; it asks nothing of the author.
 			if (bot && t.body?.trimStart().toLowerCase().startsWith(`@${bot}`) && !/^[\w-]/.test(t.body.trimStart().slice(bot.length + 1))) return;
-			texts.push({ author: login, source, body: t.body, url: t.url, at, path, line });
+			texts.push({ author: login, source, body: t.body, url: t.url, at, path, line, stale });
 		};
-		add(pr, 'description', pr.createdAt);
-		for (const r of pr.reviews.nodes) add(r, 'review', r.submittedAt);
-		for (const c of pr.comments.nodes) add(c, 'comment', c.createdAt);
-		for (const t of pr.reviewThreads.nodes) for (const c of t.comments.nodes) add(c, 'inline', c.createdAt, t.path, t.line);
+		// An ask written before the last commit may be done by it. Nothing in the data says which asks a commit
+		// handled, so all of them stop counting: a wrong flag costs more than a missed one. The description is
+		// kept, because it is edited along the way and describes the final code.
+		const lastCommitAt = pr.commits.nodes[0]?.commit.committedDate ?? null;
+		const before = (at: string | null) => Boolean(lastCommitAt && at && at < lastCommitAt);
+		add(pr, 'description', pr.createdAt, false);
+		for (const r of pr.reviews.nodes) add(r, 'review', r.submittedAt, (r.commit ? r.commit.oid !== pr.headRefOid : false) || before(r.submittedAt));
+		for (const c of pr.comments.nodes) add(c, 'comment', c.createdAt, before(c.createdAt));
+		for (const t of pr.reviewThreads.nodes) {
+			if (t.isResolved) continue; // someone closed it
+			for (const c of t.comments.nodes) add(c, 'inline', c.createdAt, t.isOutdated || before(c.createdAt), t.path, t.line);
+		}
 		return extractFollowUps(texts);
 	}
 

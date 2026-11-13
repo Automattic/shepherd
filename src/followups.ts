@@ -12,6 +12,8 @@ export interface FollowUpText {
 	path?: string | null;
 	line?: number | null;
 	at: string | null;
+	/** The code changed after this was written; see FollowUp.stale. */
+	stale?: boolean;
 }
 
 const words = (list: string[]) => new RegExp(list.map((p) => `\\b${p}\\b`).join('|'), 'i');
@@ -23,11 +25,11 @@ const LATER_WORK = words([
 	'(?:another|separate|next|later|future|subsequent) (?:pr|pull request)',
 	'separate (?:change|issue|ticket)',
 	'before the [\\w-]+(?: [\\w-]+)? (?:pr|pull request)',
-	'out of scope',
 	'needs? (?:a )?decision',
 	"(?:do|does|did)(?: not|n't) block",
 	"don'?t block",
 ]);
+
 
 /** Upper case only: "the todo list" is a feature, "TODO: drop the flag" is a task. */
 const TODO = /\bTODO\b/;
@@ -90,7 +92,10 @@ function isLeadIn(line: string): boolean {
 	return t.length <= 300 && /:$/.test(t) && /[.!?]\s/.test(t) && LEAD_IN_WORDS.test(t);
 }
 
-/** A line that counts on its own, outside a list under a heading. */
+/**
+ * A line that counts on its own, outside a list under a heading. "Out of scope" is not in the list: it explains
+ * why something isn't part of this work, so an "Out of scope" section or line asks nothing.
+ */
 function isFollowUpLine(text: string): boolean {
 	return LATER_WORK.test(text) || TODO.test(text) || PREFIX.test(text);
 }
@@ -142,6 +147,8 @@ export function followUpLines(body: string | null): string[] {
 			underHeading = true;
 			continue;
 		}
+		// Any other heading ("## Out of scope", "## TODO") names a section; it asks nothing on its own.
+		if (heading !== null) continue;
 		if (!item && isLeadIn(raw)) {
 			underHeading = true;
 			leadIn = { text: raw.trim(), at: out.length };
@@ -154,32 +161,44 @@ export function followUpLines(body: string | null): string[] {
 	return out.map(tidy).filter((t) => t.length > 1 && !EMPTY_ITEM.test(t));
 }
 
+/** The follow-ups that count: not the ones the code may have done since (`stale`). */
+export function liveFollowUps<T extends { stale?: boolean }>(list: readonly T[] | undefined): T[] {
+	return list ? list.filter((f) => !f.stale) : [];
+}
+
 /**
- * The PRs in `prs` with at least one known follow-up, in the same order. `loading` says some PRs have no answer
+ * The PRs in `prs` with at least one live follow-up, in the same order. `loading` says some PRs have no answer
  * yet (neither follow-ups nor an error), so the count may still grow.
  */
 export function needingFollowUp<T extends { key: string }>(
 	prs: T[],
-	followUps: ReadonlyMap<string, readonly unknown[]>,
+	followUps: ReadonlyMap<string, readonly { stale?: boolean }[]>,
 	failed: ReadonlySet<string> = new Set()
 ): { prs: T[]; loading: boolean } {
 	return {
-		prs: prs.filter((p) => (followUps.get(p.key)?.length ?? 0) > 0),
+		prs: prs.filter((p) => liveFollowUps(followUps.get(p.key)).length > 0),
 		loading: prs.some((p) => !followUps.has(p.key) && !failed.has(p.key)),
 	};
 }
 
-/** Every follow-up on a PR, oldest first (the description is dated when the PR opened). The same line said twice counts once. */
+/**
+ * Every follow-up on a PR, oldest first (the description is dated when the PR opened). The same line said twice
+ * counts once; when it was said again after the code changed, the later copy stays live.
+ */
 export function extractFollowUps(texts: FollowUpText[]): FollowUp[] {
 	const ordered = [...texts].sort((a, b) => (a.at ?? '').localeCompare(b.at ?? ''));
-	const seen = new Set<string>();
+	const seen = new Map<string, number>();
 	const out: FollowUp[] = [];
 	for (const t of ordered) {
+		const stale = t.stale ?? false;
 		for (const text of followUpLines(t.body)) {
 			const key = text.toLowerCase();
-			if (seen.has(key)) continue;
-			seen.add(key);
-			out.push({ author: t.author, source: t.source, path: t.path ?? null, line: t.line ?? null, text, url: t.url, at: t.at });
+			const at = seen.get(key);
+			if (at !== undefined) {
+				if (out[at]!.stale && !stale) out[at]!.stale = false;
+				continue;
+			}
+			seen.set(key, out.push({ author: t.author, source: t.source, path: t.path ?? null, line: t.line ?? null, text, url: t.url, at: t.at, stale }) - 1);
 		}
 	}
 	return out;

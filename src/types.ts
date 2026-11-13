@@ -262,6 +262,11 @@ export interface FollowUp {
 	text: string;
 	url: string;
 	at: string | null;
+	/**
+	 * The code changed after it was written (a later commit, or an outdated inline thread), so it may be done
+	 * already. Such a follow-up is listed but not counted, since a wrong flag costs more than a missed one.
+	 */
+	stale: boolean;
 }
 
 // ---------------------------------------------------------------------------

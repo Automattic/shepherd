@@ -22,7 +22,7 @@ import type {
 	TeamMember,
 } from '../src/types.ts';
 import { baseAgeHours, baseTooOld } from '../src/base-age.ts';
-import { FOLLOWUPS_MAX_PRS, needingFollowUp } from '../src/followups.ts';
+import { FOLLOWUPS_MAX_PRS, liveFollowUps, needingFollowUp } from '../src/followups.ts';
 import { countByAuthor, isMergedRange, MERGED_RANGE_LABELS, MERGED_RANGES, mergedInRange, type MergedRange } from '../src/merged.ts';
 import { changesRequestedPending, isTurnOf, WAIT_REASON_TEXT, waitReasons, type WaitReason } from '../src/waiting.ts';
 
@@ -1280,7 +1280,8 @@ async function refreshFollowUps(list: MergedPr[]): Promise<void> {
 }
 
 function followUpsPill(p: MergedPr): string {
-	const n = followUps.get(p.key)?.length ?? 0;
+	// Asks the code may have done since don't count, so a PR with only those has no pill.
+	const n = liveFollowUps(followUps.get(p.key)).length;
 	if (!n) return '';
 	return `<button class="followups-pill" data-followups="${esc(p.key)}" title="Non-blocking asks left on this PR"><i class="fa-solid fa-list-check"></i> ${n} follow-up${n === 1 ? '' : 's'}</button>`;
 }
@@ -1485,23 +1486,24 @@ function placePopover(pop: HTMLElement, btn: HTMLElement, key: string): void {
 	pop.dataset.key = key;
 }
 function openFollowUpsPopover(btn: HTMLElement, key: string): void {
-	const list = followUps.get(key);
+	const all = followUps.get(key) ?? [];
+	const live = liveFollowUps(all);
+	const maybeDone = all.filter((f) => f.stale);
 	const pr = merged.find((p) => p.key === key);
-	if (!list?.length || !pr) return;
+	if (!live.length || !pr) return;
 	const pop = $('#popover');
-	const items = list
-		.map(
-			(f) => `<a class="finding" href="${esc(f.url)}" target="_blank" rel="noopener">
+	const item = (f: FollowUp) => `<a class="finding${f.stale ? ' maybe-done' : ''}" href="${esc(f.url)}" target="_blank" rel="noopener">
 				<div class="f-title">${esc(f.text)}</div>
 				<div class="f-meta">
 					${avatar(f.author, pr.host)}<span>${esc(displayName(f.author))}</span>
 					<span class="sev-tag">${esc(f.source)}</span>
 					${findingPath(f.path, f.line)}
 				</div>
-			</a>`
-		)
-		.join('');
-	pop.innerHTML = `<h3><i class="fa-solid fa-list-check"></i> ${list.length} follow-up${list.length === 1 ? '' : 's'} · #${pr.number}</h3>${items}`;
+			</a>`;
+	const rest = maybeDone.length
+		? `<h4 title="Written before the last commit, or in an outdated thread, so not counted">May be done: the code changed after ${maybeDone.length === 1 ? 'this' : `these ${maybeDone.length}`}</h4>${maybeDone.map(item).join('')}`
+		: '';
+	pop.innerHTML = `<h3><i class="fa-solid fa-list-check"></i> ${live.length} follow-up${live.length === 1 ? '' : 's'} · #${pr.number}</h3>${live.map(item).join('')}${rest}`;
 	placePopover(pop, btn, `followups:${key}`);
 }
 

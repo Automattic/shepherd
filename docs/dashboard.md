@@ -47,9 +47,11 @@ The **Needs follow-up** chip next to the range shows only the merged PRs with at
 What counts as a follow-up:
 
 - Every list item under a heading, or a short line ending in a colon, that says the list doesn't block, such as **Notes that do not block:**, **Non-blocking:**, **Optional:**, **Nits:**, **Follow-ups:**, **Before merging:** or **Fix these before the next PR:**. The list ends at the next paragraph. Ticked checkboxes and empty items such as "None" are left out.
-- Any other line that names later work: a follow-up (but not "follow-up to #12"), a separate or next PR, out of scope, needs a decision, doesn't block, an upper-case TODO, or a line that starts with "Optional:", "Non-blocking:" or "Nit:".
+- Any other line that names later work: a follow-up (but not "follow-up to #12"), a separate or next PR, needs a decision, doesn't block, an upper-case TODO, or a line that starts with "Optional:", "Non-blocking:" or "Nit:".
 
-Shepherd reads the description, the last 50 reviews, the last 100 comments and the first 10 comments of the first 100 inline threads. It skips the host's AI-review `bot` (its findings have their own column), other bots, comments addressed to the bot, quoted text, tables and code blocks. Without any matching text, the row has no pill.
+Shepherd reads the description, the last 50 reviews, the last 100 comments and the first 10 comments of the first 100 inline threads. It skips the host's AI-review `bot` (its findings have their own column), other bots, comments addressed to the bot, resolved inline threads, quoted text, tables and code blocks. Without any matching text, the row has no pill.
+
+A wrong flag costs more than a missed one, so an ask the code may have handled since doesn't count: one from a review of an older commit, a comment written before the last commit, or an outdated inline thread. Nothing in GitHub's data says which ask a commit handled, so some real asks drop out too. The popover lists them dimmed under **May be done**, after the ones that count. A PR with only such asks has no pill. The description always counts, since it describes the final code.
 
 Follow-ups load only while Shipped is open, for the PRs in the range shown. The server asks GitHub for up to 10 PRs of a repo in one GraphQL query and keeps the result for 10 minutes, so a week with 50 merged PRs in one repo costs about 5 queries, then none for 10 minutes.
 

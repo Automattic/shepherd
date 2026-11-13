@@ -105,6 +105,13 @@ describe('followUpLines', () => {
 		expect(followUpLines('Nits are fine. Here is the plan:\n\nShip it.')).toEqual([]);
 	});
 
+	test('"out of scope" explains what the work leaves out; it asks nothing', () => {
+		const body = '## Risks\n\n- Follow-up for Domains: reorder `disable_dnssec()`.\n\n## Out of scope\n\n- No REST route changes.\n- `show_in_rest` is not set.\n\nThis PR does not add a restore ability (out of scope in the ticket).';
+		expect(followUpLines(body)).toEqual(['Follow-up for Domains: reorder `disable_dnssec()`.']);
+		expect(followUpLines('Out of scope here, but worth a look.')).toEqual([]);
+		expect(followUpLines('Out of scope:\n- No REST route changes.')).toEqual([]);
+	});
+
 	test('an empty template section gives nothing', () => {
 		expect(followUpLines('## Follow-ups\n- None\n- N/A')).toEqual([]);
 	});
@@ -128,12 +135,12 @@ describe('extractFollowUps', () => {
 	test("the author's own promises in the description are caught, and everything is in time order", () => {
 		const list = extractFollowUps([
 			text({ author: 'bob', body: 'Optional: add a metric', at: '2026-11-10T12:00:00Z' }),
-			text({ author: 'carol', source: 'inline', path: 'src/app.ts', line: 12, body: 'Out of scope here, but worth a look.', at: '2026-11-10T11:00:00Z' }),
+			text({ author: 'carol', source: 'inline', path: 'src/app.ts', line: 12, body: 'Worth a look in a follow-up.', at: '2026-11-10T11:00:00Z' }),
 			text({ author: 'alice', source: 'description', body: 'Adds the parser.\n\nThe UI comes in a separate PR.', at: '2026-11-09T09:00:00Z' }),
 		]);
 		expect(list.map((f) => [f.author, f.source, f.text])).toEqual([
 			['alice', 'description', 'The UI comes in a separate PR.'],
-			['carol', 'inline', 'Out of scope here, but worth a look.'],
+			['carol', 'inline', 'Worth a look in a follow-up.'],
 			['bob', 'review', 'Optional: add a metric'],
 		]);
 		expect(list[1]).toMatchObject({ path: 'src/app.ts', line: 12 });
@@ -142,6 +149,18 @@ describe('extractFollowUps', () => {
 	test('the same line said twice counts once', () => {
 		const list = extractFollowUps([text({ body: 'Follow-up: add docs' }), text({ source: 'comment', body: 'follow-up: add docs' })]);
 		expect(list).toHaveLength(1);
+	});
+
+	test('an ask repeated after the code changed is live again', () => {
+		const list = extractFollowUps([
+			text({ body: 'Optional: add docs', stale: true, at: '2026-11-10T10:00:00Z' }),
+			text({ body: 'Optional: add docs', at: '2026-11-11T10:00:00Z' }),
+			text({ body: 'Optional: cache it', stale: true }),
+		]);
+		expect(list.map((f) => [f.text, f.stale])).toEqual([
+			['Optional: add docs', false],
+			['Optional: cache it', true],
+		]);
 	});
 });
 
@@ -160,9 +179,18 @@ const raw = (n: number, extra: Record<string, unknown> = {}) => ({
 	body: 'Adds a thing.',
 	createdAt: '2026-11-10T09:00:00Z',
 	author: { login: 'alice' },
+	headRefOid: 'head',
+	// The last commit came before every review and comment, so nothing here is stale.
+	commits: { nodes: [{ commit: { committedDate: '2026-11-10T09:30:00Z' } }] },
 	reviews: {
 		nodes: [
-			{ author: { login: 'bob' }, body: 'Approved.\n\nDoes not block:\n- Add a log line\n- Rename the flag', url: `https://github.com/example-org/app/pull/${n}#review-1`, submittedAt: '2026-11-10T10:00:00Z' },
+			{
+				author: { login: 'bob' },
+				body: 'Approved.\n\nDoes not block:\n- Add a log line\n- Rename the flag',
+				url: `https://github.com/example-org/app/pull/${n}#review-1`,
+				submittedAt: '2026-11-10T10:00:00Z',
+				commit: { oid: 'head' },
+			},
 		],
 	},
 	comments: {
@@ -217,6 +245,43 @@ describe('getFollowUps', () => {
 		expect(calls).toHaveLength(2);
 	});
 
+	test('asks the code may have done since are stale, and resolved threads are dropped', async () => {
+		const later = raw(7, {
+			headRefOid: 'final',
+			commits: { nodes: [{ commit: { committedDate: '2026-11-11T12:00:00Z' } }] },
+			body: 'Adds a thing.\n\nThe UI comes in a separate PR.',
+			reviews: {
+				nodes: [
+					// Approved an older commit; a cleanup commit followed (wpcom#258402).
+					{ author: { login: 'bob' }, body: 'The duplicated helper is fair cleanup but does not block.', url: 'r1', submittedAt: '2026-11-10T10:00:00Z', commit: { oid: 'old' } },
+					{ author: { login: 'dan' }, body: 'Optional: add a metric', url: 'r2', submittedAt: '2026-11-11T13:00:00Z', commit: { oid: 'final' } },
+				],
+			},
+			comments: {
+				nodes: [
+					{ author: { login: 'carol' }, body: 'TODO: drop the flag', url: 'c1', createdAt: '2026-11-11T11:00:00Z' },
+					{ author: { login: 'carol' }, body: 'Rename it in a follow-up.', url: 'c2', createdAt: '2026-11-11T14:00:00Z' },
+				],
+			},
+			reviewThreads: {
+				nodes: [
+					{ isResolved: true, isOutdated: false, path: 'a.ts', line: 1, comments: { nodes: [{ author: { login: 'dan' }, body: 'Optional: inline this', url: 't1', createdAt: '2026-11-11T13:00:00Z' }] } },
+					{ isResolved: false, isOutdated: true, path: 'b.ts', line: 2, comments: { nodes: [{ author: { login: 'dan' }, body: 'Optional: split this', url: 't2', createdAt: '2026-11-11T13:00:00Z' }] } },
+				],
+			},
+		});
+		const gh: GhRunner = { rate: {}, query: async <T,>() => ({ repository: { p0: later } }) as T, get: () => Promise.reject(new Error('not used')) };
+		const out = await createPrService(config, gh).getFollowUps([target(7)]);
+		expect(out.followUps['github:example-org/app#7']!.map((f) => [f.text, f.stale])).toEqual([
+			['The UI comes in a separate PR.', false], // the description describes the final code
+			['The duplicated helper is fair cleanup but does not block.', true], // review of an older commit
+			['TODO: drop the flag', true], // before the last commit
+			['Optional: add a metric', false],
+			['Optional: split this', true], // outdated thread
+			['Rename it in a follow-up.', false],
+		]);
+	});
+
 	test('a PR that is not found is an error, not an empty list', async () => {
 		const { gh } = fakeGh();
 		const out = await createPrService(config, gh).getFollowUps([target(404), target(5)]);
@@ -236,8 +301,17 @@ describe('merged_prs over MCP', () => {
 					return { search: { issueCount: 2, pageInfo: { hasNextPage: false, endCursor: null }, nodes: [node(1), node(2)] } } as T;
 				}
 				const numbers = [...query.matchAll(/pullRequest\(number:(\d+)\)/g)].map((m) => Number(m[1]));
-				// PR 1 has two follow-ups; PR 2 only a plain approval.
-				const quiet = { ...raw(2), reviews: { nodes: [{ author: { login: 'bob' }, body: 'LGTM', url: 'z', submittedAt: now }] }, comments: { nodes: [] } };
+				// PR 1 has three follow-ups; PR 2 a plain approval, and an ask on an older commit that may be done.
+				const quiet = {
+					...raw(2),
+					reviews: {
+						nodes: [
+							{ author: { login: 'bob' }, body: 'LGTM', url: 'z', submittedAt: now, commit: { oid: 'head' } },
+							{ author: { login: 'dan' }, body: 'Optional: add a metric', url: 'z2', submittedAt: now, commit: { oid: 'old' } },
+						],
+					},
+					comments: { nodes: [] },
+				};
 				return { repository: Object.fromEntries(numbers.map((n, i) => [`p${i}`, n === 1 ? raw(1) : quiet])) } as T;
 			},
 			get: () => Promise.reject(new Error('not used')),
@@ -273,7 +347,7 @@ test('parsePrKey reads back what prKey writes, and nothing else', () => {
 
 describe('needingFollowUp (the Shipped "Needs follow-up" chip)', () => {
 	const prs = [{ key: 'a' }, { key: 'b' }, { key: 'c' }, { key: 'd' }];
-	const item = { text: 'Optional: add a test' };
+	const item = { text: 'Optional: add a test', stale: false };
 
 	test('keeps only PRs with at least one follow-up, in order, and counts them', () => {
 		const fu = new Map([['a', [item, item]], ['b', []], ['c', [item]], ['d', []]]);
@@ -285,6 +359,11 @@ describe('needingFollowUp (the Shipped "Needs follow-up" chip)', () => {
 	test('nothing matched means an empty list and a count of 0', () => {
 		const out = needingFollowUp(prs, new Map(prs.map((p) => [p.key, []])));
 		expect(out).toEqual({ prs: [], loading: false });
+	});
+
+	test('a PR whose follow-ups may all be done already is left out', () => {
+		const fu = new Map([['a', [{ ...item, stale: true }]], ['b', [{ ...item, stale: true }, item]], ['c', []], ['d', []]]);
+		expect(needingFollowUp(prs, fu).prs.map((p) => p.key)).toEqual(['b']);
 	});
 
 	test('says it is still loading while a PR has no answer, but not for one that failed', () => {
