@@ -6,7 +6,7 @@
 
 Shepherd tracks your team's open pull requests across one or more GitHub hosts (github.com and any GitHub Enterprise Server) in one table. It answers the questions a lead asks several times a day:
 
-- **What is waiting on me?** PRs that request your review, PRs where someone else had the last word (unless you already approved), and your own PRs with requested changes, marked in orange.
+- **What is waiting on me?** PRs that request your review or your review team's, PRs where someone else had the last word (unless you already approved), and your own PRs with requested changes, marked in orange.
 - **What is ready to go out?** Approved work with no conflicts or failed checks sits at the top with a green border. Approved work that is blocked follows with a dark cyan border. Approvers and change requests are named.
 - **What has the AI reviewer flagged that nobody has resolved?** The count of unresolved threads opened by your code-review bot, split into "fix" and "minor", with links to each finding.
 - **Who do I ping, and is it my turn?** Everyone who has commented, reviewed or committed, most recently active first, plus who acted last. When someone else had the last word on a PR you're part of and you haven't already approved it, it's marked as your turn.
@@ -111,7 +111,7 @@ claude mcp list
 | Column | What it shows |
 | --- | --- |
 | **Pull request** | State icon, title and number, repo, author, Linear tickets, and related PRs. A stacked PR sits under its parent in smaller, inset text. |
-| **Waiting on** | Reviewers asked directly, plus an orange **You** pill whenever the PR is waiting on you for any reason (hover it for why). A red **Author** pill means changes were requested and the author hasn't pushed since. Teammates whose bell is on get an orange ring. Team requests (for example from CODEOWNERS) are grey chips. |
+| **Waiting on** | Reviewers asked directly, plus an orange **You** pill whenever the PR is waiting on you for any reason (hover it for why). A red **Author** pill means changes were requested and the author hasn't pushed since. Teammates whose bell is on get an orange ring. Team requests (for example from CODEOWNERS) are grey chips. When the team is one of your `reviewTeams`, the **You** pill gets a team icon. |
 | **Approvals** | Who approved (green check) and who asked for changes (red cross), with names. |
 | **AI review** | Unresolved review threads opened by the host's AI-review `bot`. **fix** means severity medium or higher and not a nit; **minor** covers everything else. Click the count to list every finding with its file and a link. Shows "n/a" on hosts with no bot. The column name comes from `aiReviewLabel`. |
 | **Participants** | Everyone who commented, reviewed or committed, except the author and bots, most recently active first. Hover an avatar to see when that person was last active. Below them, a small line shows who acted last (author included) and how: comment, review or push. It turns orange as **your turn** when someone else had the last word on a PR you wrote or took part in, unless your approval still stands. |
@@ -147,6 +147,7 @@ The **Shipped** section, collapsed under the tiles, lists the PRs the team merge
 A PR is waiting on someone when any of these is true:
 
 - **Requested:** GitHub lists them as a pending reviewer, asked directly rather than through a team. Submitting any review clears it; the author can re-request it.
+- **Team:** the PR requests a review from one of the host's `reviewTeams` (see [Review teams](#review-teams)). It counts for every team member except the author. It doesn't count on drafts, for someone also asked directly, or for someone whose approval still stands.
 - **Their turn:** someone else commented, reviewed or pushed most recently on a PR they wrote or took part in.
 - **Author:** they wrote it, someone requested changes, and nothing has been pushed since.
 
@@ -206,11 +207,11 @@ The same process answers MCP at `http://127.0.0.1:5050/mcp`. It uses the Streama
 
 | Tool | Use it for | Arguments |
 | --- | --- | --- |
-| `review_queue` | "What is waiting on me?" or on someone else, with the reason for each PR (`requested`, `turn` or `author`) | `person` (default `me`) |
-| `list_prs` | The team's open PRs, filtered | `author`, `repo`, `waiting_on`, `include_drafts`, `include_dormant`, `has_ai_review_findings`, `limit` |
+| `review_queue` | "What is waiting on me?" or on someone else, with the reason for each PR (`requested`, `team`, `turn` or `author`) | `person` (default `me`) |
+| `list_prs` | The team's open PRs, filtered | `author`, `repo`, `waiting_on`, `include_drafts`, `include_dormant`, `has_ai_review_findings`, `review_team_requested`, `limit` |
 | `merged_prs` | "What did we ship this week?": the team's merged PRs with a count per person, in the server's time zone | `range` (`this-week`, `last-week` or `last-30-days`; default `this-week`), `author`, `repo` |
 | `get_pr` | One PR in full: every unresolved AI-review finding, participants with last-active times, who acted last (and whether that was you or the author), stack, checks, and any herdr panes working on it | `url`, or `repo` and `number` |
-| `team` | The roster with each person's logins, the tracked repos, the AI-review bots and the Linear workspace | |
+| `team` | The roster with each person's logins, the tracked repos, the AI-review bots, the Linear workspace and the review teams | |
 
 Agents can name people by `id`, first name or any of their logins, and repos by short name or owner/name. Data is at most 60 seconds old. An unknown person or repo returns an error that lists the valid names.
 
@@ -243,7 +244,7 @@ curl -s http://127.0.0.1:5050/mcp -H 'content-type: application/json' \
 | `port` | Port to listen on. `PORT` in the environment wins. Defaults to `5050`. |
 | `me` | The `id` of the team member the dashboard treats as "you". |
 | `team[]` | `id`, `name`, `short` (the label on screen), and `logins`: one login per host key, for example `{ "github": "octocat", "work": "ocat" }`. |
-| `hosts.<key>` | `hostname`, `label`, `concurrency` (the cap on parallel `gh` processes, default 4), `bot` (the AI-review bot's login, or `null`), and optional `proxychains` (a proxychains config path). |
+| `hosts.<key>` | `hostname`, `label`, `concurrency` (the cap on parallel `gh` processes, default 4), `bot` (the AI-review bot's login, or `null`), optional `proxychains` (a proxychains config path), and optional `reviewTeams` (see [Review teams](#review-teams)). |
 | `repos[]` | `host` (a key from `hosts`), `owner`, `name`, and `short` (the label on screen). Optional `maxBaseAgeHours`: flag PRs whose base is older than this many hours. |
 | `linear` | Optional. `workspace` (the slug in Linear URLs) and `keys` (team prefixes to find in titles and branch names). Use `null` to turn ticket links off. |
 | `aiReviewLabel` | Optional. The name shown for the AI-review column and tile. Defaults to `AI review`. |
@@ -262,6 +263,22 @@ bun run start
 ```
 
 Every request to `/mcp` and `/api/*` then needs `Authorization: Bearer <token>`, or it gets a 401. The token is read from the environment, not `config.json`, because config files are often readable by other users. The server prints the dashboard link as `http://127.0.0.1:5050/#token=…`. Open it once: the page keeps the token in this browser's storage for that address and sends it as a header. The part after `#` never reaches the server. Without `SHEPHERD_TOKEN`, nothing changes. While Shepherd is stopped, another user could listen on the same port and receive the token from an open tab or agent. The browser also keeps the token for that address after the tab closes, so a server that takes the port later can read it the next time you open the dashboard. Stop open tabs and agents with Shepherd, and change the token after a while.
+
+### Review teams
+
+Some teams mark a PR as ready for review by requesting a review from a GitHub team instead of naming people. To put those PRs in everyone's queue, list the teams on the host:
+
+```json
+"hosts": {
+  "github": { "hostname": "github.com", "label": "GitHub", "bot": null, "reviewTeams": ["my-org/reviewers"] }
+}
+```
+
+Each entry is `org/team`, as in GitHub's `team-review-requested:` search. Shepherd treats every person in `team` with a login on that host as a member. An open PR in the tracked repos that requests one of these teams then waits on all of them except its author, with a **You** pill that has a team icon. It leaves a person's queue once they approve, and drafts never count. When GitHub clears the team request, for example after a member reviews on the team's behalf, the PR leaves everyone's queue. Without `reviewTeams`, team requests show as grey chips and don't count. Teams are set per host because team names belong to one GitHub host. Shepherd doesn't read team membership from GitHub, so if a host lists several teams, everyone counts as a member of all of them.
+
+These PRs stay visible even after 60 idle days, like a direct request, on the dashboard and in the MCP tools.
+
+Agents can ask for these PRs directly. Every PR the MCP tools return with details has `reviewTeamRequested` (true on an open, non-draft PR that requests a review team) and `waitingOnReviewFrom.reviewTeams` (which ones, as `org/team`). `list_prs` with `review_team_requested: true` returns those PRs, including ones by people outside `team`; a PR whose details could not be loaded is listed under `errors` instead. The `team` tool lists the review teams per host.
 
 ### GitHub Enterprise and proxies
 
@@ -325,8 +342,8 @@ When a PR leaves the list, the page checks it directly before changing anything,
 | Red banner: **\<host\> could not be reached** | `gh` is not signed in to that host, or its proxy is down. Run the `gh auth status` check for that host. |
 | Red banner: **Dashboard server could not be reached** | The server stopped. Start it again with `bun run start`. |
 | A row shows a red triangle instead of the refresh icon | That row's last reload failed; hover it to read why. The row keeps its last data and tries again on the next tick. |
-| "Waiting on you" differs from GitHub's review count | Shepherd counts direct review requests, PRs where it's your turn, and your PRs with requested changes. Requests to a team you belong to show as grey chips and don't count. See [What "waiting on" means](#what-waiting-on-means). |
-| A PR you expect is missing | Check the filters, then **Drafts** and **Dormant 60d+**. Only PRs by people in `team`, or PRs that request a review from someone whose bell is on, are tracked. |
+| "Waiting on you" differs from GitHub's review count | Shepherd counts direct review requests, PRs where it's your turn, and your PRs with requested changes. Requests to a team count only when the team is in the host's `reviewTeams`; other teams show as grey chips. See [What "waiting on" means](#what-waiting-on-means). |
+| A PR you expect is missing | Check the filters, then **Drafts** and **Dormant 60d+**. Only PRs by people in `team`, PRs that request a review from someone whose bell is on, and PRs that request one of the `reviewTeams`, are tracked. |
 | A teammate's avatar shows initials | They have no `github` login in `logins`; avatars come from github.com. |
 | A bot appears in Participants | Add its login to `ignoreParticipants` and restart. |
 | The rate badge in the header turns red | Fewer than 500 github.com points are left this hour. Refreshing slows down by itself and recovers at the reset time shown when you hover the badge. |

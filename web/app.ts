@@ -366,12 +366,19 @@ function isApproved(row: Row): boolean {
 }
 
 /** True when the PR directly requests a review from this team member. */
-/** Why a PR waits on a team member (see src/waiting.ts); before details load, only direct review requests are known. */
+/**
+ * Why a PR waits on a team member (see src/waiting.ts). Before details load, only requests are known: a direct
+ * one, or a review-team request (the search already leaves out drafts) on a PR they didn't write. Knowing the
+ * team request early keeps an idle PR that waits on the team visible, so its details load.
+ */
 function waitReasonsFor(row: Row, id: string): WaitReason[] {
 	const m = cfg.team.find((t) => t.id === id);
 	if (!m) return [];
 	if (row.detail) return waitReasons(row.detail, m);
-	return row.light.requestedFor.includes(id) ? ['requested'] : [];
+	if (row.light.requestedFor.includes(id)) return ['requested'];
+	const login = m.logins[row.light.host];
+	if (row.light.teamRequested && login && login.toLowerCase() !== row.light.author.login.toLowerCase()) return ['team'];
+	return [];
 }
 
 function waitingOnMember(row: Row, id: string): boolean {
@@ -555,11 +562,12 @@ function cellWait(row: Row): string {
 		const watched = m && reviewers().includes(m.id);
 		parts.push(`<span class="avatar-wrap ${watched ? 'watch' : ''}" title="${esc(m?.name || u.name || u.login)}">${avatar(u.login, host)}</span>`);
 	}
-	// Beyond review requests: your turn, and changes waiting on the author.
+	// Beyond review requests: your team's request, your turn, and changes waiting on the author.
 	const mine = waitReasonsFor(row, cfg.me);
 	if (!mine.includes('requested') && mine.length) {
 		const why = mine.map((r) => WAIT_REASON_TEXT[r]).join('; ');
-		parts.unshift(`<span class="you-pill" title="Waiting on you: ${esc(why)}">${avatar(loginOn(meMember(), host) ?? '', host)}You</span>`);
+		const icon = mine.includes('team') ? '<i class="fa-solid fa-users"></i>' : '';
+		parts.unshift(`<span class="you-pill" title="Waiting on you: ${esc(why)}">${avatar(loginOn(meMember(), host) ?? '', host)}You${icon}</span>`);
 	}
 	if (changesRequestedPending(d) && !isMe(d.author.login, host)) {
 		parts.push(
@@ -1155,7 +1163,8 @@ async function refreshList({ force = false }: { force?: boolean } = {}): Promise
 		}
 		for (const row of rows.values()) {
 			if (row.gone || seen.has(row.key) || hostErrors[row.light.host]) continue;
-			const stillWanted = row.light.authoredByTeam || row.light.requestedFor.some((id) => reviewers().includes(id));
+			const stillWanted =
+				row.light.authoredByTeam || row.light.teamRequested || row.light.requestedFor.some((id) => reviewers().includes(id));
 			if (!stillWanted) {
 				removeRow(row); // a review-request toggle was switched off
 				continue;
