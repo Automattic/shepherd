@@ -352,12 +352,19 @@ function isApproved(row: Row): boolean {
 }
 
 /** True when the PR directly requests a review from this team member. */
-/** Why a PR waits on a team member (see src/waiting.ts); before details load, only direct review requests are known. */
+/**
+ * Why a PR waits on a team member (see src/waiting.ts). Before details load, only requests are known: a direct
+ * one, or a review-team request (the search already leaves out drafts) on a PR they didn't write. Knowing the
+ * team request early keeps an idle PR that waits on the team visible, so its details load.
+ */
 function waitReasonsFor(row: Row, id: string): WaitReason[] {
 	const m = cfg.team.find((t) => t.id === id);
 	if (!m) return [];
 	if (row.detail) return waitReasons(row.detail, m);
-	return row.light.requestedFor.includes(id) ? ['requested'] : [];
+	if (row.light.requestedFor.includes(id)) return ['requested'];
+	const login = m.logins[row.light.host];
+	if (row.light.teamRequested && login && login.toLowerCase() !== row.light.author.login.toLowerCase()) return ['team'];
+	return [];
 }
 
 function waitingOnMember(row: Row, id: string): boolean {

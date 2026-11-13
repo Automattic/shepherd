@@ -206,8 +206,11 @@ export interface PrDetail {
 	/** statusCheckRollup state, e.g. SUCCESS, FAILURE, PENDING; null when there are no checks. */
 	checks: string | null;
 	size: { additions: number; deletions: number; files: number };
-	/** `reviewTeam`: the team is one of the host's `reviewTeams`. */
-	requested: { users: { login: string; name: string | null }[]; teams: { slug: string; name: string; reviewTeam: boolean }[] };
+	/** `combinedSlug` is "org/team"; `reviewTeam`: the team is one of the host's `reviewTeams`. */
+	requested: {
+		users: { login: string; name: string | null }[];
+		teams: { slug: string; combinedSlug: string; name: string; reviewTeam: boolean }[];
+	};
 	/** Latest opinionated review per reviewer. */
 	reviews: PrReview[];
 	/** Null on hosts without an AI-review bot. */

@@ -144,8 +144,8 @@ export function createMcpHandler(config: Config, prs: PrService, herdr: HerdrSer
 			waitingOnReviewFrom: {
 				people: d.requested.users.map((u) => nameOf(u.login)),
 				teams: d.requested.teams.map((t) => t.slug),
-				// The requested teams that are in the host's reviewTeams.
-				reviewTeams: d.requested.teams.filter((t) => t.reviewTeam).map((t) => t.slug),
+				// The requested teams that are in the host's reviewTeams, as "org/team" to match the team tool and config.
+				reviewTeams: d.requested.teams.filter((t) => t.reviewTeam).map((t) => t.combinedSlug),
 			},
 			// A review team is requested on an open, non-draft PR: it waits on the team, as the review queue counts it.
 			reviewTeamRequested: d.state === 'OPEN' && !d.isDraft && d.requested.teams.some((t) => t.reviewTeam),
@@ -278,7 +278,11 @@ export function createMcpHandler(config: Config, prs: PrService, herdr: HerdrSer
 					repo: { type: 'string', description: `Only this repo: short name or owner/name (e.g. ${exampleRepos}).` },
 					waiting_on: { type: 'string', description: "Only PRs that directly request this person's review. Includes PRs by people outside the team." },
 					include_drafts: { type: 'boolean', default: true },
-					include_dormant: { type: 'boolean', default: false, description: 'Include PRs idle for more than 60 days.' },
+					include_dormant: {
+						type: 'boolean',
+						default: false,
+						description: 'Include PRs idle for more than 60 days. PRs that request a review team are always included.',
+					},
 					has_ai_review_findings: { type: 'boolean', description: `Only PRs with unresolved ${reviewLabel} threads.` },
 					review_team_requested: {
 						type: 'boolean',
@@ -315,8 +319,9 @@ export function createMcpHandler(config: Config, prs: PrService, herdr: HerdrSer
 					if (author && author.logins[p.host] !== p.author.login) return false;
 					if (repo && !(p.host === repo.host && p.owner === repo.owner && p.repo === repo.name)) return false;
 					if (!includeDrafts && p.isDraft) return false;
+					// A PR that requests a review team waits on the team, so it stays even when idle, like a direct request.
 					const dormant = Date.now() - new Date(p.updatedAt).getTime() > DORMANT_MS;
-					if (!includeDormant && dormant && !reviewer) return false;
+					if (!includeDormant && dormant && !reviewer && !p.teamRequested) return false;
 					return true;
 				});
 				picked.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
@@ -325,6 +330,11 @@ export function createMcpHandler(config: Config, prs: PrService, herdr: HerdrSer
 				const needsDetails = onlyFindings || onlyTeam;
 				if (!needsDetails) picked = picked.slice(0, limit);
 				let items = await details(picked);
+				if (needsDetails) {
+					// A PR whose details failed can't be checked against these filters; report it instead of dropping it silently.
+					for (const x of items) if ('error' in x) errors.push(`${x.url}: ${x.error}`);
+					items = items.filter((x) => !('error' in x));
+				}
 				if (onlyFindings) items = items.filter(hasFindings);
 				if (onlyTeam) items = items.filter(reviewTeamRequested);
 				const matched = needsDetails ? items.length : matchedBeforeDetails;
@@ -336,7 +346,7 @@ export function createMcpHandler(config: Config, prs: PrService, herdr: HerdrSer
 			name: 'review_queue',
 			title: 'Review queue for a person',
 			description:
-				`Open PRs in the tracked repos that are waiting on one person (default: "me", the dashboard owner), with the reason for each: "requested" (their review is directly requested), "team" (a review team they belong to is requested; never on their own PRs, drafts or PRs they approved), "turn" (someone else had the last word on a PR they wrote or took part in, and they have not already approved it), or "author" (they wrote it, changes were requested, and nothing was pushed since). Use it to answer "what is waiting on me?" or "on ${exampleMember}?". PRs idle for more than 60 days are left out unless their review is directly requested.`,
+				`Open PRs in the tracked repos that are waiting on one person (default: "me", the dashboard owner), with the reason for each: "requested" (their review is directly requested), "team" (a review team they belong to is requested; never on their own PRs, drafts or PRs they approved), "turn" (someone else had the last word on a PR they wrote or took part in, and they have not already approved it), or "author" (they wrote it, changes were requested, and nothing was pushed since). Use it to answer "what is waiting on me?" or "on ${exampleMember}?". PRs idle for more than 60 days are left out unless their review, or a review team's, is requested.`,
 			inputSchema: {
 				type: 'object',
 				properties: { person: { type: 'string', default: 'me', description: 'Team id, first name or GitHub login.' } },
@@ -348,7 +358,7 @@ export function createMcpHandler(config: Config, prs: PrService, herdr: HerdrSer
 				const { prs: all, errors } = await collect([person.id]);
 				// Every non-dormant candidate needs details: "turn" and "author" depend on activity, not just requests.
 				const candidates = all.filter(
-					(p) => p.requestedFor.includes(person.id) || Date.now() - new Date(p.updatedAt).getTime() <= DORMANT_MS
+					(p) => p.requestedFor.includes(person.id) || p.teamRequested || Date.now() - new Date(p.updatedAt).getTime() <= DORMANT_MS
 				);
 				const settled = await Promise.allSettled(
 					candidates.map((p) =>

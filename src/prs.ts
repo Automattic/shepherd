@@ -448,7 +448,7 @@ export function createPrService(config: Config, gh: GhRunner): PrService {
 		for (const n of pr.reviewRequests.nodes) {
 			const r = n.requestedReviewer;
 			if (r && r.__typename === 'User' && 'login' in r) users.push({ login: r.login, name: r.name });
-			else if (r && r.__typename === 'Team' && 'slug' in r) teams.push({ slug: r.slug, name: r.name, reviewTeam: reviewTeams.includes(r.combinedSlug.toLowerCase()) });
+			else if (r && r.__typename === 'Team' && 'slug' in r) teams.push({ slug: r.slug, combinedSlug: r.combinedSlug, name: r.name, reviewTeam: reviewTeams.includes(r.combinedSlug.toLowerCase()) });
 		}
 		const mini = (p: RawMiniPr): MiniPr => ({ number: p.number, title: p.title, url: p.url, author: p.author?.login ?? 'ghost' });
 		const { participants, lastActive, lastActivity } = shapeParticipants(pr);
