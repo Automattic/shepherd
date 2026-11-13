@@ -38,6 +38,26 @@ The MCP tools return `baseAgeHours` for every open PR, and `baseTooOld` when the
 
 The **Shipped** section, collapsed under the tiles, lists the PRs the team merged in the tracked repos: **This week** (since Monday 00:00 in your time zone), **Last week** (the Monday to Sunday before) or **Last 30 days**. A line on top counts them per person; the list below is newest first. The server searches the last 32 days once a minute, one search per host, and the page filters to the range you pick, so switching ranges sends no request. The page remembers the range and whether the section is open.
 
+### Follow-ups
+
+Reviewers often approve with a list of asks that don't block the merge. Once the PR merges, nobody sees them again. A Shipped row shows a **3 follow-ups** pill when people left such asks on the PR; click it to list them, with who wrote each one, where (description, review, comment, or file and line) and a link.
+
+The **Needs follow-up** chip next to the range shows only the merged PRs with at least one follow-up, and the section summary says how many there are (for example **51 this week · 30 need follow-up**). The count ends in **+** while follow-ups are still loading. It appears once the section has been opened, since follow-ups load only then. The page remembers whether the chip is on.
+
+What counts as a follow-up:
+
+- Every list item under a heading, or a short line ending in a colon, that says the list doesn't block, such as **Notes that do not block:**, **Non-blocking:**, **Optional:**, **Nits:**, **Follow-ups:**, **Before merging:** or **Fix these before the next PR:**. The list ends at the next paragraph. Ticked checkboxes and empty items such as "None" are left out.
+- Any other line that asks for later work: "in a follow-up", "a follow-up issue", "follow-up for Domains", "(follow-up)", needs a decision, doesn't block, an upper-case TODO, or a line that starts with "Optional:", "Non-blocking:", "Nit:" or "Follow-up:". "follow-up" as a noun or adjective for something else ("the follow-up review marks it resolved", "This follow-up changes…") doesn't count.
+- In a review or comment, a line that puts work in a separate, next or later PR. In the description, the same words describe the author's own stack ("the next PR adds the loader line"), so they don't count there.
+
+A line that ends in a colon introduces what follows, so it never counts on its own. "Out of scope" never counts: it explains why something isn't part of the work.
+
+Shepherd reads the description, the last 50 reviews, the last 100 comments and the first 10 comments of the first 100 inline threads. It skips the host's AI-review `bot` (its findings have their own column), other bots, comments addressed to the bot, resolved inline threads, quoted text, tables and code blocks. Without any matching text, the row has no pill.
+
+A wrong flag costs more than a missed one, so an ask the code may have handled since doesn't count: one from a review of an older commit, a comment written before the last commit, or an outdated inline thread. Nothing in GitHub's data says which ask a commit handled, so some real asks drop out too. The popover lists them dimmed under **May be done**, after the ones that count. A PR with only such asks has no pill. The description always counts, since it describes the final code.
+
+Follow-ups load only while Shipped is open, for the PRs in the range shown. The server asks GitHub for up to 10 PRs of a repo in one GraphQL query and keeps the result for 10 minutes, so a week with 50 merged PRs in one repo costs about 5 queries, then none for 10 minutes.
+
 ## What "waiting on" means
 
 A PR is waiting on someone when any of these is true:

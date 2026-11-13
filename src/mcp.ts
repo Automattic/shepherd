@@ -3,10 +3,11 @@
 // It reuses the dashboard's gh runner and caches, so agents and the page share one budget.
 
 import { baseAgeHours, baseTooOld } from './base-age.ts';
+import { liveFollowUps } from './followups.ts';
 import type { HerdrService } from './herdr.ts';
 import { countByAuthor, isMergedRange, MERGED_RANGES, mergedInRange, rangeBounds } from './merged.ts';
 import type { PrService } from './prs.ts';
-import type { Config, LightPr, MergedPr, PrDetail, RepoConfig, TeamMember } from './types.ts';
+import type { Config, FollowUp, LightPr, MergedPr, PrDetail, RepoConfig, TeamMember } from './types.ts';
 import { changesRequestedPending, waitReasons, type WaitReason } from './waiting.ts';
 
 const PROTOCOL_VERSIONS = ['2025-06-18', '2025-03-26', '2024-11-05'] as const;
@@ -239,6 +240,14 @@ export function createMcpHandler(config: Config, prs: PrService, herdr: HerdrSer
 	const collect = (reviewers: string[] = []): Promise<{ prs: LightPr[]; errors: string[] }> =>
 		collectFrom((h) => prs.listHost(h, reviewers).then((r) => r.prs));
 
+	const followUpItem = (f: FollowUp) => ({
+		who: nameOf(f.author),
+		where: f.source === 'inline' && f.path ? `${f.path}${f.line ? `:${f.line}` : ''}` : f.source,
+		text: f.text,
+		url: f.url,
+		at: f.at,
+	});
+
 	const hasFindings = (x: Summary | ReturnType<typeof lightSummary>): boolean =>
 		'aiReview' in x && x.aiReview !== null && x.aiReview.unresolved > 0;
 
@@ -388,18 +397,20 @@ export function createMcpHandler(config: Config, prs: PrService, herdr: HerdrSer
 			name: 'merged_prs',
 			title: 'Merged team pull requests',
 			description:
-				'Pull requests written by the team in the tracked repos that merged in a range: "this-week" (since Monday 00:00), "last-week" (the Monday-to-Sunday before) or "last-30-days". Times are in the server\'s local time zone. Returns a count per person and the PRs, newest first. Filter by author or repo.',
+				'Pull requests written by the team in the tracked repos that merged in a range: "this-week" (since Monday 00:00), "last-week" (the Monday-to-Sunday before) or "last-30-days". Times are in the server\'s local time zone. Returns a count per person and the PRs, newest first. Each PR has `followUps`: how many non-blocking asks people left on it (items under headings like "Optional:" or "Does not block:", and lines that ask for a follow-up, a separate PR or a TODO); null when they could not be fetched. Asks written before the last commit, or in a resolved or outdated thread, may be done already and are not counted or listed. Set include_follow_ups to list them, or call get_pr for one PR. Filter by author or repo.',
 			inputSchema: {
 				type: 'object',
 				properties: {
 					range: { type: 'string', enum: [...MERGED_RANGES], default: 'this-week' },
 					author: { type: 'string', description: `Only PRs by this person: team id, first name or GitHub login (e.g. "me", "${exampleMember}").` },
 					repo: { type: 'string', description: `Only this repo: short name or owner/name (e.g. ${exampleRepos}).` },
+					include_follow_ups: { type: 'boolean', default: false, description: "List each PR's follow-ups (who, where, the line, a link), not only the count." },
 				},
 				additionalProperties: false,
 			},
 			annotations: { readOnlyHint: true, openWorldHint: true },
 			run: async (args) => {
+				const withItems = bool(args, 'include_follow_ups') ?? false;
 				const range = str(args, 'range') ?? 'this-week';
 				if (!isMergedRange(range)) throw new Error(`\`range\` must be one of: ${MERGED_RANGES.join(', ')}`);
 				const authorArg = str(args, 'author');
@@ -421,6 +432,9 @@ export function createMcpHandler(config: Config, prs: PrService, herdr: HerdrSer
 						(!author || author.logins[p.host]?.toLowerCase() === p.author.toLowerCase())
 				);
 				const { start, end } = rangeBounds(range, now);
+				// Cached per PR; uncached ones cost one query per 10 PRs of a repo.
+				const fu = await prs.getFollowUps(picked);
+				for (const p of picked) if (fu.errors[p.key]) errors.push(`follow-ups for ${p.url}: ${fu.errors[p.key]}`);
 				// One entry per person, even with a different login on each host.
 				const byPerson = Object.fromEntries(countByAuthor(picked, (login) => team.find((t) => Object.values(t.logins).some((x) => x.toLowerCase() === login.toLowerCase()))?.name ?? login));
 				return {
@@ -436,6 +450,8 @@ export function createMcpHandler(config: Config, prs: PrService, herdr: HerdrSer
 						title: p.title,
 						author: nameOf(p.author),
 						merged: p.mergedAt,
+						followUps: fu.followUps[p.key] ? liveFollowUps(fu.followUps[p.key]).length : null,
+						...(withItems && liveFollowUps(fu.followUps[p.key]).length ? { followUpItems: liveFollowUps(fu.followUps[p.key]).map(followUpItem) } : {}),
 					})),
 				};
 			},
@@ -444,7 +460,7 @@ export function createMcpHandler(config: Config, prs: PrService, herdr: HerdrSer
 			name: 'get_pr',
 			title: 'Pull request details',
 			description:
-				'Full status of one pull request: reviewers waiting, approvals, every unresolved AI-review bot finding (severity, file, link), participants and when each was last active (who to ping), the most recent activity (who acted last, and whether it was the author or "me"), checks, conflicts, how old the base is (baseAgeHours, and baseTooOld when the repo sets maxBaseAgeHours), Linear tickets, stacked PRs, and any local herdr terminal panes working on it. Give a PR URL, or a repo plus number.',
+				'Full status of one pull request: reviewers waiting, approvals, every unresolved AI-review bot finding (severity, file, link), participants and when each was last active (who to ping), the most recent activity (who acted last, and whether it was the author or "me"), checks, conflicts, how old the base is (baseAgeHours, and baseTooOld when the repo sets maxBaseAgeHours), Linear tickets, stacked PRs, follow-ups (non-blocking asks left in the description, reviews and comments, with who wrote each and a link; `followUpsMaybeDone` counts the asks written before the last commit, which are left out), and any local herdr terminal panes working on it. Give a PR URL, or a repo plus number.',
 			inputSchema: {
 				type: 'object',
 				properties: {
@@ -466,7 +482,10 @@ export function createMcpHandler(config: Config, prs: PrService, herdr: HerdrSer
 					const r = findRepo(repoArg);
 					target = { host: r.host, owner: r.owner, repo: r.name, number };
 				}
-				const d = await prs.getDetail({ ...target, maxAgeMs: DETAIL_MAX_AGE_MS });
+				const [d, fu] = await Promise.all([prs.getDetail({ ...target, maxAgeMs: DETAIL_MAX_AGE_MS }), prs.getFollowUps([target])]);
+				const found = Object.values(fu.followUps)[0];
+				const followUps = found ? liveFollowUps(found).map(followUpItem) : { unavailable: Object.values(fu.errors)[0] ?? 'unknown error' };
+				const maybeDone = found ? found.length - liveFollowUps(found).length : 0;
 				// Panes in the local herdr session working on this PR (only when herdr is installed and running).
 				// Match against every tracked PR, as the dashboard does, so a session that surveys many PRs
 				// isn't mistaken for one working on this PR.
@@ -487,7 +506,7 @@ export function createMcpHandler(config: Config, prs: PrService, herdr: HerdrSer
 							git: p.git,
 						}))
 					: { unavailable: h.reason };
-				return { ...summarize(d, { findings: true }), herdrPanes };
+				return { ...summarize(d, { findings: true }), followUps, ...(maybeDone ? { followUpsMaybeDone: maybeDone } : {}), herdrPanes };
 			},
 		},
 	];

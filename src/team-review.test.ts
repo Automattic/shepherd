@@ -202,6 +202,7 @@ describe('MCP tools with review teams', () => {
 				return details[Number(req.number)]!;
 			},
 			listMerged: async () => ({ prs: [], total: 0 }),
+			getFollowUps: async () => ({ followUps: {}, errors: {} }),
 		};
 		const herdr: HerdrService = {
 			links: async () => ({ available: false, reason: 'off', links: {}, scannedAt: now }),

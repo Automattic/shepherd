@@ -7,8 +7,9 @@ import { DEFAULT_PORT, loadConfig, publicConfig, ROOT } from './config.ts';
 import { createGh } from './gh.ts';
 import { createHerdr } from './herdr.ts';
 import { createMcpHandler } from './mcp.ts';
-import { createPrService, NotFoundError } from './prs.ts';
-import type { DetailResponse, ErrorResponse, HerdrLinksResponse, LightPr, ListResponse, MergedPr, MergedResponse, PaneMatchPr } from './types.ts';
+import { FOLLOWUPS_MAX_PRS } from './followups.ts';
+import { createPrService, NotFoundError, parsePrKey } from './prs.ts';
+import type { DetailResponse, ErrorResponse, FollowUpsResponse, HerdrLinksResponse, LightPr, ListResponse, MergedPr, MergedResponse, PaneMatchPr } from './types.ts';
 
 const PUBLIC_DIR = join(ROOT, 'public');
 const CLIENT_ENTRY = join(ROOT, 'web', 'app.ts');
@@ -90,6 +91,23 @@ async function listMerged(): Promise<Response> {
 	return json<MergedResponse>(200, { prs: list, errors });
 }
 
+/** Follow-ups for `?prs=<key>,<key>`, where a key is a prKey in a tracked repo. */
+async function getFollowUps(url: URL): Promise<Response> {
+	const keys = (url.searchParams.get('prs') ?? '').split(',').filter(Boolean);
+	if (!keys.length || keys.length > FOLLOWUPS_MAX_PRS) {
+		return json<ErrorResponse>(400, { error: `bad request: prs must list 1 to ${FOLLOWUPS_MAX_PRS} PR keys` });
+	}
+	const targets = [];
+	for (const key of keys) {
+		const t = parsePrKey(key);
+		// Only tracked repos, so the endpoint can't be used to read arbitrary PRs through the server's gh login.
+		const tracked = t && config.repos.some((r) => r.host === t.host && r.owner.toLowerCase() === t.owner.toLowerCase() && r.name.toLowerCase() === t.repo.toLowerCase());
+		if (!t || !tracked) return json<ErrorResponse>(400, { error: `bad request: not a PR key in a tracked repo: ${key.slice(0, 200)}` });
+		targets.push(t);
+	}
+	return json<FollowUpsResponse>(200, await prs.getFollowUps(targets));
+}
+
 async function getPr(url: URL): Promise<Response> {
 	const q = Object.fromEntries(url.searchParams);
 	const { host, owner, repo, number } = q;
@@ -166,6 +184,7 @@ const server = Bun.serve({
 			if (url.pathname === '/api/prs') return await listPrs(url);
 			if (url.pathname === '/api/pr') return await getPr(url);
 			if (url.pathname === '/api/merged') return await listMerged();
+			if (url.pathname === '/api/followups') return await getFollowUps(url);
 			if (url.pathname === '/api/herdr/links') return await herdrLinks(req);
 			if (url.pathname === '/api/herdr/focus') return await herdrFocus(req);
 			if (url.pathname.startsWith('/api/')) return json<ErrorResponse>(404, { error: 'not found' });
