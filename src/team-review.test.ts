@@ -201,6 +201,7 @@ describe('MCP tools with review teams', () => {
 				if (opts.failing?.includes(Number(req.number))) throw new Error('proxy timeout');
 				return details[Number(req.number)]!;
 			},
+			listMerged: async () => ({ prs: [], total: 0 }),
 		};
 		const herdr: HerdrService = {
 			links: async () => ({ available: false, reason: 'off', links: {}, scannedAt: now }),

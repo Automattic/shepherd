@@ -4,8 +4,9 @@
 
 import { baseAgeHours, baseTooOld } from './base-age.ts';
 import type { HerdrService } from './herdr.ts';
+import { countByAuthor, isMergedRange, MERGED_RANGES, mergedInRange, rangeBounds } from './merged.ts';
 import type { PrService } from './prs.ts';
-import type { Config, LightPr, PrDetail, RepoConfig, TeamMember } from './types.ts';
+import type { Config, LightPr, MergedPr, PrDetail, RepoConfig, TeamMember } from './types.ts';
 import { changesRequestedPending, waitReasons, type WaitReason } from './waiting.ts';
 
 const PROTOCOL_VERSIONS = ['2025-06-18', '2025-03-26', '2024-11-05'] as const;
@@ -110,7 +111,8 @@ export function createMcpHandler(config: Config, prs: PrService, herdr: HerdrSer
 	}
 
 	const nameOf = (login: string): string => {
-		const m = team.find((t) => Object.values(t.logins).includes(login));
+		const l = login.toLowerCase();
+		const m = team.find((t) => Object.values(t.logins).some((x) => x.toLowerCase() === l));
 		return m ? `${m.short === 'You' ? m.name : m.short} (${login})` : login;
 	};
 	const repoShort = (host: string, owner: string, name: string): string =>
@@ -222,16 +224,20 @@ export function createMcpHandler(config: Config, prs: PrService, herdr: HerdrSer
 		);
 	}
 
-	async function collect(reviewers: string[] = []): Promise<{ prs: LightPr[]; errors: string[] }> {
-		const settled = await Promise.allSettled(prs.hostKeys.map((h) => prs.listHost(h, reviewers)));
-		const out: LightPr[] = [];
+	/** Runs `fetch` on every host; a failed host becomes an error line instead of failing the call. */
+	async function collectFrom<T>(fetch: (hostKey: string) => Promise<T[]>): Promise<{ prs: T[]; errors: string[] }> {
+		const settled = await Promise.allSettled(prs.hostKeys.map(fetch));
+		const out: T[] = [];
 		const errors: string[] = [];
 		settled.forEach((s, i) => {
-			if (s.status === 'fulfilled') out.push(...s.value.prs);
+			if (s.status === 'fulfilled') out.push(...s.value);
 			else errors.push(`${hostname(prs.hostKeys[i]!)}: ${(s.reason as Error).message}`);
 		});
 		return { prs: out, errors };
 	}
+
+	const collect = (reviewers: string[] = []): Promise<{ prs: LightPr[]; errors: string[] }> =>
+		collectFrom((h) => prs.listHost(h, reviewers).then((r) => r.prs));
 
 	const hasFindings = (x: Summary | ReturnType<typeof lightSummary>): boolean =>
 		'aiReview' in x && x.aiReview !== null && x.aiReview.unresolved > 0;
@@ -379,6 +385,62 @@ export function createMcpHandler(config: Config, prs: PrService, herdr: HerdrSer
 			},
 		},
 		{
+			name: 'merged_prs',
+			title: 'Merged team pull requests',
+			description:
+				'Pull requests written by the team in the tracked repos that merged in a range: "this-week" (since Monday 00:00), "last-week" (the Monday-to-Sunday before) or "last-30-days". Times are in the server\'s local time zone. Returns a count per person and the PRs, newest first. Filter by author or repo.',
+			inputSchema: {
+				type: 'object',
+				properties: {
+					range: { type: 'string', enum: [...MERGED_RANGES], default: 'this-week' },
+					author: { type: 'string', description: `Only PRs by this person: team id, first name or GitHub login (e.g. "me", "${exampleMember}").` },
+					repo: { type: 'string', description: `Only this repo: short name or owner/name (e.g. ${exampleRepos}).` },
+				},
+				additionalProperties: false,
+			},
+			annotations: { readOnlyHint: true, openWorldHint: true },
+			run: async (args) => {
+				const range = str(args, 'range') ?? 'this-week';
+				if (!isMergedRange(range)) throw new Error(`\`range\` must be one of: ${MERGED_RANGES.join(', ')}`);
+				const authorArg = str(args, 'author');
+				const repoArg = str(args, 'repo');
+				const author = authorArg ? requireMember(authorArg) : null;
+				const repo = repoArg ? findRepo(repoArg) : null;
+
+				const cut: string[] = [];
+				const { prs: all, errors } = await collectFrom<MergedPr>(async (h) => {
+					const { prs: list, total } = await prs.listMerged(h);
+					if (total > list.length) cut.push(`${hostname(h)}: showing the newest ${list.length} of ${total} merged PRs`);
+					return list;
+				});
+				errors.push(...cut);
+				const now = new Date();
+				const picked = mergedInRange(all, team.flatMap((m) => Object.values(m.logins)), range, now).filter(
+					(p) =>
+						(!repo || (p.host === repo.host && p.owner === repo.owner && p.repo === repo.name)) &&
+						(!author || author.logins[p.host]?.toLowerCase() === p.author.toLowerCase())
+				);
+				const { start, end } = rangeBounds(range, now);
+				// One entry per person, even with a different login on each host.
+				const byPerson = Object.fromEntries(countByAuthor(picked, (login) => team.find((t) => Object.values(t.logins).some((x) => x.toLowerCase() === login.toLowerCase()))?.name ?? login));
+				return {
+					range,
+					from: start.toISOString(),
+					to: (end ?? now).toISOString(),
+					count: picked.length,
+					byPerson,
+					errors,
+					pullRequests: picked.map((p) => ({
+						ref: `${repoShort(p.host, p.owner, p.repo)}#${p.number}`,
+						url: p.url,
+						title: p.title,
+						author: nameOf(p.author),
+						merged: p.mergedAt,
+					})),
+				};
+			},
+		},
+		{
 			name: 'get_pr',
 			title: 'Pull request details',
 			description:
@@ -453,7 +515,7 @@ export function createMcpHandler(config: Config, prs: PrService, herdr: HerdrSer
 					capabilities: { tools: { listChanged: false } },
 					serverInfo: { name: 'shepherd', title: 'Shepherd PR dashboard', version: '0.3.0' },
 					instructions:
-						"Read-only view of the team's open pull requests. Use review_queue for what waits on someone's review, list_prs for the team's PRs, get_pr for one PR's AI-review findings and who to ping, team for the roster.",
+						"Read-only view of the team's pull requests. Use review_queue for what waits on someone's review, list_prs for the team's open PRs, merged_prs for what the team merged this week, last week or in the last 30 days, get_pr for one PR's AI-review findings and who to ping, team for the roster.",
 				});
 			}
 			case 'ping':

@@ -233,8 +233,28 @@ export interface PrDetail {
 	throttled?: boolean;
 }
 
+/** A merged PR written by someone on the team. */
+export interface MergedPr {
+	key: string;
+	host: string;
+	owner: string;
+	repo: string;
+	number: number;
+	title: string;
+	url: string;
+	/** The author's login on this host. */
+	author: string;
+	/** Null only when GitHub returns a closed PR that never merged; those are dropped. */
+	mergedAt: string | null;
+}
+
 // ---------------------------------------------------------------------------
 // HTTP API responses
+
+export interface MergedResponse {
+	prs: MergedPr[];
+	errors: Record<string, string>;
+}
 
 export interface ListResponse {
 	prs: LightPr[];

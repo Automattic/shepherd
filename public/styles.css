@@ -449,6 +449,26 @@ main { padding: 22px 28px 60px; max-width: 1560px; margin: 0 auto; }
 .empty { padding: 48px 16px; text-align: center; color: var(--text-3); background: var(--surface); border: 1px dashed var(--line-strong); border-radius: var(--radius); }
 .empty i { font-size: 22px; display: block; margin-bottom: 8px; }
 
+/* Shipped: merged PRs, collapsed by default so the open-PR queue stays first */
+.shipped { margin-bottom: 14px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
+.shipped summary { padding: 10px 14px; cursor: pointer; font-weight: 600; font-size: 13px; }
+.shipped summary i { color: var(--merged); margin-right: 4px; }
+.shipped-count { font-family: var(--mono); font-weight: 400; font-size: 12px; color: var(--text-3); margin-left: 6px; }
+.shipped-body { padding: 0 14px 12px; display: flex; flex-direction: column; gap: 10px; }
+.shipped-body .seg { align-self: flex-start; }
+.shipped-people { margin: 0; font-size: 13px; color: var(--text-2); }
+.shipped-people b { font-family: var(--mono); font-weight: 500; color: var(--text); }
+.shipped-error { display: block; margin-top: 4px; color: var(--warn); font-size: 12px; }
+.shipped-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.shipped-list:empty { display: none; }
+.shipped-list li { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-top: 1px solid var(--line); font-size: 13px; min-width: 0; }
+.shipped-list a { flex: 1; min-width: 0; color: var(--text); text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.shipped-list a:hover { color: var(--accent); }
+.shipped-list .ref, .shipped-list time { font-family: var(--mono); font-size: 11px; color: var(--text-3); white-space: nowrap; }
+@media (max-width: 640px) {
+	.shipped-list .ref { display: none; }
+}
+
 /* Popover */
 .popover {
 	position: fixed; z-index: 50; width: min(460px, calc(100vw - 32px)); max-height: 60vh; overflow: auto;

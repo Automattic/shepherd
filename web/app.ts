@@ -11,6 +11,8 @@ import type {
 	DetailResponse,
 	LightPr,
 	ListResponse,
+	MergedPr,
+	MergedResponse,
 	PrDetail,
 	PublicConfig,
 	RateLimit,
@@ -18,6 +20,7 @@ import type {
 	TeamMember,
 } from '../src/types.ts';
 import { baseAgeHours, baseTooOld } from '../src/base-age.ts';
+import { countByAuthor, isMergedRange, MERGED_RANGE_LABELS, MERGED_RANGES, mergedInRange, type MergedRange } from '../src/merged.ts';
 import { changesRequestedPending, isTurnOf, WAIT_REASON_TEXT, waitReasons, type WaitReason } from '../src/waiting.ts';
 
 // ---------------------------------------------------------------------------
@@ -79,6 +82,9 @@ interface Settings {
 	onlyPartial: boolean;
 	tile: TileId | null;
 	q: string;
+	/** The range shown in the Shipped section, and whether that section is open. */
+	mergedRange: MergedRange;
+	shippedOpen: boolean;
 }
 
 interface Tile {
@@ -134,6 +140,10 @@ function isListResponse(v: unknown): v is ListResponse {
 	return isRecord(v) && Array.isArray(v.prs);
 }
 
+function isMergedResponse(v: unknown): v is MergedResponse {
+	return isRecord(v) && Array.isArray(v.prs) && isRecord(v.errors);
+}
+
 function isDetailResponse(v: unknown): v is DetailResponse {
 	return isRecord(v) && isRecord(v.pr);
 }
@@ -174,6 +184,8 @@ function loadSettings(): Settings {
 		onlyPartial: false,
 		tile: null,
 		q: '',
+		mergedRange: 'this-week',
+		shippedOpen: false,
 	};
 	let saved: unknown;
 	try {
@@ -183,6 +195,8 @@ function loadSettings(): Settings {
 	}
 	// Saved values overlay the defaults as-is, like the original Object.assign.
 	if (isRecord(saved)) Object.assign(settings, saved);
+	if (!isMergedRange(settings.mergedRange)) settings.mergedRange = 'this-week';
+	settings.shippedOpen = settings.shippedOpen === true;
 	return settings;
 }
 
@@ -1170,7 +1184,64 @@ async function refreshList({ force = false }: { force?: boolean } = {}): Promise
 		$('#refresh').classList.remove('busy');
 		scheduleLayout();
 		void refreshHerdr();
+		void refreshMerged({ force });
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Shipped: the team's merged PRs. The server sends the widest range; switching ranges filters locally.
+
+const MERGED_REFRESH_MS = 60_000; // the server refreshes its copy once a minute
+let merged: MergedPr[] = [];
+let mergedError = '';
+let mergedBusy = false;
+let mergedFetchedAt = 0;
+
+async function refreshMerged({ force = false }: { force?: boolean } = {}): Promise<void> {
+	if (mergedBusy || (!force && Date.now() - mergedFetchedAt < MERGED_REFRESH_MS)) return;
+	mergedBusy = true;
+	mergedFetchedAt = Date.now();
+	try {
+		const res = await api('/api/merged');
+		const body: unknown = await res.json();
+		if (!isMergedResponse(body)) throw new Error(responseError(body) || 'Unexpected response from /api/merged');
+		merged = body.prs;
+		mergedError = Object.entries(body.errors)
+			.map(([h, e]) => `${cfg.hosts[h]?.hostname ?? h}: ${e.slice(0, 220)}`)
+			.join(' · ');
+	} catch (e) {
+		mergedError = errorMessage(e);
+	} finally {
+		mergedBusy = false;
+		renderShipped();
+	}
+}
+
+function renderShipped(): void {
+	const logins = cfg.team.flatMap((m) => Object.values(m.logins));
+	const list = mergedInRange(merged, logins, S.mergedRange, new Date());
+	const label = MERGED_RANGE_LABELS[S.mergedRange].toLowerCase();
+	$('#shipped-count').textContent = `${list.length} ${label}`;
+	$('#shipped-range').innerHTML = MERGED_RANGES.map(
+		(r) => `<button role="radio" aria-checked="${S.mergedRange === r}" data-merged-range="${r}">${esc(MERGED_RANGE_LABELS[r])}</button>`
+	).join('');
+
+	const people = countByAuthor(list, displayName).map(([n, c]) => `${esc(n)} <b>${c}</b>`).join(' · ');
+	const errorLine = mergedError ? `<span class="shipped-error"><i class="fa-solid fa-triangle-exclamation"></i> ${esc(mergedError)}</span>` : '';
+	$('#shipped-people').innerHTML = (list.length ? people : `Nothing merged ${label}.`) + errorLine;
+
+	const day: Intl.DateTimeFormatOptions = { weekday: 'short', day: 'numeric', month: 'short' };
+	$('#shipped-list').innerHTML = list
+		.map((p) => {
+			const when = p.mergedAt ? new Date(p.mergedAt) : null;
+			return `<li>
+				${avatar(p.author, p.host)}
+				<a href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.title)}</a>
+				<span class="ref">${esc(repoShort(p.host, p.owner, p.repo))}#${p.number}</span>
+				<time datetime="${esc(p.mergedAt)}" title="${esc(when?.toLocaleString())}">${esc(when?.toLocaleDateString(undefined, day))}</time>
+			</li>`;
+		})
+		.join('');
 }
 
 // ---------------------------------------------------------------------------
@@ -1362,6 +1433,12 @@ document.addEventListener('click', (e) => {
 		void focusHerdrPane(t, ds.herdrPane);
 		return;
 	}
+	if (ds.mergedRange) {
+		if (isMergedRange(ds.mergedRange)) S.mergedRange = ds.mergedRange;
+		save();
+		renderShipped();
+		return;
+	}
 	if ('tile' in ds) {
 		const tile = ds.tile;
 		S.tile = tile && isTileId(tile) && S.tile !== tile ? tile : null;
@@ -1397,6 +1474,11 @@ document.addEventListener('keydown', (e) => {
 window.addEventListener('scroll', closePopover, { passive: true });
 
 $('#refresh').addEventListener('click', refreshNow);
+$<HTMLDetailsElement>('#shipped').open = S.shippedOpen;
+$('#shipped').addEventListener('toggle', () => {
+	S.shippedOpen = $<HTMLDetailsElement>('#shipped').open;
+	save();
+});
 // Only visible on narrow screens, where the chip groups start collapsed.
 $('#filters-btn').addEventListener('click', () => {
 	const open = $('#filters').classList.toggle('open');
@@ -1459,7 +1541,9 @@ void (async function boot(): Promise<void> {
 	if (!Array.isArray(S.reviewers)) S.reviewers = [cfg.me];
 	if (!INTERVALS.some((i) => i.ms === S.interval)) S.interval = 60_000;
 	renderIntervals();
+	renderShipped();
 	layout();
 	schedule();
+	void refreshMerged();
 	await refreshList();
 })();
