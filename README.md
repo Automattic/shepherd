@@ -2,7 +2,7 @@
 
 **A live dashboard of your team's open pull requests, and an MCP server your agents can ask about them.**
 
-[Quick start](#quick-start) · [Requirements](#requirements) · [Using the dashboard](#using-the-dashboard) · [MCP server](#mcp-server-for-agents) · [Configuration](#configuration) · [How refreshing works](#how-refreshing-works) · [Troubleshooting](#troubleshooting) · [Development](#development)
+[Quick start](#quick-start) · [Requirements](#requirements) · [Configuration](#configuration) · [Documentation](#documentation) · [Troubleshooting](#troubleshooting) · [Contributing](CONTRIBUTING.md)
 
 Shepherd tracks your team's open pull requests across one or more GitHub hosts (github.com and any GitHub Enterprise Server) in one table. It answers the questions a lead asks several times a day:
 
@@ -12,7 +12,7 @@ Shepherd tracks your team's open pull requests across one or more GitHub hosts (
 - **Who do I ping, and is it my turn?** Everyone who has commented, reviewed or committed, most recently active first, plus who acted last. When someone else had the last word on a PR you're part of and you haven't already approved it, it's marked as your turn.
 - **How does this work fit together?** Stacked PRs share one row, and each row links its Linear tickets and related PRs.
 
-Rows refresh on their own, one at a time, and update in place. The same data is available to agents over MCP.
+Rows refresh on their own, one at a time, and update in place. The same data is available to agents over [MCP](docs/mcp.md).
 
 ## How it fits together
 
@@ -46,6 +46,7 @@ Solid lines are required. Dashed lines switch on when you configure them. Shephe
 | Read access to the tracked repos | **Required** | PRs you cannot read are left out | |
 | `proxychains4` | Optional | Reaching a GitHub Enterprise Server that is only reachable through a SOCKS proxy | `proxychains4 --help` |
 | A Linear workspace | Optional | Ticket links on each row | |
+| [herdr](https://herdr.dev) | Optional | A chip on each row for the terminal panes working on that PR | |
 
 If one host is unreachable, the dashboard still shows the other hosts' PRs and keeps the last known data for the unreachable one.
 
@@ -57,18 +58,18 @@ If one host is unreachable, the dashboard still shows the other hosts' PRs and k
 gh auth status --hostname github.com
 ```
 
-It prints `Logged in to github.com account <you>`. If not, run `gh auth login`. For a GitHub Enterprise host, see [GitHub Enterprise and proxies](#github-enterprise-and-proxies).
+It prints `Logged in to github.com account <you>`. If not, run `gh auth login`. For a GitHub Enterprise host, see [GitHub Enterprise and proxies](docs/github-enterprise.md).
 
 ### 2. Install and configure
 
 ```sh
-git clone git@github.com:borkweb/shepherd.git
+git clone git@github.com:Automattic/shepherd.git
 cd shepherd
 bun install
 cp config.example.json config.json
 ```
 
-Open `config.json`. List your team under `team` (with each person's login per host), set `me` to your own `id`, and list the repos to watch under `repos`. `config.json` is gitignored. Every key is described in [Configuration](#configuration).
+Open `config.json`. List your team under `team` (with each person's login per host), set `me` to your own `id`, and list the repos to watch under `repos`. `config.json` is gitignored. See [Configuration](#configuration).
 
 ### 3. Start it
 
@@ -102,236 +103,42 @@ claude mcp add --transport http --scope user shepherd http://127.0.0.1:5050/mcp
 claude mcp list
 ```
 
-`claude mcp list` shows `shepherd` as connected while the server is running. See [MCP server for agents](#mcp-server-for-agents).
-
-## Using the dashboard
-
-### The table
-
-| Column | What it shows |
-| --- | --- |
-| **Pull request** | State icon, title and number, repo, author, Linear tickets, and related PRs. A stacked PR sits under its parent in smaller, inset text. |
-| **Waiting on** | Reviewers asked directly, plus an orange **You** pill whenever the PR is waiting on you for any reason (hover it for why). A red **Author** pill means changes were requested and the author hasn't pushed since. Teammates whose bell is on get an orange ring. Team requests (for example from CODEOWNERS) are grey chips. When the team is one of your `reviewTeams`, the **You** pill gets a team icon. |
-| **Approvals** | Who approved (green check) and who asked for changes (red cross), with names. |
-| **AI review** | Unresolved review threads opened by the host's AI-review `bot`. **fix** means severity medium or higher and not a nit; **minor** covers everything else. Click the count to list every finding with its file and a link. Shows "n/a" on hosts with no bot. The column name comes from `aiReviewLabel`. |
-| **Participants** | Everyone who commented, reviewed or committed, except the author and bots, most recently active first. Hover an avatar to see when that person was last active. Below them, a small line shows who acted last (author included) and how: comment, review or push. It turns orange as **your turn** when someone else had the last word on a PR you wrote or took part in, unless your approval still stands. |
-| **Status** | Draft, checks, merge conflicts, a thumbs-up when the review decision is approved, how old the base is (see below), and lines added and removed. |
-| **Updated** | When the PR last changed. Hover the row for a refresh button that reloads just that row. |
-
-### Order and approved work
-
-Rows are sorted in four bands:
-
-1. **Ready to ship** (green border): approved, with no merge conflicts and no failed checks. Pending checks don't block.
-2. **Approved but blocked** (dark cyan border): approved, but a PR has merge conflicts or failed checks.
-3. **Waiting on you** (orange left bar).
-4. Everything else, most recently updated first.
-
-### How old the base is
-
-Some hosts reject a push when the PR's base is older than a set number of hours. Shepherd shows a **base 26h old** pill so you see it before the push fails.
-
-- The age is the committer date of the merge base between the PR branch and its base branch, from GitHub's compare API.
-- For a stacked PR, the age is measured against the repo's default branch, since that is what the bottom of the stack has to catch up with.
-- Set `maxBaseAgeHours` on a repo to get a limit. It only applies to PRs measured against the default branch; a PR into another branch, such as a release branch, shows its age without the limit. The pill appears at half the limit and turns orange past it. If the age can't be checked, the pill reads **base ?** instead of looking fresh.
-- Without a limit, the pill only appears once the base is a week old, and never warns.
-
-The MCP tools return `baseAgeHours` for every open PR, and `baseTooOld` when the repo has a limit.
-
-### Shipped
-
-The **Shipped** section, collapsed under the tiles, lists the PRs the team merged in the tracked repos: **This week** (since Monday 00:00 in your time zone), **Last week** (the Monday to Sunday before) or **Last 30 days**. A line on top counts them per person; the list below is newest first. The server searches the last 32 days once a minute, one search per host, and the page filters to the range you pick, so switching ranges sends no request. The page remembers the range and whether the section is open.
-
-### What "waiting on" means
-
-A PR is waiting on someone when any of these is true:
-
-- **Requested:** GitHub lists them as a pending reviewer, asked directly rather than through a team. Submitting any review clears it; the author can re-request it.
-- **Team:** the PR requests a review from one of the host's `reviewTeams` (see [Review teams](#review-teams)). It counts for every team member except the author. It doesn't count on drafts, for someone also asked directly, or for someone whose approval still stands.
-- **Their turn:** someone else commented, reviewed or pushed most recently on a PR they wrote or took part in.
-- **Author:** they wrote it, someone requested changes, and nothing has been pushed since.
-
-The **Waiting on you** tile, the orange left bar, the sort order and each person's hourglass all use this definition, as does the `review_queue` MCP tool. The rules live in `src/waiting.ts`.
-
-A PR counts as approved when GitHub's review decision is approved, or when at least one person approved and nobody requested changes. A stack counts as approved only when every open PR in it is approved, and it is green only when none of them has conflicts or failed checks. A partly approved stack stays in the normal order; its Approvals column shows which parts are done.
-
-### herdr terminal panes
-
-If [herdr](https://herdr.dev) is installed and running on the same machine (macOS or Linux), PR rows show a chip for each herdr pane working on that PR. Click a chip to focus that pane in herdr. Without herdr, nothing changes. Set `"herdr": { "enabled": false }` in `config.json` to turn it off.
-
-A pane is linked to a PR by any of these, strongest first:
-
-| Signal | Chip icon | Meaning |
-| --- | --- | --- |
-| Tag | tag | The pane has a `pr` token naming the PR: `herdr pane report-metadata <pane> --source shepherd --token pr=<url or repo#number>`. |
-| Transcript | speech bubbles | The pane runs an agent (Claude Code or Codex) whose recent transcript mentions the PR's URL, `owner/repo#number`, `repo#number`, or its branch. Only focused sessions count: one that mentions more than four tracked PRs is surveying, not working, unless one PR has 40% or more of its mentions. |
-| Branch | branch | The pane's checkout is the PR's repo, on the PR's head branch, and no other tracked PR uses that branch. |
-
-The chip also shows:
-- **Status dot:** the agent's state from herdr. It pulses while working, is orange when blocked, green when done, grey when idle, and hollow for a plain shell.
-- **Git counts:** a pencil with the number of uncommitted changes, and an up arrow with the number of unpushed commits.
-
-Panes are ordered by signal strength, then agent state, then work in progress, then most recent change. Hover a chip for the pane title, branch and why it was linked.
-
-Shepherd reads only the last 192 KB of each agent transcript (`herdr.transcriptTailKb` changes this), searches it for PR identifiers, and keeps nothing.
-
-### Related pull requests
-
-- **Stacks.** A PR whose base branch is another tracked PR's head branch in the same repo shares that PR's row, at any depth. Every PR after the first sits one level in, in stack order. If the parent is not tracked (for example, someone outside the team wrote it), the row shows an **on #N** chip that links to it.
-- **Chips.** Dashed chips link to PRs that share a Linear ticket, PRs linked in the description, and untracked PRs stacked on this one. A row shows at most five, then **+N**.
-- **Linear tickets.** When `linear` is configured: taken from `linear.app` links in the description, and from the configured team keys (such as `ENG-1234`) in the title or branch name.
-
-### Controls
-
-- **Refresh interval.** 5s, 30s, 1m (default), 5m or 15m. The thin bar under the header shows the time until the next check.
-- **Refresh now.** The button in the header, or press `R`. It reloads every row.
-- **Theme.** Light or dark. It follows your system until you choose.
-- **Summary tiles.** Click one to filter: Waiting on you, Approved, Changes requested, AI review open. **Open PRs** clears the filter.
-- **People.** Each person has three buttons:
-  - **Name** (with their PR count): show only PRs they wrote.
-  - **Hourglass** (with a count): show only PRs waiting on their review.
-  - **Bell:** add PRs from anyone that request that person's review, and ring them in orange in **Waiting on**. Yours is on by default.
-
-  Selecting several names shows PRs by any of them, and the same goes for hourglasses. Names and hourglasses combine, so Miguel's name plus your hourglass shows Miguel's PRs waiting on you. An hourglass only sees PRs already on the dashboard, so turn on that person's bell to include PRs from outside the team.
-- **Repo and approval chips.** These narrow the list. With none selected in a cluster, nothing is filtered; select any combination to show only those.
-  - **Repos:** one chip per tracked repo.
-  - **Approved** (approved PRs and fully approved stacks) and **Partially approved** (stacks where only some PRs are approved). They act on whole stacks, never splitting one, and each chip counts its groups. Select both to see all approved work.
-- **Drafts and Dormant 60d+.** Show or hide those PRs. Drafts are shown by default. Dormant PRs (no update for 60 days) are hidden by default, unless they wait on you.
-- **Search.** Matches title, branch, repo, number, author and ticket. Press `/` to focus it.
-
-Your choices are saved in the browser.
-
-## MCP server for agents
-
-The same process answers MCP at `http://127.0.0.1:5050/mcp`. It uses the Streamable HTTP transport, is stateless and read-only, and shares the dashboard's `gh` access and caches. It exists only while the server runs.
-
-| Tool | Use it for | Arguments |
-| --- | --- | --- |
-| `review_queue` | "What is waiting on me?" or on someone else, with the reason for each PR (`requested`, `team`, `turn` or `author`) | `person` (default `me`) |
-| `list_prs` | The team's open PRs, filtered | `author`, `repo`, `waiting_on`, `include_drafts`, `include_dormant`, `has_ai_review_findings`, `review_team_requested`, `limit` |
-| `merged_prs` | "What did we ship this week?": the team's merged PRs with a count per person, in the server's time zone | `range` (`this-week`, `last-week` or `last-30-days`; default `this-week`), `author`, `repo` |
-| `get_pr` | One PR in full: every unresolved AI-review finding, participants with last-active times, who acted last (and whether that was you or the author), stack, checks, and any herdr panes working on it | `url`, or `repo` and `number` |
-| `team` | The roster with each person's logins, the tracked repos, the AI-review bots, the Linear workspace and the review teams | |
-
-Agents can name people by `id`, first name or any of their logins, and repos by short name or owner/name. Data is at most 60 seconds old. An unknown person or repo returns an error that lists the valid names.
-
-Example prompts once it is connected:
-
-- "Using Shepherd, what is waiting on my review, and who else has looked at each one?"
-- "Which of Alex's PRs have unresolved AI-review findings marked fix?"
-- "Get https://github.com/owner/repo/pull/123 from Shepherd and tell me who to ping."
-
-If the server runs with `SHEPHERD_TOKEN`, register it with the header:
-
-```sh
-claude mcp add --transport http --scope user shepherd http://127.0.0.1:5050/mcp \
-  --header "Authorization: Bearer $SHEPHERD_TOKEN"
-```
-
-To check the endpoint without a client (add `-H "Authorization: Bearer $SHEPHERD_TOKEN"` when a token is set):
-
-```sh
-curl -s http://127.0.0.1:5050/mcp -H 'content-type: application/json' \
-  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | jq '[.result.tools[].name]'
-```
+`claude mcp list` shows `shepherd` as connected while the server is running. The tools are `review_queue`, `list_prs`, `merged_prs`, `get_pr` and `team`; see [MCP server for agents](docs/mcp.md) for what each returns and how to register with a token.
 
 ## Configuration
 
-`config.json` is local and gitignored; `config.example.json` is the template. To use another file, set `SHEPHERD_CONFIG` to its path relative to the project folder. The server checks the config at startup and lists every problem it finds.
+`config.json` is local and gitignored; `config.example.json` is the template. The keys you need to start:
 
 | Key | Purpose |
 | --- | --- |
-| `port` | Port to listen on. `PORT` in the environment wins. Defaults to `5050`. |
 | `me` | The `id` of the team member the dashboard treats as "you". |
-| `team[]` | `id`, `name`, `short` (the label on screen), and `logins`: one login per host key, for example `{ "github": "octocat", "work": "ocat" }`. |
-| `hosts.<key>` | `hostname`, `label`, `concurrency` (the cap on parallel `gh` processes, default 4), `bot` (the AI-review bot's login, or `null`), optional `proxychains` (a proxychains config path), and optional `reviewTeams` (see [Review teams](#review-teams)). |
-| `repos[]` | `host` (a key from `hosts`), `owner`, `name`, and `short` (the label on screen). Optional `maxBaseAgeHours`: flag PRs whose base is older than this many hours. |
-| `linear` | Optional. `workspace` (the slug in Linear URLs) and `keys` (team prefixes to find in titles and branch names). Use `null` to turn ticket links off. |
-| `aiReviewLabel` | Optional. The name shown for the AI-review column and tile. Defaults to `AI review`. |
-| `herdr` | Optional. `enabled` (default `true`; used only when herdr is installed and running) and `transcriptTailKb` (how much of each agent transcript to search, default 192). |
-| `ignoreParticipants` | Logins to leave out of Participants. Use it for bots and service accounts that appear as ordinary users. Logins ending in `[bot]` or `-bot` are always left out. |
+| `team[]` | `id`, `name`, `short` (the label on screen), and `logins`: one login per host key. |
+| `hosts.<key>` | Each GitHub host: `hostname`, `label`, and `bot` (the AI-review bot's login, or `null`). |
+| `repos[]` | `host` (a key from `hosts`), `owner`, `name`, and `short` (the label on screen). |
+| `linear` | Optional. Your Linear workspace and team keys, for ticket links. |
 
-The server binds to `127.0.0.1` only. The MCP endpoint refuses browser requests from other origins.
+The server binds to `127.0.0.1` only. On a shared machine, set `SHEPHERD_TOKEN` to lock `/mcp` and `/api/*`; see [Token](docs/configuration.md#token-optional).
 
-### Token (optional)
+Every key, with defaults, is in [Configuration](docs/configuration.md).
 
-On a machine with more than one user, anyone on it can reach `127.0.0.1`. To lock `/mcp` and `/api/*`, start the server with a token:
+## Documentation
 
-```sh
-export SHEPHERD_TOKEN=$(openssl rand -hex 32)   # to keep it across restarts, store it in a file only you can read (chmod 600)
-bun run start
-```
+**Using Shepherd**
 
-Every request to `/mcp` and `/api/*` then needs `Authorization: Bearer <token>`, or it gets a 401. The token is read from the environment, not `config.json`, because config files are often readable by other users. The server prints the dashboard link as `http://127.0.0.1:5050/#token=…`. Open it once: the page keeps the token in this browser's storage for that address and sends it as a header. The part after `#` never reaches the server. Without `SHEPHERD_TOKEN`, nothing changes. While Shepherd is stopped, another user could listen on the same port and receive the token from an open tab or agent. The browser also keeps the token for that address after the tab closes, so a server that takes the port later can read it the next time you open the dashboard. Stop open tabs and agents with Shepherd, and change the token after a while.
+- [Using the dashboard](docs/dashboard.md): columns, sort order, what "waiting on" means, base age, Shipped, stacks and controls
+- [MCP server for agents](docs/mcp.md): tools, arguments, example prompts and token setup
+- [herdr terminal panes](docs/herdr.md): linking terminal panes to the PRs they work on
+- [How refreshing works](docs/refreshing.md): reload order, rate-limit floors, and how merged or closed PRs leave the list
 
-### Review teams
+**Reference**
 
-Some teams mark a PR as ready for review by requesting a review from a GitHub team instead of naming people. To put those PRs in everyone's queue, list the teams on the host:
+- [Configuration](docs/configuration.md): every `config.json` key, the token and AI-review bots
+- [Review teams](docs/review-teams.md): count a GitHub team review request as waiting on each member
+- [GitHub Enterprise and proxies](docs/github-enterprise.md)
 
-```json
-"hosts": {
-  "github": { "hostname": "github.com", "label": "GitHub", "bot": null, "reviewTeams": ["my-org/reviewers"] }
-}
-```
+**Working on Shepherd**
 
-Each entry is `org/team`, as in GitHub's `team-review-requested:` search. Shepherd treats every person in `team` with a login on that host as a member. An open PR in the tracked repos that requests one of these teams then waits on all of them except its author, with a **You** pill that has a team icon. It leaves a person's queue once they approve, and drafts never count. When GitHub clears the team request, for example after a member reviews on the team's behalf, the PR leaves everyone's queue. Without `reviewTeams`, team requests show as grey chips and don't count. Teams are set per host because team names belong to one GitHub host. Shepherd doesn't read team membership from GitHub, so if a host lists several teams, everyone counts as a member of all of them.
-
-These PRs stay visible even after 60 idle days, like a direct request, on the dashboard and in the MCP tools.
-
-Agents can ask for these PRs directly. Every PR the MCP tools return with details has `reviewTeamRequested` (true on an open, non-draft PR that requests a review team) and `waitingOnReviewFrom.reviewTeams` (which ones, as `org/team`). `list_prs` with `review_team_requested: true` returns those PRs, including ones by people outside `team`; a PR whose details could not be loaded is listed under `errors` instead. The `team` tool lists the review teams per host.
-
-### GitHub Enterprise and proxies
-
-Add the Enterprise host under `hosts`, give each person a login for it, and point repos at it:
-
-```json
-"hosts": {
-  "github": { "hostname": "github.com", "label": "GitHub", "bot": null },
-  "work": { "hostname": "github.example.com", "label": "GHE", "concurrency": 8, "bot": "review-bot" }
-}
-```
-
-Sign `gh` in to it with `gh auth login --hostname github.example.com`.
-
-If the host is only reachable through a SOCKS proxy, install `proxychains4`, point a config file at the proxy, and set `"proxychains": "~/.proxychains.conf"` on that host. Shepherd then runs `gh` through it for that host only. Check access the same way Shepherd will:
-
-```sh
-proxychains4 -q -f ~/.proxychains.conf gh auth status --hostname github.example.com
-```
-
-Don't leave `GH_HOST` exported in your shell. Shepherd removes it from its own `gh` calls, but your manual checks would go to the wrong host.
-
-### AI-review bots
-
-Set `bot` on a host to the login of a bot that leaves inline review comments. Shepherd counts the review threads that bot opened and that are still unresolved. It reads severity and kind when the comment opens with a bold title followed by `·`-separated tags:
-
-```text
-**Throttle check is not atomic** · fix here · medium
-```
-
-Severities are `critical`, `high`, `medium`, `low` and `info`. A tag of `nit`, or a tail that starts with `below`, marks a finding as minor. Comments in any other shape still count, as `info`.
-
-## How refreshing works
-
-Every row loads and refreshes on its own. Five rows load in parallel; the sixth browser connection stays free for the list check. On the server, each host has its own cap on running `gh` processes, and two requests for the same PR at the same time share one call.
-
-On each tick, the page:
-
-1. Fetches the list of open PRs: the team's PRs, plus one search for each person whose bell is on.
-2. Reloads any row whose **updated** time changed.
-3. Reloads any row older than the interval, with a floor of 20 seconds on hosts without a rate limit and 2 minutes on github.com.
-
-Loading a PR's details also makes one REST compare call to measure the base age. The result is cached per head commit for 10 minutes, so new commits on the base branch don't trigger a call on every refresh. A failed call is retried after a minute.
-
-The github.com floor exists because it allows 5,000 GraphQL points an hour, and a 5-second interval would use them up. The header shows the remaining github.com budget. Below 500, rows reload at most every 10 minutes; below 300, the server reuses the last list.
-
-Refreshing pauses while the tab is in the background and catches up when you return. **Refresh now** ignores the floors.
-
-When a PR leaves the list, the page checks it directly before changing anything, because GitHub search can lag:
-
-- **Merged:** the row shows a **Merged** badge for six seconds, then fades out.
-- **Closed:** the row fades out.
-- **Still open but no longer matching** (for example, you submitted the review it asked for): the row is removed after two checks in a row.
+- [Contributing](CONTRIBUTING.md): checks and code layout
 
 ## Troubleshooting
 
@@ -342,11 +149,11 @@ When a PR leaves the list, the page checks it directly before changing anything,
 | Red banner: **\<host\> could not be reached** | `gh` is not signed in to that host, or its proxy is down. Run the `gh auth status` check for that host. |
 | Red banner: **Dashboard server could not be reached** | The server stopped. Start it again with `bun run start`. |
 | A row shows a red triangle instead of the refresh icon | That row's last reload failed; hover it to read why. The row keeps its last data and tries again on the next tick. |
-| "Waiting on you" differs from GitHub's review count | Shepherd counts direct review requests, PRs where it's your turn, and your PRs with requested changes. Requests to a team count only when the team is in the host's `reviewTeams`; other teams show as grey chips. See [What "waiting on" means](#what-waiting-on-means). |
+| "Waiting on you" differs from GitHub's review count | Shepherd counts direct review requests, PRs where it's your turn, and your PRs with requested changes. Requests to a team count only when the team is in the host's `reviewTeams`; other teams show as grey chips. See [What "waiting on" means](docs/dashboard.md#what-waiting-on-means). |
 | A PR you expect is missing | Check the filters, then **Drafts** and **Dormant 60d+**. Only PRs by people in `team`, PRs that request a review from someone whose bell is on, and PRs that request one of the `reviewTeams`, are tracked. |
 | A teammate's avatar shows initials | They have no `github` login in `logins`; avatars come from github.com. |
 | A bot appears in Participants | Add its login to `ignoreParticipants` and restart. |
-| The rate badge in the header turns red | Fewer than 500 github.com points are left this hour. Refreshing slows down by itself and recovers at the reset time shown when you hover the badge. |
+| The rate badge in the header turns red | Fewer than 500 github.com points are left this hour. Refreshing slows down by itself and recovers at the reset time shown when you hover the badge. See [How refreshing works](docs/refreshing.md). |
 | `claude mcp list` shows shepherd as failed | The server is not running, or it runs on another port, or it has a token and the registration has no `Authorization` header. Start it and check the URL and header you registered. |
 | `EADDRINUSE` on start | Something else uses the port. Stop it, or start with `PORT=5051 bun run start`. |
 
@@ -354,27 +161,11 @@ When a PR leaves the list, the page checks it directly before changing anything,
 
 ```sh
 bun run dev         # restarts the server when a file changes
-bun run typecheck   # tsc --noEmit
 bun run check       # typecheck, plus a bundle of the browser client
 bun test            # unit tests (src/*.test.ts)
 ```
 
-| Path | Role |
-| --- | --- |
-| `src/server.ts` | HTTP server (`Bun.serve`), routes, static files, and the browser bundle built at startup |
-| `src/config.ts` | Loads and checks `config.json` |
-| `src/gh.ts` | Runs `gh api` (GraphQL, plus REST GETs) with per-host concurrency caps and optional proxychains |
-| `src/prs.ts` | List and detail GraphQL queries, parsing (AI-review findings, Linear keys, participants) and caches |
-| `src/mcp.ts` | The MCP endpoint and its tools |
-| `src/waiting.ts` | What "waiting on" means, shared by the dashboard and the MCP tools |
-| `src/base-age.ts` | How old a PR's base is, shared by the dashboard and the MCP tools |
-| `src/merged.ts` | The Shipped ranges and filter, shared by the dashboard and the MCP tools |
-| `src/herdr.ts` | Optional herdr integration: pane scan, PR matching and pane focus over herdr's socket |
-| `src/types.ts` | Types shared by the server, the MCP endpoint and the browser client |
-| `web/app.ts` | The dashboard client: no framework, bundled by Bun into `/app.js` |
-| `public/` | `index.html` and `styles.css` |
-
-The page loads Font Awesome 6.5.2 from cdnjs and the Geist fonts from Google Fonts. Everything else is local.
+See [Contributing](CONTRIBUTING.md) for the code layout.
 
 ## License
 
