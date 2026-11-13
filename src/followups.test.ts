@@ -68,6 +68,43 @@ describe('followUpLines', () => {
 		expect(followUpLines('Non-blocking: the name is confusing')).toEqual(['Non-blocking: the name is confusing']);
 	});
 
+	test('"a PR" in ordinary prose is not a follow-up', () => {
+		const body = [
+			'Shepherd then searches for open PRs that request one of those teams. Such a PR waits on every person in `team`.',
+			'Some teams mark a PR as ready for review by requesting a GitHub team.',
+			'- a PR closed without merging',
+			'`CONTRIBUTING.md` asks contributors to run `bun test` before opening a PR.',
+			'Opens a new PR for each repo.',
+		].join('\n');
+		expect(followUpLines(body)).toEqual([]);
+		expect(followUpLines('The UI comes in another PR.')).toEqual(['The UI comes in another PR.']);
+	});
+
+	test('a lead-in of more than one sentence that says the list does not block keeps every item, not the lead-in', () => {
+		const body = [
+			'What I checked:',
+			'- The offsets are clamped.',
+			'',
+			'These items do not block this PR. Fix them in this PR or before the wiring PR makes the ability reachable:',
+			'',
+			'1. **`instructions` claims too much.** Say when the list is empty.',
+			'2. **The `\\Throwable` catch logs only the class name.** Log the message too.',
+			'',
+			'Nice work.',
+		].join('\n');
+		expect(followUpLines(body)).toEqual(['**`instructions` claims too much.** Say when the list is empty.', '**The `\\Throwable` catch logs only the class name.** Log the message too.']);
+	});
+
+	test('a lead-in needs words that say the list does not block', () => {
+		expect(followUpLines('Tested before merging. Steps:\n- Run the suite\n- Open the page')).toEqual([]);
+		expect(followUpLines('Split out of #12. Changes:\n- Adds the cache')).toEqual([]);
+	});
+
+	test('a lead-in with no list under it still counts on its own when its words do', () => {
+		expect(followUpLines("This doesn't block. We can rename it in a follow-up:\n\nThanks!")).toEqual(["This doesn't block. We can rename it in a follow-up:"]);
+		expect(followUpLines('Nits are fine. Here is the plan:\n\nShip it.')).toEqual([]);
+	});
+
 	test('an empty template section gives nothing', () => {
 		expect(followUpLines('## Follow-ups\n- None\n- N/A')).toEqual([]);
 	});

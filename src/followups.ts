@@ -19,7 +19,8 @@ const words = (list: string[]) => new RegExp(list.map((p) => `\\b${p}\\b`).join(
 /** A line that names work for later, or says it does not block. "Follow-up to #12" points back, so it doesn't count. */
 const LATER_WORK = words([
 	'follow[- ]?ups?(?! (?:to|of|on)\\b)',
-	'(?:a|another|separate|next|later|future|subsequent|new) (?:pr|pull request)',
+	// Not "a PR" or "new PR": "such a PR waits", "before opening a PR" and "a PR closed without merging" are prose.
+	'(?:another|separate|next|later|future|subsequent) (?:pr|pull request)',
 	'separate (?:change|issue|ticket)',
 	'before the [\\w-]+(?: [\\w-]+)? (?:pr|pull request)',
 	'out of scope',
@@ -39,6 +40,13 @@ const HEADING_WORDS = new RegExp(
 	`${LATER_WORK.source}|${words(['optional', 'nice to have', 'for later', 'future work', 'nits?', 'non[- ]?blocking', 'not blocking', 'before (?:merg(?:e|ing)|landing|shipping)']).source}`,
 	'i'
 );
+
+/**
+ * What makes a longer lead-in line, of more than one sentence, introduce a non-blocking list:
+ * "These items do not block this PR. Fix them before the wiring PR:". Narrower than HEADING_WORDS,
+ * because "Tested before merging. Steps:" or "Split out in a separate PR. Changes:" introduce no asks.
+ */
+const LEAD_IN_WORDS = words(["(?:do|does|did)(?: not|n't) block", "don'?t block", 'non[- ]?blocking', 'not blocking', 'optional', 'nits?', 'for later']);
 
 /** "Optional: rename this" on one line. */
 const PREFIX = /^(?:optional|nice to have|non[- ]?blocking|not blocking|nit)\s*[:,-]/i;
@@ -76,6 +84,17 @@ function headingText(line: string): string | null {
 	return isHeading ? bare.replace(/[:*_\s]+$/, '') : null;
 }
 
+/** A line of more than one sentence that ends in ":" and says the list after it doesn't block. */
+function isLeadIn(line: string): boolean {
+	const t = line.trim();
+	return t.length <= 300 && /:$/.test(t) && /[.!?]\s/.test(t) && LEAD_IN_WORDS.test(t);
+}
+
+/** A line that counts on its own, outside a list under a heading. */
+function isFollowUpLine(text: string): boolean {
+	return LATER_WORK.test(text) || TODO.test(text) || PREFIX.test(text);
+}
+
 function tidy(text: string): string {
 	const t = text.replace(/\s+/g, ' ').trim();
 	return t.length > MAX_TEXT ? `${t.slice(0, MAX_TEXT - 1)}…` : t;
@@ -87,6 +106,12 @@ export function followUpLines(body: string | null): string[] {
 	const out: string[] = [];
 	let underHeading = false;
 	let last = -1; // index in `out` of the item that indented lines continue
+	// A lead-in line with no list under it still counts on its own when its words do.
+	let leadIn: { text: string; at: number } | null = null;
+	const endLeadIn = () => {
+		if (leadIn && out.length === leadIn.at && isFollowUpLine(leadIn.text)) out.push(leadIn.text);
+		leadIn = null;
+	};
 
 	for (const raw of cleanLines(body)) {
 		if (!raw.trim()) {
@@ -108,6 +133,7 @@ export function followUpLines(body: string | null): string[] {
 			}
 			// Any other line, such as the next paragraph, ends the list.
 			underHeading = false;
+			endLeadIn();
 		}
 		last = -1;
 
@@ -116,9 +142,15 @@ export function followUpLines(body: string | null): string[] {
 			underHeading = true;
 			continue;
 		}
+		if (!item && isLeadIn(raw)) {
+			underHeading = true;
+			leadIn = { text: raw.trim(), at: out.length };
+			continue;
+		}
 		const text = item ? item[1]!.replace(CHECKBOX, '') : raw.trim();
-		if (LATER_WORK.test(text) || TODO.test(text) || PREFIX.test(text)) out.push(text);
+		if (isFollowUpLine(text)) out.push(text);
 	}
+	endLeadIn();
 	return out.map(tidy).filter((t) => t.length > 1 && !EMPTY_ITEM.test(t));
 }
 
