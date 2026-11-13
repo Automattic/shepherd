@@ -2,6 +2,7 @@
 
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { agentReviewProblems } from './agent-review.ts';
 import type { Config, PublicConfig } from './types.ts';
 
 /** The project root (one level above src/). */
@@ -53,7 +54,9 @@ function problems(c: Partial<Config>): string[] {
 		if (r.maxBaseAgeHours !== undefined && !(typeof r.maxBaseAgeHours === 'number' && r.maxBaseAgeHours > 0)) {
 			out.push(`repos[${i}] (${r.owner}/${r.name}) needs "maxBaseAgeHours" to be a positive number, or no such field`);
 		}
+		out.push(...agentReviewProblems(`repos[${i}] (${r.owner}/${r.name}).agentReview`, r.agentReview));
 	}
+	out.push(...agentReviewProblems('agentReview', c.agentReview));
 	return out;
 }
 

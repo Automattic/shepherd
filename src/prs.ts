@@ -1,5 +1,6 @@
 // Pull request data: the light list search and the full per-PR detail, with caching.
 
+import { agentReadiness, agentReviewFor } from './agent-review.ts';
 import type { GhRunner } from './gh.ts';
 import {
 	SEVERITIES,
@@ -93,10 +94,11 @@ interface RawDetailPr {
 			requestedReviewer:
 				| { __typename: 'User'; login: string; name: string | null }
 				| { __typename: 'Team'; slug: string; name: string }
-				| { __typename: string }
+				| { __typename: string; login?: string }
 				| null;
 		}[];
 	};
+	labels: { nodes: { name: string }[] };
 	latestOpinionatedReviews: { nodes: { state: PrReview['state']; submittedAt: string | null; author: RawAuthor | null }[] };
 	participants: { totalCount: number; nodes: { login: string; name: string | null }[] };
 	comments: { nodes: { author: RawAuthor | null; createdAt: string }[] };
@@ -160,9 +162,11 @@ const DETAIL_QUERY = `query($owner:String!, $name:String!, $n:Int!, $head:String
 			statusCheckRollup { state }
 			reviewRequests(first:30) { nodes { requestedReviewer {
 				__typename
-				... on User { login name }
+				... on Actor { login }
+				... on User { name }
 				... on Team { slug name }
 			} } }
+			labels(first:30) { nodes { name } }
 			latestOpinionatedReviews(first:30) { nodes { state submittedAt author { login } } }
 			participants(first:50) { totalCount nodes { login name } }
 			comments(last:50) { nodes { author { login } createdAt } }
@@ -437,10 +441,12 @@ export function createPrService(config: Config, gh: GhRunner): PrService {
 
 		const users: PrDetail['requested']['users'] = [];
 		const teams: PrDetail['requested']['teams'] = [];
+		const bots: PrDetail['requested']['bots'] = [];
 		for (const n of pr.reviewRequests.nodes) {
 			const r = n.requestedReviewer;
-			if (r && r.__typename === 'User' && 'login' in r) users.push({ login: r.login, name: r.name });
+			if (r && r.__typename === 'User' && 'name' in r && r.login) users.push({ login: r.login, name: r.name });
 			else if (r && r.__typename === 'Team' && 'slug' in r) teams.push({ slug: r.slug, name: r.name });
+			else if (r && 'login' in r && r.login) bots.push({ login: r.login });
 		}
 		const mini = (p: RawMiniPr): MiniPr => ({ number: p.number, title: p.title, url: p.url, author: p.author?.login ?? 'ghost' });
 		const { participants, lastActive, lastActivity } = shapeParticipants(pr);
@@ -466,7 +472,8 @@ export function createPrService(config: Config, gh: GhRunner): PrService {
 			reviewDecision: pr.reviewDecision,
 			checks: pr.statusCheckRollup?.state ?? null,
 			size: { additions: pr.additions, deletions: pr.deletions, files: pr.changedFiles },
-			requested: { users, teams },
+			requested: { users, teams, bots },
+			labels: pr.labels.nodes.map((l) => l.name),
 			reviews: pr.latestOpinionatedReviews.nodes.map((r) => ({
 				login: r.author?.login ?? 'ghost',
 				state: r.state,
@@ -483,6 +490,7 @@ export function createPrService(config: Config, gh: GhRunner): PrService {
 			parent: parent ? mini(parent) : null,
 			stackedOnThis: data.repository.stackedOnThis.nodes.map(mini),
 			baseAge: null,
+			agentReview: null,
 			fetchedAt: new Date().toISOString(),
 		};
 	}
@@ -571,6 +579,8 @@ export function createPrService(config: Config, gh: GhRunner): PrService {
 			});
 			const value = shapeDetail(host, owner, repo, data);
 			if (!value) throw new NotFoundError('Pull request not found');
+			const rule = agentReviewFor(config, host, owner, repo);
+			value.agentReview = rule ? agentReadiness(value, rule, config.team) : null;
 			value.baseAge = await baseAge(host, owner, repo, data);
 			detailCache.set(key, { at: Date.now(), value });
 			return value;

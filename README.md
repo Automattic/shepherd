@@ -203,9 +203,9 @@ The same process answers MCP at `http://127.0.0.1:5050/mcp`. It uses the Streama
 | Tool | Use it for | Arguments |
 | --- | --- | --- |
 | `review_queue` | "What is waiting on me?" or on someone else, with the reason for each PR (`requested`, `turn` or `author`) | `person` (default `me`) |
-| `list_prs` | The team's open PRs, filtered | `author`, `repo`, `waiting_on`, `include_drafts`, `include_dormant`, `has_ai_review_findings`, `limit` |
+| `list_prs` | The team's open PRs, filtered | `author`, `repo`, `waiting_on`, `include_drafts`, `include_dormant`, `has_ai_review_findings`, `ready_for_agents`, `limit` |
 | `get_pr` | One PR in full: every unresolved AI-review finding, participants with last-active times, who acted last (and whether that was you or the author), stack, checks, and any herdr panes working on it | `url`, or `repo` and `number` |
-| `team` | The roster with each person's logins, the tracked repos, the AI-review bots and the Linear workspace | |
+| `team` | The roster with each person's logins, the tracked repos, the AI-review bots, the Linear workspace and the agent-review rule | |
 
 Agents can name people by `id`, first name or any of their logins, and repos by short name or owner/name. Data is at most 60 seconds old. An unknown person or repo returns an error that lists the valid names.
 
@@ -239,7 +239,8 @@ curl -s http://127.0.0.1:5050/mcp -H 'content-type: application/json' \
 | `me` | The `id` of the team member the dashboard treats as "you". |
 | `team[]` | `id`, `name`, `short` (the label on screen), and `logins`: one login per host key, for example `{ "github": "octocat", "work": "ocat" }`. |
 | `hosts.<key>` | `hostname`, `label`, `concurrency` (the cap on parallel `gh` processes, default 4), `bot` (the AI-review bot's login, or `null`), and optional `proxychains` (a proxychains config path). |
-| `repos[]` | `host` (a key from `hosts`), `owner`, `name`, and `short` (the label on screen). Optional `maxBaseAgeHours`: flag PRs whose base is older than this many hours. |
+| `repos[]` | `host` (a key from `hosts`), `owner`, `name`, and `short` (the label on screen). Optional `maxBaseAgeHours`: flag PRs whose base is older than this many hours. Optional `agentReview`: this repo's own rule, which replaces the top-level one (`null` turns it off for this repo). |
+| `agentReview` | Optional. What marks a PR as ready for review by agents. See [Ready for agents](#ready-for-agents). Leave it out to turn the feature off. |
 | `linear` | Optional. `workspace` (the slug in Linear URLs) and `keys` (team prefixes to find in titles and branch names). Use `null` to turn ticket links off. |
 | `aiReviewLabel` | Optional. The name shown for the AI-review column and tile. Defaults to `AI review`. |
 | `herdr` | Optional. `enabled` (default `true`; used only when herdr is installed and running) and `transcriptTailKb` (how much of each agent transcript to search, default 192). |
@@ -288,6 +289,32 @@ Set `bot` on a host to the login of a bot that leaves inline review comments. Sh
 ```
 
 Severities are `critical`, `high`, `medium`, `low` and `info`. A tag of `nit`, or a tail that starts with `below`, marks a finding as minor. Comments in any other shape still count, as `info`.
+
+### Ready for agents
+
+`agentReview` tells Shepherd how your team signals that a PR may be picked up by a review agent. The dashboard shows an **agents** pill on each PR that matches, and a small tab with a crossed-out eye sticking out from the right edge of each open PR that doesn't (on narrow screens, a **not ready** pill in Status instead). Hover over the tab to see what blocks it. The MCP `list_prs` tool takes `ready_for_agents: true`, and every PR it returns has a `readyForAgents` field with what matched, or what is blocking it.
+
+```json
+"agentReview": {
+  "labels": ["agent review"],
+  "reviewers": ["review-agent-login", "alex"],
+  "teams": ["my-org/reviewers"],
+  "match": "any",
+  "readyForReview": true,
+  "skipLabels": ["no agents"]
+}
+```
+
+| Key | Meaning |
+| --- | --- |
+| `labels` | Labels that mark a PR as ready. Matching ignores case. |
+| `reviewers` | Requested reviewers that mark a PR as ready: a team member `id` (resolved to their login on the PR's host) or any login, bot accounts included. |
+| `teams` | Requested team reviewers, as `slug` or `org/slug`. |
+| `match` | `any` (default): one listed label, reviewer or team is enough. `all`: every one listed must be present. |
+| `readyForReview` | Default `true`: drafts are never ready. Set `false` to let drafts count. |
+| `skipLabels` | Any of these labels keeps a PR from being ready, whatever else matches. |
+
+Leave out `labels`, `reviewers` and `teams` to treat every open, non-draft PR as ready. A requested reviewer or team counts only while the request is pending. GitHub removes the request when that reviewer submits a review, so the PR stops being ready after the agent reviews it, until someone requests it again.
 
 ## How refreshing works
 

@@ -31,6 +31,32 @@ export interface RepoConfig {
 	short: string;
 	/** Optional: flag open PRs whose merge base with the base branch is older than this many hours. */
 	maxBaseAgeHours?: number;
+	/** Optional: replaces the top-level `agentReview` for this repo; null turns it off here. */
+	agentReview?: AgentReviewConfig | null;
+}
+
+/** What marks an open PR as ready for review by agents. */
+export interface AgentReviewConfig {
+	/** Drafts are never ready. Defaults to true; false lets a draft count. */
+	readyForReview?: boolean;
+	/** Requested reviewers: team member ids or raw logins (agent and bot accounts usually aren't on the team). */
+	reviewers?: string[];
+	/** Requested team reviewers, as "slug" or "org/slug". */
+	teams?: string[];
+	labels?: string[];
+	/** "any" (default): one listed reviewer, team or label is enough. "all": every listed one must be present. */
+	match?: 'any' | 'all';
+	/** Any of these labels keeps a PR from being ready. */
+	skipLabels?: string[];
+}
+
+/** Whether an open PR is ready for review by agents, and why. */
+export interface AgentReadiness {
+	ready: boolean;
+	/** The signals that matched, e.g. `label "agent review"`. */
+	matched: string[];
+	/** What keeps it from being ready, e.g. "draft". Empty when ready. */
+	blocked: string[];
 }
 
 export interface LinearConfig {
@@ -51,6 +77,8 @@ export interface Config {
 	/** Optional herdr integration; on by default whenever herdr is installed and running. */
 	herdr?: { enabled?: boolean; transcriptTailKb?: number };
 	ignoreParticipants?: string[];
+	/** Optional: what marks a PR as ready for review by agents. Absent means the feature is off. */
+	agentReview?: AgentReviewConfig | null;
 }
 
 /** What GET /api/config returns: the config without local-only details. */
@@ -199,7 +227,13 @@ export interface PrDetail {
 	/** statusCheckRollup state, e.g. SUCCESS, FAILURE, PENDING; null when there are no checks. */
 	checks: string | null;
 	size: { additions: number; deletions: number; files: number };
-	requested: { users: { login: string; name: string | null }[]; teams: { slug: string; name: string }[] };
+	requested: {
+		users: { login: string; name: string | null }[];
+		teams: { slug: string; name: string }[];
+		/** Requested reviewers that are bot or mannequin accounts; kept apart so the Wait column only shows people. */
+		bots: { login: string }[];
+	};
+	labels: string[];
 	/** Latest opinionated review per reviewer. */
 	reviews: PrReview[];
 	/** Null on hosts without an AI-review bot. */
@@ -218,6 +252,8 @@ export interface PrDetail {
 	stackedOnThis: MiniPr[];
 	/** Null for merged and closed PRs. */
 	baseAge: BaseAge | null;
+	/** Null when no `agentReview` config applies to this repo. */
+	agentReview: AgentReadiness | null;
 	fetchedAt: string;
 	throttled?: boolean;
 }

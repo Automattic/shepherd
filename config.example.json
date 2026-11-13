@@ -15,5 +15,6 @@
   ],
   "linear": null,
   "aiReviewLabel": "AI review",
+  "agentReview": { "labels": ["agent review"], "reviewers": ["review-agent-login"], "skipLabels": ["no agents"] },
   "ignoreParticipants": ["Copilot", "copilot-pull-request-reviewer", "github-actions", "dependabot"]
 }

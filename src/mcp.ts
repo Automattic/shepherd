@@ -144,7 +144,11 @@ export function createMcpHandler(config: Config, prs: PrService, herdr: HerdrSer
 			waitingOnReviewFrom: {
 				people: d.requested.users.map((u) => nameOf(u.login)),
 				teams: d.requested.teams.map((t) => t.slug),
+				...(d.requested.bots.length ? { bots: d.requested.bots.map((b) => b.login) } : {}),
 			},
+			labels: d.labels,
+			// Present only when an agentReview rule applies to this repo.
+			...(d.agentReview ? { readyForAgents: d.agentReview } : {}),
 			approvedBy: d.reviews.filter((r) => r.state === 'APPROVED').map((r) => nameOf(r.login)),
 			changesRequestedBy: d.reviews.filter((r) => r.state === 'CHANGES_REQUESTED').map((r) => nameOf(r.login)),
 			reviewDecision: d.reviewDecision,
@@ -231,6 +235,12 @@ export function createMcpHandler(config: Config, prs: PrService, herdr: HerdrSer
 
 	const hasFindings = (x: Summary | ReturnType<typeof lightSummary>): boolean =>
 		'aiReview' in x && x.aiReview !== null && x.aiReview.unresolved > 0;
+	const readyForAgents = (x: Summary | ReturnType<typeof lightSummary>): boolean =>
+		'readyForAgents' in x && x.readyForAgents?.ready === true;
+	const agentRules = [
+		...(config.agentReview ? [{ repos: 'default', rule: config.agentReview }] : []),
+		...config.repos.filter((r) => r.agentReview !== undefined).map((r) => ({ repos: r.short, rule: r.agentReview ?? 'off' })),
+	];
 
 	// ---- tools ----
 
@@ -251,13 +261,15 @@ export function createMcpHandler(config: Config, prs: PrService, herdr: HerdrSer
 				repos: config.repos.map((r) => ({ short: r.short, repo: `${r.owner}/${r.name}`, host: hostname(r.host) })),
 				aiReview: { label: reviewLabel, bots: Object.fromEntries(Object.values(config.hosts).filter((h) => h.bot).map((h) => [h.hostname, h.bot])) },
 				linear: config.linear ? `https://linear.app/${config.linear.workspace}` : null,
+				// What marks a PR as ready for review by agents ("default" applies to repos without their own rule).
+				agentReview: agentRules.length ? agentRules : null,
 			}),
 		},
 		{
 			name: 'list_prs',
 			title: 'List open team pull requests',
 			description:
-				'List open pull requests written by the team in the tracked repos. Each result says whose review it waits on, who approved, how many AI-review bot threads are unresolved, who has participated (most recently active first), any Linear tickets, and any stacked parent PR. Filter by author, repo or requested reviewer.',
+				'List open pull requests written by the team in the tracked repos. Each result says whose review it waits on, who approved, how many AI-review bot threads are unresolved, who has participated (most recently active first), any Linear tickets, any stacked parent PR, and (when configured) whether it is ready for review by agents. Filter by author, repo, requested reviewer, or readiness for agents.',
 			inputSchema: {
 				type: 'object',
 				properties: {
@@ -267,6 +279,11 @@ export function createMcpHandler(config: Config, prs: PrService, herdr: HerdrSer
 					include_drafts: { type: 'boolean', default: true },
 					include_dormant: { type: 'boolean', default: false, description: 'Include PRs idle for more than 60 days.' },
 					has_ai_review_findings: { type: 'boolean', description: `Only PRs with unresolved ${reviewLabel} threads.` },
+					ready_for_agents: {
+						type: 'boolean',
+						description:
+							'Only PRs that the configured agentReview rule marks as ready for review by agents (see the team tool for the rule). Each result carries readyForAgents with what matched or what blocks it.',
+					},
 					limit: { type: 'integer', default: 60, minimum: 1, maximum: 200 },
 				},
 				additionalProperties: false,
@@ -282,7 +299,9 @@ export function createMcpHandler(config: Config, prs: PrService, herdr: HerdrSer
 				const includeDrafts = bool(args, 'include_drafts') ?? true;
 				const includeDormant = bool(args, 'include_dormant') ?? false;
 				const onlyFindings = bool(args, 'has_ai_review_findings') ?? false;
+				const onlyAgentReady = bool(args, 'ready_for_agents') ?? false;
 				const limit = Math.min(int(args, 'limit') ?? 60, 200);
+				if (onlyAgentReady && !agentRules.length) throw new Error('No agentReview rule is configured, so no PR is ready for agents. Add "agentReview" to config.json.');
 
 				const { prs: all, errors } = await collect(reviewer ? [reviewer.id] : []);
 				let picked = all.filter((p) => {
@@ -296,12 +315,14 @@ export function createMcpHandler(config: Config, prs: PrService, herdr: HerdrSer
 					return true;
 				});
 				picked.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-				const matchedBeforeFindings = picked.length;
-				// The findings filter needs details, so apply the limit only after it.
-				if (!onlyFindings) picked = picked.slice(0, limit);
+				const matchedBeforeDetails = picked.length;
+				// The findings and agent filters need details, so apply the limit only after them.
+				const needsDetails = onlyFindings || onlyAgentReady;
+				if (!needsDetails) picked = picked.slice(0, limit);
 				let items = await details(picked);
 				if (onlyFindings) items = items.filter(hasFindings);
-				const matched = onlyFindings ? items.length : matchedBeforeFindings;
+				if (onlyAgentReady) items = items.filter(readyForAgents);
+				const matched = needsDetails ? items.length : matchedBeforeDetails;
 				items = items.slice(0, limit);
 				return { count: items.length, matchedBeforeLimit: matched, errors, pullRequests: items };
 			},
@@ -417,7 +438,7 @@ export function createMcpHandler(config: Config, prs: PrService, herdr: HerdrSer
 					capabilities: { tools: { listChanged: false } },
 					serverInfo: { name: 'shepherd', title: 'Shepherd PR dashboard', version: '0.3.0' },
 					instructions:
-						"Read-only view of the team's open pull requests. Use review_queue for what waits on someone's review, list_prs for the team's PRs, get_pr for one PR's AI-review findings and who to ping, team for the roster.",
+						"Read-only view of the team's open pull requests. Use review_queue for what waits on someone's review, list_prs for the team's PRs (ready_for_agents: true for the ones an agent may review), get_pr for one PR's AI-review findings and who to ping, team for the roster and the agent-review rule.",
 				});
 			}
 			case 'ping':

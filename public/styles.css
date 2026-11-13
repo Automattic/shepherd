@@ -252,19 +252,25 @@ main { padding: 22px 28px 60px; max-width: 1560px; margin: 0 auto; }
 .grid-head i { margin-right: 4px; opacity: .8; }
 .right { text-align: right; justify-content: flex-end; }
 
-#groups { display: flex; flex-direction: column; gap: 8px; }
+/* Its own stacking context, so the agent tabs (z-index -1) sit under the cards but above the page and still get hovers. */
+#groups { display: flex; flex-direction: column; gap: 8px; position: relative; z-index: 0; }
 .group {
 	background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow);
-	overflow: hidden; position: relative;
+	position: relative;
 	transition: border-color .2s, opacity .5s, transform .5s;
 }
+/* Groups don't clip, so a row's tab can hang past the edge; the end rows round their own backgrounds instead. */
+.group > .row:first-child { border-top-left-radius: calc(var(--radius) - 1px); border-top-right-radius: calc(var(--radius) - 1px); }
+.group > .row:last-child { border-bottom-left-radius: calc(var(--radius) - 1px); border-bottom-right-radius: calc(var(--radius) - 1px); }
 .group.you { border-color: var(--you-line); }
 /* Approved wins the border; a group that also waits on you keeps its orange left bar. */
 .group.approved { border-color: var(--ok); }
 /* Approved, but conflicts or failed checks block the merge. */
 .group.approved-blocked { border-color: var(--blocked); }
+/* An inset shadow on a full-size overlay follows the card's rounded corners the way clipping used to. */
 .group.you::before {
-	content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--you);
+	content: ''; position: absolute; inset: 0; z-index: 1; pointer-events: none;
+	border-radius: calc(var(--radius) - 1px); box-shadow: inset 3px 0 0 var(--you);
 }
 .group.leaving { opacity: 0; transform: translateX(16px); }
 
@@ -290,6 +296,18 @@ main { padding: 22px 28px 60px; max-width: 1560px; margin: 0 auto; }
 
 .row.merged { background: var(--merged-soft); }
 .row.closed { opacity: .5; }
+/*
+ * Open PRs the agentReview rule doesn't mark as ready get a tab that sticks out from under the card's right edge.
+ * z-index -1 paints it below the card's background (cards and rows don't form stacking contexts), so the card
+ * hides its left end. During a FLIP move the card's transform briefly lifts it above the background; the hidden
+ * end is kept short so that hardly shows.
+ */
+.agent-tab {
+	position: absolute; top: 50%; right: -25px; transform: translateY(-50%); z-index: -1;
+	display: flex; align-items: center; justify-content: flex-end; width: 34px; height: 22px; padding-right: 6px;
+	border-radius: 0 6px 6px 0; background: var(--surface-2); border: 1px solid var(--line); box-shadow: var(--shadow);
+	color: var(--text-3); font-size: 10px; cursor: help;
+}
 
 .title-line { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
 .state-ico { font-size: 13px; flex: none; width: 15px; text-align: center; }
@@ -418,6 +436,9 @@ main { padding: 22px 28px 60px; max-width: 1560px; margin: 0 auto; }
 .merged-pill { padding: 1px 7px; border-radius: 6px; background: var(--merged); color: #fff; font-size: 11px; font-weight: 600; }
 .base-pill { padding: 1px 7px; border-radius: 6px; background: var(--surface-3); color: var(--text-2); font-size: 11px; font-weight: 500; white-space: nowrap; }
 .base-pill.old { background: var(--warn-soft); color: var(--warn); font-weight: 600; }
+.agent-pill { padding: 1px 7px; border-radius: 6px; background: var(--accent-soft); color: var(--accent); font-size: 11px; font-weight: 600; white-space: nowrap; }
+/* The narrow-screen stand-in for the not-ready edge tab, which needs more side margin than phones have. */
+.agent-pill.off { display: none; background: var(--surface-3); color: var(--text-3); font-weight: 500; }
 .size { font-family: var(--mono); font-size: 11px; }
 .size .add { color: var(--ok); }
 .size .del { color: var(--bad); }
@@ -501,6 +522,10 @@ main { padding: 22px 28px 60px; max-width: 1560px; margin: 0 auto; }
 	.row .c-upd::before { flex-basis: 100%; margin-bottom: 0; }
 	.row .c-ppl::before { margin-bottom: 0; }
 	.row.child > [data-label]::before { font-size: 9.5px; }
+
+	/* 16px of side margin can't fit the edge tab, so the Status cell says it instead. */
+	.agent-tab { display: none; }
+	.agent-pill.off { display: inline; }
 
 	/* Search and a Filters button share one line; the chip groups open beneath it. */
 	.filters { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px; }

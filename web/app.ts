@@ -673,6 +673,29 @@ function baseAgePill(d: PrDetail): string {
 	return `<span class="${old ? 'base-pill old' : 'base-pill'}" title="${esc(title)}"><i class="fa-solid fa-code-branch"></i> base ${age} old</span>`;
 }
 
+/**
+ * The "not ready" tab on the row's right edge. Only once details say so: rows still loading,
+ * and every row when no agentReview rule applies, get none.
+ */
+function agentTab(row: Row): void {
+	const a = row.detail?.state === 'OPEN' ? row.detail.agentReview : null;
+	let tab = row.el.root.querySelector<HTMLElement>(':scope > .agent-tab');
+	if (!a || a.ready) {
+		tab?.remove();
+		return;
+	}
+	if (!tab) {
+		tab = document.createElement('span');
+		tab.className = 'agent-tab';
+		tab.setAttribute('role', 'img');
+		tab.innerHTML = '<i class="fa-solid fa-eye-slash" aria-hidden="true"></i>';
+		row.el.root.append(tab);
+	}
+	const text = `Not ready for review by agents: ${a.blocked.join('; ')}`;
+	tab.title = text;
+	tab.setAttribute('aria-label', text);
+}
+
 function cellStatus(row: Row): string {
 	const d = row.detail;
 	const parts: string[] = [];
@@ -684,6 +707,13 @@ function cellStatus(row: Row): string {
 	const ciIcon = CI_ICONS[ci];
 	if (ciIcon) parts.push(`<i class="ci-${ci} ${ciIcon}" title="Checks: ${ci}"></i>`);
 	parts.push(baseAgePill(d));
+	if (d.agentReview?.ready) {
+		const why = d.agentReview.matched.join(', ') || 'matches the agentReview rule';
+		parts.push(`<span class="agent-pill" title="${esc(`Ready for review by agents: ${why}`)}"><i class="fa-solid fa-robot"></i> agents</span>`);
+	} else if (d.agentReview && d.state === 'OPEN') {
+		// Shown only on narrow screens (CSS); wider ones get the edge tab from agentTab().
+		parts.push(`<span class="agent-pill off" title="${esc(`Not ready for review by agents: ${d.agentReview.blocked.join('; ')}`)}"><i class="fa-solid fa-eye-slash"></i> not ready</span>`);
+	}
 	if (d.mergeable === 'CONFLICTING') parts.push(`<i class="conflict fa-solid fa-code-compare" title="Merge conflicts"></i>`);
 	if (d.reviewDecision === 'APPROVED' && d.state === 'OPEN') parts.push(`<i class="fa-solid fa-thumbs-up" style="color:var(--ok)" title="Review decision: approved"></i>`);
 	if (d.size) parts.push(`<span class="size" title="${d.size.files} files"><span class="add">+${d.size.additions}</span> <span class="del">−${d.size.deletions}</span></span>`);
@@ -705,6 +735,7 @@ function renderRow(row: Row): void {
 	row.el.root.classList.toggle('merged', row.detail?.state === 'MERGED');
 	row.el.root.classList.toggle('closed', row.detail?.state === 'CLOSED');
 	row.el.root.classList.toggle('draft', row.light.isDraft && row.detail?.state !== 'MERGED' && row.detail?.state !== 'CLOSED');
+	agentTab(row);
 	setCell(row, 'pr', cellPr(row), false);
 	setCell(row, 'wait', cellWait(row));
 	setCell(row, 'appr', cellApprovals(row));
