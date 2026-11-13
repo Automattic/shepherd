@@ -4,7 +4,7 @@
 
 | Column | What it shows |
 | --- | --- |
-| **Pull request** | State icon, title and number, repo, author, Linear tickets, and related PRs. A stacked PR sits under its parent in smaller, inset text. |
+| **Pull request** | State icon, title and number, repo, author, Linear tickets, and related PRs. A stacked PR sits under its parent in smaller, inset text. Click the state icon to copy the PR's URL. On the top PR of a stack, a click copies every URL in the stack, one per line; ⌘+click or Ctrl+click copies only that PR's URL. |
 | **Waiting on** | Reviewers asked directly, plus an orange **You** pill whenever the PR is waiting on you for any reason (hover it for why). A red **Author** pill means changes were requested and the author hasn't pushed since. Teammates whose bell is on get an orange ring. Team requests (for example from CODEOWNERS) are grey chips. When the team is one of your `reviewTeams`, the **You** pill gets a team icon. |
 | **Approvals** | Who approved (green check) and who asked for changes (red cross), with names. |
 | **AI review** | Unresolved review threads opened by the host's AI-review `bot`. **fix** means severity medium or higher and not a nit; **minor** covers everything else. Click the count to list every finding with its file and a link. Shows "n/a" on hosts with no bot. The column name comes from `aiReviewLabel`. |

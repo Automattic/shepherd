@@ -292,7 +292,21 @@ main { padding: 22px 28px 60px; max-width: 1560px; margin: 0 auto; }
 .row.closed { opacity: .5; }
 
 .title-line { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
-.state-ico { font-size: 13px; flex: none; width: 15px; text-align: center; }
+.state-ico {
+	font-size: 13px; flex: none; width: 15px; text-align: center;
+	padding: 0; border: 0; background: none; cursor: pointer; border-radius: 4px;
+}
+.state-ico:hover { background: var(--surface-2); color: var(--text); }
+.state-ico .ico-copy { display: none; }
+.state-ico:is(:hover, :focus-visible, .copied, .copy-failed) .ico-state { display: none; }
+.state-ico:is(:hover, :focus-visible, .copied, .copy-failed) .ico-copy { display: inline-block; }
+.state-ico.copied { color: var(--ok); }
+.state-ico.copy-failed { color: var(--bad); }
+.copy-tip {
+	position: fixed; z-index: 1000; padding: 3px 8px; border-radius: 5px; pointer-events: none;
+	font-size: 11.5px; font-weight: 500; white-space: nowrap; background: var(--text); color: var(--surface);
+	box-shadow: 0 2px 8px rgb(0 0 0 / .18);
+}
 .state-ico.open { color: var(--ok); }
 .state-ico.draft { color: var(--text-3); }
 .state-ico.merged { color: var(--merged); }
