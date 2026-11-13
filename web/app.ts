@@ -486,12 +486,88 @@ function cellPr(row: Row): string {
 		meta.push(`<span class="branch" title="Base branch"><i class="fa-solid fa-code-branch"></i> ${esc(l.baseRefName)}</span>`);
 	}
 
+	const stackSize = stackOf(row).length;
+	const copyTitle =
+		stackSize > 1
+			? `${state} · Click to copy the URLs of all ${stackSize} PRs in this stack; ${MOD_KEY}+click to copy only this one`
+			: `${state} · Click to copy the URL`;
+
 	return `
 		<div class="title-line">
-			<i class="state-ico ${state} ${icon}" title="${state}"></i>
+			<button class="state-ico ${state}" data-copy="${esc(row.key)}" title="${esc(copyTitle)}" aria-label="${esc(copyTitle)}"><i class="ico-state ${icon}"></i><i class="ico-copy fa-regular fa-copy"></i></button>
 			<a class="pr-title" href="${esc(l.url)}" target="_blank" rel="noopener" title="${esc(l.title)}">${esc(l.title)}</a>
 		</div>
 		<div class="pr-meta">${meta.join('')}</div>`;
+}
+
+const MOD_KEY = /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl';
+
+/** The whole stack, in stack order, when the row is the top of one; otherwise just the row. */
+function stackOf(row: Row): Row[] {
+	if (row.depth !== 0) return [row];
+	const group = lastGroups.find((g) => g.key === row.key);
+	return group && group.members.length > 1 ? group.members : [row];
+}
+
+/** Copies the row's URL, or every URL in its stack (one per line) unless `onlyThis`. */
+async function copyPrUrls(button: HTMLElement, key: string, onlyThis: boolean): Promise<void> {
+	const row = rows.get(key);
+	if (!row) return;
+	const urls = (onlyThis ? [row] : stackOf(row)).map((r) => r.light.url);
+	const text = urls.join('\n');
+	let ok = true;
+	try {
+		await navigator.clipboard.writeText(text);
+	} catch {
+		ok = copyWithTextarea(text);
+	}
+	const icon = button.querySelector('.ico-copy');
+	if (!icon) return;
+	const before = icon.className;
+	icon.className = ok ? 'fa-solid fa-check' : 'fa-solid fa-triangle-exclamation';
+	button.classList.add(ok ? 'copied' : 'copy-failed');
+	const tip = showCopyTip(button, ok ? (urls.length > 1 ? `Copied ${urls.length} URLs` : 'Copied') : 'Copy failed');
+	setTimeout(() => {
+		icon.className = before;
+		button.classList.remove('copied', 'copy-failed');
+		tip.remove();
+	}, 1400);
+}
+
+/** A tooltip on <body> (so no cell or card clips it), kept inside the viewport. */
+function showCopyTip(anchor: HTMLElement, text: string): HTMLElement {
+	document.querySelector('.copy-tip')?.remove();
+	const tip = document.createElement('div');
+	tip.className = 'copy-tip';
+	tip.setAttribute('role', 'status');
+	tip.textContent = text;
+	document.body.appendChild(tip);
+	const a = anchor.getBoundingClientRect();
+	const t = tip.getBoundingClientRect();
+	const margin = 8;
+	const left = Math.min(Math.max(a.left + a.width / 2 - t.width / 2, margin), innerWidth - t.width - margin);
+	const above = a.top - t.height - 6;
+	tip.style.left = `${left}px`;
+	tip.style.top = `${above >= margin ? above : a.bottom + 6}px`;
+	return tip;
+}
+
+/** Fallback for pages served over plain http (no Clipboard API outside localhost). */
+function copyWithTextarea(text: string): boolean {
+	const ta = document.createElement('textarea');
+	ta.value = text;
+	ta.setAttribute('readonly', '');
+	ta.style.position = 'fixed';
+	ta.style.opacity = '0';
+	document.body.appendChild(ta);
+	ta.select();
+	try {
+		return document.execCommand('copy');
+	} catch {
+		return false;
+	} finally {
+		ta.remove();
+	}
 }
 
 function sameAuthorAsParent(row: Row): boolean {
@@ -1544,6 +1620,10 @@ document.addEventListener('click', (e) => {
 		else openFollowUpsPopover(t, ds.followups);
 		return;
 	}
+	if (ds.copy) {
+		void copyPrUrls(t, ds.copy, e.metaKey || e.ctrlKey);
+		return;
+	}
 	if (ds.refresh) {
 		const row = rows.get(ds.refresh);
 		if (row) enqueue(row, { force: true, priority: true });
@@ -1586,6 +1666,15 @@ document.addEventListener('click', (e) => {
 	} else return;
 	save();
 	scheduleLayout();
+});
+
+// On macOS, Ctrl+click opens the context menu instead of firing a click, so catch it here.
+document.addEventListener('contextmenu', (e) => {
+	if (!e.ctrlKey || !(e.target instanceof Element)) return;
+	const button = e.target.closest<HTMLElement>('[data-copy]');
+	if (!button?.dataset.copy) return;
+	e.preventDefault();
+	void copyPrUrls(button, button.dataset.copy, true);
 });
 
 document.addEventListener('keydown', (e) => {
