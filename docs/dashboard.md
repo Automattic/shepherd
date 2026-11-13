@@ -1,0 +1,78 @@
+# Using the dashboard
+
+## The table
+
+| Column | What it shows |
+| --- | --- |
+| **Pull request** | State icon, title and number, repo, author, Linear tickets, and related PRs. A stacked PR sits under its parent in smaller, inset text. |
+| **Waiting on** | Reviewers asked directly, plus an orange **You** pill whenever the PR is waiting on you for any reason (hover it for why). A red **Author** pill means changes were requested and the author hasn't pushed since. Teammates whose bell is on get an orange ring. Team requests (for example from CODEOWNERS) are grey chips. When the team is one of your `reviewTeams`, the **You** pill gets a team icon. |
+| **Approvals** | Who approved (green check) and who asked for changes (red cross), with names. |
+| **AI review** | Unresolved review threads opened by the host's AI-review `bot`. **fix** means severity medium or higher and not a nit; **minor** covers everything else. Click the count to list every finding with its file and a link. Shows "n/a" on hosts with no bot. The column name comes from `aiReviewLabel`. |
+| **Participants** | Everyone who commented, reviewed or committed, except the author and bots, most recently active first. Hover an avatar to see when that person was last active. Below them, a small line shows who acted last (author included) and how: comment, review or push. It turns orange as **your turn** when someone else had the last word on a PR you wrote or took part in, unless your approval still stands. |
+| **Status** | Draft, checks, merge conflicts, a thumbs-up when the review decision is approved, how old the base is (see below), and lines added and removed. |
+| **Updated** | When the PR last changed. Hover the row for a refresh button that reloads just that row. |
+
+If [herdr](herdr.md) is running, rows also show a chip for each terminal pane working on the PR. For how often rows reload, see [How refreshing works](refreshing.md).
+
+## Order and approved work
+
+Rows are sorted in four bands:
+
+1. **Ready to ship** (green border): approved, with no merge conflicts and no failed checks. Pending checks don't block.
+2. **Approved but blocked** (dark cyan border): approved, but a PR has merge conflicts or failed checks.
+3. **Waiting on you** (orange left bar).
+4. Everything else, most recently updated first.
+
+## How old the base is
+
+Some hosts reject a push when the PR's base is older than a set number of hours. Shepherd shows a **base 26h old** pill so you see it before the push fails.
+
+- The age is the committer date of the merge base between the PR branch and its base branch, from GitHub's compare API.
+- For a stacked PR, the age is measured against the repo's default branch, since that is what the bottom of the stack has to catch up with.
+- Set `maxBaseAgeHours` on a repo to get a limit. It only applies to PRs measured against the default branch; a PR into another branch, such as a release branch, shows its age without the limit. The pill appears at half the limit and turns orange past it. If the age can't be checked, the pill reads **base ?** instead of looking fresh.
+- Without a limit, the pill only appears once the base is a week old, and never warns.
+
+The MCP tools return `baseAgeHours` for every open PR, and `baseTooOld` when the repo has a limit.
+
+## Shipped
+
+The **Shipped** section, collapsed under the tiles, lists the PRs the team merged in the tracked repos: **This week** (since Monday 00:00 in your time zone), **Last week** (the Monday to Sunday before) or **Last 30 days**. A line on top counts them per person; the list below is newest first. The server searches the last 32 days once a minute, one search per host, and the page filters to the range you pick, so switching ranges sends no request. The page remembers the range and whether the section is open.
+
+## What "waiting on" means
+
+A PR is waiting on someone when any of these is true:
+
+- **Requested:** GitHub lists them as a pending reviewer, asked directly rather than through a team. Submitting any review clears it; the author can re-request it.
+- **Team:** the PR requests a review from one of the host's `reviewTeams` (see [Review teams](review-teams.md)). It counts for every team member except the author. It doesn't count on drafts, for someone also asked directly, or for someone whose approval still stands.
+- **Their turn:** someone else commented, reviewed or pushed most recently on a PR they wrote or took part in.
+- **Author:** they wrote it, someone requested changes, and nothing has been pushed since.
+
+The **Waiting on you** tile, the orange left bar, the sort order and each person's hourglass all use this definition, as does the `review_queue` MCP tool. The rules live in `src/waiting.ts`.
+
+A PR counts as approved when GitHub's review decision is approved, or when at least one person approved and nobody requested changes. A stack counts as approved only when every open PR in it is approved, and it is green only when none of them has conflicts or failed checks. A partly approved stack stays in the normal order; its Approvals column shows which parts are done.
+
+## Related pull requests
+
+- **Stacks.** A PR whose base branch is another tracked PR's head branch in the same repo shares that PR's row, at any depth. Every PR after the first sits one level in, in stack order. If the parent is not tracked (for example, someone outside the team wrote it), the row shows an **on #N** chip that links to it.
+- **Chips.** Dashed chips link to PRs that share a Linear ticket, PRs linked in the description, and untracked PRs stacked on this one. A row shows at most five, then **+N**.
+- **Linear tickets.** When `linear` is configured: taken from `linear.app` links in the description, and from the configured team keys (such as `ENG-1234`) in the title or branch name.
+
+## Controls
+
+- **Refresh interval.** 5s, 30s, 1m (default), 5m or 15m. The thin bar under the header shows the time until the next check.
+- **Refresh now.** The button in the header, or press `R`. It reloads every row.
+- **Theme.** Light or dark. It follows your system until you choose.
+- **Summary tiles.** Click one to filter: Waiting on you, Approved, Changes requested, AI review open. **Open PRs** clears the filter.
+- **People.** Each person has three buttons:
+  - **Name** (with their PR count): show only PRs they wrote.
+  - **Hourglass** (with a count): show only PRs waiting on their review.
+  - **Bell:** add PRs from anyone that request that person's review, and ring them in orange in **Waiting on**. Yours is on by default.
+
+  Selecting several names shows PRs by any of them, and the same goes for hourglasses. Names and hourglasses combine, so Miguel's name plus your hourglass shows Miguel's PRs waiting on you. An hourglass only sees PRs already on the dashboard, so turn on that person's bell to include PRs from outside the team.
+- **Repo and approval chips.** These narrow the list. With none selected in a cluster, nothing is filtered; select any combination to show only those.
+  - **Repos:** one chip per tracked repo.
+  - **Approved** (approved PRs and fully approved stacks) and **Partially approved** (stacks where only some PRs are approved). They act on whole stacks, never splitting one, and each chip counts its groups. Select both to see all approved work.
+- **Drafts and Dormant 60d+.** Show or hide those PRs. Drafts are shown by default. Dormant PRs (no update for 60 days) are hidden by default, unless they wait on you.
+- **Search.** Matches title, branch, repo, number, author and ticket. Press `/` to focus it.
+
+Your choices are saved in the browser.
