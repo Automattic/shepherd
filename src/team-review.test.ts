@@ -2,8 +2,10 @@
 
 import { describe, expect, test } from 'bun:test';
 import type { GhRunner } from './gh.ts';
-import { createPrService } from './prs.ts';
-import type { Config, PrDetail, TeamMember } from './types.ts';
+import type { HerdrService } from './herdr.ts';
+import { createMcpHandler } from './mcp.ts';
+import { createPrService, type PrService } from './prs.ts';
+import type { Config, LightPr, PrDetail, TeamMember } from './types.ts';
 import { waitReasons } from './waiting.ts';
 
 const alice: TeamMember = { id: 'alice', name: 'Alice', short: 'Alice', logins: { github: 'alice' } };
@@ -136,5 +138,109 @@ describe('listHost with review teams', () => {
 		expect(one.requestedFor).toEqual(['bob']);
 		expect(one.authoredByTeam).toBe(true);
 		expect(list.find((p) => p.number === 2)!.authoredByTeam).toBe(false);
+	});
+});
+
+describe('MCP tools with review teams', () => {
+	const now = new Date().toISOString();
+	const light = (number: number, author: string, flags: { authoredByTeam: boolean; teamRequested: boolean }): LightPr => ({
+		key: `github:example-org/app#${number}`,
+		host: 'github',
+		owner: 'example-org',
+		repo: 'app',
+		number,
+		title: `PR ${number}`,
+		url: `https://github.com/example-org/app/pull/${number}`,
+		isDraft: false,
+		updatedAt: now,
+		createdAt: now,
+		headRefName: `b${number}`,
+		baseRefName: 'main',
+		author: { login: author, name: null },
+		requestedFor: [],
+		...flags,
+	});
+	const reviewers = { users: [], teams: [{ slug: 'reviewers', name: 'Reviewers', reviewTeam: true }] };
+	const nobody = { users: [], teams: [] };
+
+	// 1: the team's, review team requested. 2: an outsider's, review team requested.
+	// 3: the team's, no team request. 4: the search saw a request that has since been cleared.
+	const lights = [
+		light(1, 'alice', { authoredByTeam: true, teamRequested: true }),
+		light(2, 'outsider', { authoredByTeam: false, teamRequested: true }),
+		light(3, 'alice', { authoredByTeam: true, teamRequested: false }),
+		light(4, 'outsider', { authoredByTeam: false, teamRequested: true }),
+	];
+	const details: Record<number, PrDetail> = {
+		1: pr({ number: 1, updatedAt: now }),
+		2: pr({ number: 2, updatedAt: now, author: { login: 'outsider', name: null } }),
+		3: pr({ number: 3, updatedAt: now, requested: nobody }),
+		4: pr({ number: 4, updatedAt: now, author: { login: 'outsider', name: null }, requested: nobody }),
+	};
+
+	function handler(reviewTeams?: string[]) {
+		const config: Config = {
+			me: 'alice',
+			team: [alice, bob],
+			hosts: { github: { hostname: 'github.com', label: 'GitHub', bot: null, ...(reviewTeams ? { reviewTeams } : {}) } },
+			repos: [{ host: 'github', owner: 'example-org', name: 'app', short: 'app' }],
+		};
+		const prs: PrService = {
+			hostKeys: ['github'],
+			listHost: async () => ({ prs: lights.map((l) => ({ ...l, requestedFor: [] })), throttled: false }),
+			getDetail: async (req) => details[Number(req.number)]!,
+		};
+		const herdr: HerdrService = {
+			links: async () => ({ available: false, reason: 'off', links: {}, scannedAt: now }),
+			focus: async () => {},
+		};
+		return createMcpHandler(config, prs, herdr);
+	}
+
+	async function call(h: ReturnType<typeof handler>, name: string, args: Record<string, unknown> = {}) {
+		const res = await h(
+			new Request('http://127.0.0.1/mcp', {
+				method: 'POST',
+				body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }),
+			})
+		);
+		const { result } = (await res.json()) as { result: { content: { text: string }[]; isError?: boolean } };
+		const text = result.content[0]!.text;
+		return result.isError ? { error: text } : JSON.parse(text);
+	}
+
+	test('list_prs marks which requested teams are review teams', async () => {
+		const out = await call(handler(['example-org/reviewers']), 'list_prs');
+		const one = out.pullRequests.find((p: { number: number }) => p.number === 1);
+		expect(one.reviewTeamRequested).toBe(true);
+		expect(one.waitingOnReviewFrom.reviewTeams).toEqual(['reviewers']);
+		const three = out.pullRequests.find((p: { number: number }) => p.number === 3);
+		expect(three.reviewTeamRequested).toBe(false);
+		// Without the filter, PRs by people outside the team stay out, as before.
+		expect(out.pullRequests.map((p: { number: number }) => p.number).sort()).toEqual([1, 3]);
+	});
+
+	test('review_team_requested lists team requests by anyone, and drops cleared ones', async () => {
+		const out = await call(handler(['example-org/reviewers']), 'list_prs', { review_team_requested: true });
+		expect(out.pullRequests.map((p: { number: number }) => p.number).sort()).toEqual([1, 2]);
+		expect(out.matchedBeforeLimit).toBe(2);
+	});
+
+	test('a draft never counts as review-team requested', async () => {
+		const out = await call(handler(['example-org/reviewers']), 'get_pr', { repo: 'app', number: 1 });
+		expect(out.reviewTeamRequested).toBe(true);
+		details[5] = pr({ number: 5, isDraft: true });
+		const draft = await call(handler(['example-org/reviewers']), 'get_pr', { repo: 'app', number: 5 });
+		expect(draft.reviewTeamRequested).toBe(false);
+	});
+
+	test('the team tool shows the review teams per host', async () => {
+		expect((await call(handler(['example-org/reviewers']), 'team')).reviewTeams).toEqual({ 'github.com': ['example-org/reviewers'] });
+		expect((await call(handler(), 'team')).reviewTeams).toBeNull();
+	});
+
+	test('the filter explains itself when no review teams are set', async () => {
+		const out = await call(handler(), 'list_prs', { review_team_requested: true });
+		expect(out.error).toContain('reviewTeams');
 	});
 });

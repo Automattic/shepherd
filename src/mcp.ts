@@ -144,7 +144,11 @@ export function createMcpHandler(config: Config, prs: PrService, herdr: HerdrSer
 			waitingOnReviewFrom: {
 				people: d.requested.users.map((u) => nameOf(u.login)),
 				teams: d.requested.teams.map((t) => t.slug),
+				// The requested teams that are in the host's reviewTeams.
+				reviewTeams: d.requested.teams.filter((t) => t.reviewTeam).map((t) => t.slug),
 			},
+			// A review team is requested on an open, non-draft PR: it waits on the team, as the review queue counts it.
+			reviewTeamRequested: d.state === 'OPEN' && !d.isDraft && d.requested.teams.some((t) => t.reviewTeam),
 			approvedBy: d.reviews.filter((r) => r.state === 'APPROVED').map((r) => nameOf(r.login)),
 			changesRequestedBy: d.reviews.filter((r) => r.state === 'CHANGES_REQUESTED').map((r) => nameOf(r.login)),
 			reviewDecision: d.reviewDecision,
@@ -234,6 +238,13 @@ export function createMcpHandler(config: Config, prs: PrService, herdr: HerdrSer
 
 	// ---- tools ----
 
+	const hostsWithReviewTeams = Object.values(config.hosts).filter((h) => h.reviewTeams?.length);
+	const reviewTeamsByHost = hostsWithReviewTeams.length
+		? Object.fromEntries(hostsWithReviewTeams.map((h) => [h.hostname, h.reviewTeams]))
+		: null;
+	const reviewTeamRequested = (x: Summary | ReturnType<typeof lightSummary>): boolean =>
+		'reviewTeamRequested' in x && x.reviewTeamRequested;
+
 	const tools: Tool[] = [
 		{
 			name: 'team',
@@ -251,13 +262,15 @@ export function createMcpHandler(config: Config, prs: PrService, herdr: HerdrSer
 				repos: config.repos.map((r) => ({ short: r.short, repo: `${r.owner}/${r.name}`, host: hostname(r.host) })),
 				aiReview: { label: reviewLabel, bots: Object.fromEntries(Object.values(config.hosts).filter((h) => h.bot).map((h) => [h.hostname, h.bot])) },
 				linear: config.linear ? `https://linear.app/${config.linear.workspace}` : null,
+				// GitHub teams per host whose review requests put a PR in the team's queue; null when none are set.
+				reviewTeams: reviewTeamsByHost,
 			}),
 		},
 		{
 			name: 'list_prs',
 			title: 'List open team pull requests',
 			description:
-				'List open pull requests written by the team in the tracked repos. Each result says whose review it waits on, who approved, how many AI-review bot threads are unresolved, who has participated (most recently active first), any Linear tickets, and any stacked parent PR. Filter by author, repo or requested reviewer.',
+				'List open pull requests written by the team in the tracked repos. Each result says whose review it waits on (and whether one of the configured review teams is requested), who approved, how many AI-review bot threads are unresolved, who has participated (most recently active first), any Linear tickets, and any stacked parent PR. Filter by author, repo, requested reviewer, or review-team request.',
 			inputSchema: {
 				type: 'object',
 				properties: {
@@ -267,6 +280,11 @@ export function createMcpHandler(config: Config, prs: PrService, herdr: HerdrSer
 					include_drafts: { type: 'boolean', default: true },
 					include_dormant: { type: 'boolean', default: false, description: 'Include PRs idle for more than 60 days.' },
 					has_ai_review_findings: { type: 'boolean', description: `Only PRs with unresolved ${reviewLabel} threads.` },
+					review_team_requested: {
+						type: 'boolean',
+						description:
+							"Only open, non-draft PRs that request a review from one of the hosts' reviewTeams (see the team tool), including PRs by people outside the team. Use it to find PRs that are ready for review.",
+					},
 					limit: { type: 'integer', default: 60, minimum: 1, maximum: 200 },
 				},
 				additionalProperties: false,
@@ -282,12 +300,18 @@ export function createMcpHandler(config: Config, prs: PrService, herdr: HerdrSer
 				const includeDrafts = bool(args, 'include_drafts') ?? true;
 				const includeDormant = bool(args, 'include_dormant') ?? false;
 				const onlyFindings = bool(args, 'has_ai_review_findings') ?? false;
+				const onlyTeam = bool(args, 'review_team_requested') ?? false;
 				const limit = Math.min(int(args, 'limit') ?? 60, 200);
+				if (onlyTeam && !reviewTeamsByHost) {
+					throw new Error('No host lists reviewTeams in config.json, so no PR can request one.');
+				}
 
 				const { prs: all, errors } = await collect(reviewer ? [reviewer.id] : []);
 				let picked = all.filter((p) => {
 					if (reviewer && !p.requestedFor.includes(reviewer.id)) return false;
-					if (!reviewer && !p.authoredByTeam) return false;
+					// The review-team search also finds PRs by people outside the team; keep those for this filter.
+					if (onlyTeam && !p.teamRequested) return false;
+					if (!reviewer && !p.authoredByTeam && !onlyTeam) return false;
 					if (author && author.logins[p.host] !== p.author.login) return false;
 					if (repo && !(p.host === repo.host && p.owner === repo.owner && p.repo === repo.name)) return false;
 					if (!includeDrafts && p.isDraft) return false;
@@ -296,12 +320,14 @@ export function createMcpHandler(config: Config, prs: PrService, herdr: HerdrSer
 					return true;
 				});
 				picked.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-				const matchedBeforeFindings = picked.length;
-				// The findings filter needs details, so apply the limit only after it.
-				if (!onlyFindings) picked = picked.slice(0, limit);
+				const matchedBeforeDetails = picked.length;
+				// These filters need details (the team request may have been cleared since the search), so apply the limit only after them.
+				const needsDetails = onlyFindings || onlyTeam;
+				if (!needsDetails) picked = picked.slice(0, limit);
 				let items = await details(picked);
 				if (onlyFindings) items = items.filter(hasFindings);
-				const matched = onlyFindings ? items.length : matchedBeforeFindings;
+				if (onlyTeam) items = items.filter(reviewTeamRequested);
+				const matched = needsDetails ? items.length : matchedBeforeDetails;
 				items = items.slice(0, limit);
 				return { count: items.length, matchedBeforeLimit: matched, errors, pullRequests: items };
 			},

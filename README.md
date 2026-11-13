@@ -204,9 +204,9 @@ The same process answers MCP at `http://127.0.0.1:5050/mcp`. It uses the Streama
 | Tool | Use it for | Arguments |
 | --- | --- | --- |
 | `review_queue` | "What is waiting on me?" or on someone else, with the reason for each PR (`requested`, `team`, `turn` or `author`) | `person` (default `me`) |
-| `list_prs` | The team's open PRs, filtered | `author`, `repo`, `waiting_on`, `include_drafts`, `include_dormant`, `has_ai_review_findings`, `limit` |
+| `list_prs` | The team's open PRs, filtered | `author`, `repo`, `waiting_on`, `include_drafts`, `include_dormant`, `has_ai_review_findings`, `review_team_requested`, `limit` |
 | `get_pr` | One PR in full: every unresolved AI-review finding, participants with last-active times, who acted last (and whether that was you or the author), stack, checks, and any herdr panes working on it | `url`, or `repo` and `number` |
-| `team` | The roster with each person's logins, the tracked repos, the AI-review bots and the Linear workspace | |
+| `team` | The roster with each person's logins, the tracked repos, the AI-review bots, the Linear workspace and the review teams | |
 
 Agents can name people by `id`, first name or any of their logins, and repos by short name or owner/name. Data is at most 60 seconds old. An unknown person or repo returns an error that lists the valid names.
 
@@ -270,6 +270,8 @@ Some teams mark a PR as ready for review by requesting a review from a GitHub te
 ```
 
 Each entry is `org/team`, as in GitHub's `team-review-requested:` search. Shepherd treats every person in `team` with a login on that host as a member. An open PR in the tracked repos that requests one of these teams then waits on all of them except its author, with a **You** pill that has a team icon. It leaves a person's queue once they approve, and drafts never count. When GitHub clears the team request, for example after a member reviews on the team's behalf, the PR leaves everyone's queue. Without `reviewTeams`, team requests show as grey chips and don't count. Teams are set per host because team names belong to one GitHub host. Shepherd doesn't read team membership from GitHub, so if a host lists several teams, everyone counts as a member of all of them.
+
+Agents can ask for these PRs directly. Every PR the MCP tools return has `reviewTeamRequested` (true on an open, non-draft PR that requests a review team) and `waitingOnReviewFrom.reviewTeams` (which ones). `list_prs` with `review_team_requested: true` returns those PRs, including ones by people outside `team`, and the `team` tool lists the review teams per host.
 
 ### GitHub Enterprise and proxies
 
