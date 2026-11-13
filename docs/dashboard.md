@@ -44,10 +44,10 @@ Reviewers often approve with a list of asks that don't block the merge. Once the
 
 What counts as a follow-up:
 
-- Every list item under a heading or a line ending in a colon that says the list doesn't block, such as **Notes that do not block:**, **Non-blocking:**, **Optional:**, **Follow-ups:** or **Fix these before the next PR:**. The list ends at the next paragraph. Ticked checkboxes are left out.
-- Any other line that names later work: a follow-up, a separate or next PR, before merging, a TODO, out of scope, needs a decision, or a line that starts with "Optional:".
+- Every list item under a heading, or a short line ending in a colon, that says the list doesn't block, such as **Notes that do not block:**, **Non-blocking:**, **Optional:**, **Nits:**, **Follow-ups:**, **Before merging:** or **Fix these before the next PR:**. The list ends at the next paragraph. Ticked checkboxes and empty items such as "None" are left out.
+- Any other line that names later work: a follow-up (but not "follow-up to #12"), a separate or next PR, out of scope, needs a decision, doesn't block, an upper-case TODO, or a line that starts with "Optional:", "Non-blocking:" or "Nit:".
 
-Shepherd reads the description, reviews, comments and inline comments. It skips the host's AI-review `bot` (its findings have their own column), other bots, comments addressed to the bot, quoted text, tables and code blocks. Without any matching text, the row has no pill.
+Shepherd reads the description, the last 50 reviews, the last 100 comments and the first 10 comments of the first 100 inline threads. It skips the host's AI-review `bot` (its findings have their own column), other bots, comments addressed to the bot, quoted text, tables and code blocks. Without any matching text, the row has no pill.
 
 Follow-ups load only while Shipped is open, for the PRs in the range shown. The server asks GitHub for up to 10 PRs of a repo in one GraphQL query and keeps the result for 10 minutes, so a week with 50 merged PRs in one repo costs about 5 queries, then none for 10 minutes.
 

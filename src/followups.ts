@@ -14,32 +14,37 @@ export interface FollowUpText {
 	at: string | null;
 }
 
-/** A line that names work for later, or says it does not block. */
-const LATER_WORK = new RegExp(
-	[
-		'follow[- ]?ups?',
-		'(?:a|another|separate|next|later|future|subsequent|new) (?:pr|pull request)',
-		'separate (?:change|issue|ticket)',
-		'before (?:merg(?:e|ing)|landing|shipping)',
-		'before the [\\w-]+(?: [\\w-]+)? (?:pr|pull request)',
-		'todo',
-		'out of scope',
-		'needs? (?:a )?decision',
-		'non[- ]?blocking',
-		'not blocking',
-		"(?:do|does|did)(?: not|n't) block",
-		"don'?t block",
-	]
-		.map((p) => `\\b${p}\\b`)
-		.join('|'),
+const words = (list: string[]) => new RegExp(list.map((p) => `\\b${p}\\b`).join('|'), 'i');
+
+/** A line that names work for later, or says it does not block. "Follow-up to #12" points back, so it doesn't count. */
+const LATER_WORK = words([
+	'follow[- ]?ups?(?! (?:to|of|on)\\b)',
+	'(?:a|another|separate|next|later|future|subsequent|new) (?:pr|pull request)',
+	'separate (?:change|issue|ticket)',
+	'before the [\\w-]+(?: [\\w-]+)? (?:pr|pull request)',
+	'out of scope',
+	'needs? (?:a )?decision',
+	"(?:do|does|did)(?: not|n't) block",
+	"don'?t block",
+]);
+
+/** Upper case only: "the todo list" is a feature, "TODO: drop the flag" is a task. */
+const TODO = /\bTODO\b/;
+
+/**
+ * Words that mark the list under a heading as non-blocking. They are too common in ordinary prose
+ * ("makes the fetch non-blocking", "tested before merging") to count on a line of their own.
+ */
+const HEADING_WORDS = new RegExp(
+	`${LATER_WORK.source}|${words(['optional', 'nice to have', 'for later', 'future work', 'nits?', 'non[- ]?blocking', 'not blocking', 'before (?:merg(?:e|ing)|landing|shipping)']).source}`,
 	'i'
 );
 
-/** Words that, in a heading, mark the list under it as non-blocking. */
-const HEADING_WORDS = new RegExp(`${LATER_WORK.source}|\\b(?:optional|nice to have|for later|future work)\\b`, 'i');
-
 /** "Optional: rename this" on one line. */
-const OPTIONAL_PREFIX = /^(?:optional|nice to have)\s*[:,-]/i;
+const PREFIX = /^(?:optional|nice to have|non[- ]?blocking|not blocking|nit)\s*[:,-]/i;
+
+/** What an empty template section says. */
+const EMPTY_ITEM = /^(?:none|n\/a|nothing|tbd|-+)\.?$/i;
 
 const LIST_ITEM = /^\s*(?:[-*+]|\d{1,3}[.)])\s+(.*)$/;
 const CHECKBOX = /^\[([ xX])\]\s*/;
@@ -66,7 +71,8 @@ function headingText(line: string): string | null {
 		.replace(/^#{1,6}\s+/, '')
 		.replace(/^(\*\*|__)(.+)\1$/, '$2')
 		.trim();
-	const isHeading = /^#{1,6}\s/.test(t) || /^(\*\*|__).+(\*\*|__):?$/.test(t) || /:$/.test(t);
+	// A plain line ending in ":" is a heading only when it is one short phrase, not "Follow-up to #12. This PR:".
+	const isHeading = /^#{1,6}\s/.test(t) || /^(\*\*|__).+(\*\*|__):?$/.test(t) || (/:$/.test(t) && !/[.!?]\s/.test(t));
 	return isHeading ? bare.replace(/[:*_\s]+$/, '') : null;
 }
 
@@ -111,9 +117,9 @@ export function followUpLines(body: string | null): string[] {
 			continue;
 		}
 		const text = item ? item[1]!.replace(CHECKBOX, '') : raw.trim();
-		if (LATER_WORK.test(text) || OPTIONAL_PREFIX.test(text)) out.push(text);
+		if (LATER_WORK.test(text) || TODO.test(text) || PREFIX.test(text)) out.push(text);
 	}
-	return out.map(tidy).filter((t) => t.length > 1);
+	return out.map(tidy).filter((t) => t.length > 1 && !EMPTY_ITEM.test(t));
 }
 
 /** Every follow-up on a PR, oldest first (the description is dated when the PR opened). The same line said twice counts once. */

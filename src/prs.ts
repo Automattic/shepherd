@@ -731,7 +731,7 @@ export function createPrService(config: Config, gh: GhRunner): PrService {
 			// The AI-review bot's findings already have their own column; other bots are noise here.
 			if (!login || isBot(login)) return;
 			// A reply addressed to the bot ("@bot rejected: ...") answers a finding; it asks nothing of the author.
-			if (bot && t.body?.trimStart().toLowerCase().startsWith(`@${bot}`)) return;
+			if (bot && t.body?.trimStart().toLowerCase().startsWith(`@${bot}`) && !/^[\w-]/.test(t.body.trimStart().slice(bot.length + 1))) return;
 			texts.push({ author: login, source, body: t.body, url: t.url, at, path, line });
 		};
 		add(pr, 'description', pr.createdAt);

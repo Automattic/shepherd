@@ -50,6 +50,28 @@ describe('followUpLines', () => {
 		expect(followUpLines(body)).toEqual(['Still open']);
 	});
 
+	test('ordinary prose that shares the words is not a follow-up', () => {
+		const body = [
+			'Follow-up to #123. This PR:',
+			'- Adds the cache',
+			'- Removes the flag',
+			'Makes the fetch non-blocking so the page stays responsive.',
+			'Adds the todo list screen.',
+			'- [ ] I tested this before merging',
+		].join('\n');
+		expect(followUpLines(body)).toEqual([]);
+	});
+
+	test('those words still count as a heading, or at the start of a line', () => {
+		expect(followUpLines('Before merging:\n- Rebase')).toEqual(['Rebase']);
+		expect(followUpLines('Nits:\n- Rename foo')).toEqual(['Rename foo']);
+		expect(followUpLines('Non-blocking: the name is confusing')).toEqual(['Non-blocking: the name is confusing']);
+	});
+
+	test('an empty template section gives nothing', () => {
+		expect(followUpLines('## Follow-ups\n- None\n- N/A')).toEqual([]);
+	});
+
 	test('text with nothing to match gives nothing', () => {
 		expect(followUpLines('LGTM, ship it.\n\n- Tested locally\n- Works')).toEqual([]);
 		expect(followUpLines(null)).toEqual([]);
@@ -111,6 +133,7 @@ const raw = (n: number, extra: Record<string, unknown> = {}) => ({
 			{ author: { login: 'review-bot' }, body: 'Follow-ups:\n- Something the bot found', url: 'x', createdAt: '2026-11-10T10:30:00Z' },
 			{ author: { login: 'helper[bot]' }, body: 'TODO: a bot chore', url: 'y', createdAt: '2026-11-10T10:31:00Z' },
 			{ author: { login: 'alice' }, body: '@review-bot rejected: this belongs in a separate PR', url: 'w', createdAt: '2026-11-10T10:32:00Z' },
+			{ author: { login: 'carol' }, body: '@review-botanist this needs a decision', url: 'v', createdAt: '2026-11-10T10:33:00Z' },
 		],
 	},
 	reviewThreads: { nodes: [] },
@@ -141,6 +164,7 @@ describe('getFollowUps', () => {
 		expect(out.followUps['github:example-org/app#1']!.map((f) => [f.author, f.text])).toEqual([
 			['bob', 'Add a log line'],
 			['bob', 'Rename the flag'],
+			['carol', '@review-botanist this needs a decision'],
 		]);
 		expect(out.errors).toEqual({});
 	});
@@ -160,7 +184,7 @@ describe('getFollowUps', () => {
 		const { gh } = fakeGh();
 		const out = await createPrService(config, gh).getFollowUps([target(404), target(5)]);
 		expect(out.errors['github:example-org/app#404']).toMatch(/not found/);
-		expect(out.followUps['github:example-org/app#5']).toHaveLength(2);
+		expect(out.followUps['github:example-org/app#5']).toHaveLength(3);
 	});
 });
 
@@ -176,7 +200,7 @@ describe('merged_prs over MCP', () => {
 				}
 				const numbers = [...query.matchAll(/pullRequest\(number:(\d+)\)/g)].map((m) => Number(m[1]));
 				// PR 1 has two follow-ups; PR 2 only a plain approval.
-				const quiet = { ...raw(2), reviews: { nodes: [{ author: { login: 'bob' }, body: 'LGTM', url: 'z', submittedAt: now }] } };
+				const quiet = { ...raw(2), reviews: { nodes: [{ author: { login: 'bob' }, body: 'LGTM', url: 'z', submittedAt: now }] }, comments: { nodes: [] } };
 				return { repository: Object.fromEntries(numbers.map((n, i) => [`p${i}`, n === 1 ? raw(1) : quiet])) } as T;
 			},
 			get: () => Promise.reject(new Error('not used')),
@@ -190,7 +214,7 @@ describe('merged_prs over MCP', () => {
 		};
 		const out = await call({ range: 'last-30-days' });
 		const counts = Object.fromEntries(out.pullRequests.map((p: { ref: string; followUps: number }) => [p.ref, p.followUps]));
-		expect(counts).toEqual({ 'app#1': 2, 'app#2': 0 });
+		expect(counts).toEqual({ 'app#1': 3, 'app#2': 0 });
 		expect(out.pullRequests[0].followUpItems).toBeUndefined();
 
 		const withItems = await call({ range: 'last-30-days', include_follow_ups: true });
@@ -198,6 +222,7 @@ describe('merged_prs over MCP', () => {
 		expect(one.followUpItems.map((f: { who: string; where: string; text: string }) => [f.who, f.where, f.text])).toEqual([
 			['bob', 'review', 'Add a log line'],
 			['bob', 'review', 'Rename the flag'],
+			['carol', 'comment', '@review-botanist this needs a decision'],
 		]);
 		expect(withItems.pullRequests.find((p: { ref: string }) => p.ref === 'app#2').followUpItems).toBeUndefined();
 	});

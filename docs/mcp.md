@@ -10,6 +10,8 @@ The same process answers MCP at `http://127.0.0.1:5050/mcp`. It uses the Streama
 | `get_pr` | One PR in full: every unresolved AI-review finding, participants with last-active times, who acted last (and whether that was you or the author), stack, checks, follow-ups (who, where, the line and a link), and any herdr panes working on it | `url`, or `repo` and `number` |
 | `team` | The roster with each person's logins, the tracked repos, the AI-review bots, the Linear workspace and the review teams | |
 
+`merged_prs` fetches follow-ups for every PR in the range that isn't cached yet, 10 PRs of a repo per query, and keeps them for 10 minutes. A first `last-30-days` call on a busy team can take several seconds; later calls are served from the cache.
+
 Agents can name people by `id`, first name or any of their logins, and repos by short name or owner/name. Data is at most 60 seconds old. An unknown person or repo returns an error that lists the valid names.
 
 Example prompts once it is connected:
