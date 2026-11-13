@@ -464,6 +464,13 @@ main { padding: 22px 28px 60px; max-width: 1560px; margin: 0 auto; }
 .shipped-list li { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-top: 1px solid var(--line); font-size: 13px; min-width: 0; }
 .shipped-list a { flex: 1; min-width: 0; color: var(--text); text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .shipped-list a:hover { color: var(--accent); }
+.followups-pill {
+	flex: none; padding: 1px 7px; border: 0; border-radius: 6px; background: var(--surface-3); color: var(--text-2);
+	font: inherit; font-size: 11px; font-weight: 500; white-space: nowrap; cursor: pointer;
+}
+.followups-pill:hover { color: var(--accent); }
+.followups-pill i { margin-right: 3px; }
+.finding .f-meta .avatar { width: 14px; height: 14px; }
 .shipped-list .ref, .shipped-list time { font-family: var(--mono); font-size: 11px; color: var(--text-3); white-space: nowrap; }
 @media (max-width: 640px) {
 	.shipped-list .ref { display: none; }

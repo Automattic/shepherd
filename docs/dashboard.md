@@ -38,6 +38,19 @@ The MCP tools return `baseAgeHours` for every open PR, and `baseTooOld` when the
 
 The **Shipped** section, collapsed under the tiles, lists the PRs the team merged in the tracked repos: **This week** (since Monday 00:00 in your time zone), **Last week** (the Monday to Sunday before) or **Last 30 days**. A line on top counts them per person; the list below is newest first. The server searches the last 32 days once a minute, one search per host, and the page filters to the range you pick, so switching ranges sends no request. The page remembers the range and whether the section is open.
 
+### Follow-ups
+
+Reviewers often approve with a list of asks that don't block the merge. Once the PR merges, nobody sees them again. A Shipped row shows a **3 follow-ups** pill when people left such asks on the PR; click it to list them, with who wrote each one, where (description, review, comment, or file and line) and a link.
+
+What counts as a follow-up:
+
+- Every list item under a heading or a line ending in a colon that says the list doesn't block, such as **Notes that do not block:**, **Non-blocking:**, **Optional:**, **Follow-ups:** or **Fix these before the next PR:**. The list ends at the next paragraph. Ticked checkboxes are left out.
+- Any other line that names later work: a follow-up, a separate or next PR, before merging, a TODO, out of scope, needs a decision, or a line that starts with "Optional:".
+
+Shepherd reads the description, reviews, comments and inline comments. It skips the host's AI-review `bot` (its findings have their own column), other bots, comments addressed to the bot, quoted text, tables and code blocks. Without any matching text, the row has no pill.
+
+Follow-ups load only while Shipped is open, for the PRs in the range shown. The server asks GitHub for up to 10 PRs of a repo in one GraphQL query and keeps the result for 10 minutes, so a week with 50 merged PRs in one repo costs about 5 queries, then none for 10 minutes.
+
 ## What "waiting on" means
 
 A PR is waiting on someone when any of these is true:

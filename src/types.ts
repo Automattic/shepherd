@@ -248,8 +248,30 @@ export interface MergedPr {
 	mergedAt: string | null;
 }
 
+/** Where a follow-up was written. */
+export type FollowUpSource = 'description' | 'review' | 'comment' | 'inline';
+
+/** A non-blocking ask left on a PR, such as an item under "Optional:" or a line that says "in a follow-up". */
+export interface FollowUp {
+	/** Login of whoever wrote it. */
+	author: string;
+	source: FollowUpSource;
+	/** File and line, for inline comments. */
+	path: string | null;
+	line: number | null;
+	text: string;
+	url: string;
+	at: string | null;
+}
+
 // ---------------------------------------------------------------------------
 // HTTP API responses
+
+/** Follow-ups per PR key; a PR whose fetch failed is in `errors` instead. */
+export interface FollowUpsResponse {
+	followUps: Record<string, FollowUp[]>;
+	errors: Record<string, string>;
+}
 
 export interface MergedResponse {
 	prs: MergedPr[];

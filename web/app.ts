@@ -9,6 +9,8 @@ import type {
 	PaneSignal,
 	BotFinding,
 	DetailResponse,
+	FollowUp,
+	FollowUpsResponse,
 	LightPr,
 	ListResponse,
 	MergedPr,
@@ -20,6 +22,7 @@ import type {
 	TeamMember,
 } from '../src/types.ts';
 import { baseAgeHours, baseTooOld } from '../src/base-age.ts';
+import { FOLLOWUPS_MAX_PRS } from '../src/followups.ts';
 import { countByAuthor, isMergedRange, MERGED_RANGE_LABELS, MERGED_RANGES, mergedInRange, type MergedRange } from '../src/merged.ts';
 import { changesRequestedPending, isTurnOf, WAIT_REASON_TEXT, waitReasons, type WaitReason } from '../src/waiting.ts';
 
@@ -142,6 +145,10 @@ function isListResponse(v: unknown): v is ListResponse {
 
 function isMergedResponse(v: unknown): v is MergedResponse {
 	return isRecord(v) && Array.isArray(v.prs) && isRecord(v.errors);
+}
+
+function isFollowUpsResponse(v: unknown): v is FollowUpsResponse {
+	return isRecord(v) && isRecord(v.followUps) && isRecord(v.errors);
 }
 
 function isDetailResponse(v: unknown): v is DetailResponse {
@@ -1217,6 +1224,51 @@ async function refreshMerged({ force = false }: { force?: boolean } = {}): Promi
 	}
 }
 
+// Follow-ups load only while the section is open, for the PRs in the range shown. The server caches them for 10 minutes.
+const FOLLOWUPS_REFRESH_MS = 10 * 60_000;
+const FOLLOWUPS_RETRY_MS = 60_000;
+const followUps = new Map<string, FollowUp[]>();
+/** When each PR's follow-ups may be asked for again. */
+const followUpsNextAt = new Map<string, number>();
+let followUpsError = '';
+
+async function fetchFollowUps(keys: string[]): Promise<string[]> {
+	try {
+		const res = await api(`/api/followups?prs=${encodeURIComponent(keys.join(','))}`);
+		const body: unknown = await res.json();
+		if (!isFollowUpsResponse(body)) throw new Error(responseError(body) || 'Unexpected response from /api/followups');
+		for (const [k, v] of Object.entries(body.followUps)) followUps.set(k, v);
+		for (const k of Object.keys(body.errors)) followUpsNextAt.set(k, Date.now() + FOLLOWUPS_RETRY_MS);
+		return Object.values(body.errors);
+	} catch (e) {
+		for (const k of keys) followUpsNextAt.set(k, Date.now() + FOLLOWUPS_RETRY_MS);
+		return [errorMessage(e)];
+	}
+}
+
+async function refreshFollowUps(list: MergedPr[]): Promise<void> {
+	if (!S.shippedOpen) return;
+	const now = Date.now();
+	const due = list.filter((p) => now >= (followUpsNextAt.get(p.key) ?? 0)).map((p) => p.key);
+	if (!due.length) return;
+	for (const k of due) followUpsNextAt.set(k, now + FOLLOWUPS_REFRESH_MS); // so a render while this runs doesn't ask again
+	// PRs that left the merged list (older than 32 days) are dropped.
+	const known = new Set(merged.map((p) => p.key));
+	for (const k of followUps.keys()) if (!known.has(k)) followUps.delete(k);
+	for (const k of followUpsNextAt.keys()) if (!known.has(k)) followUpsNextAt.delete(k);
+	const chunks: string[][] = [];
+	for (let i = 0; i < due.length; i += FOLLOWUPS_MAX_PRS) chunks.push(due.slice(i, i + FOLLOWUPS_MAX_PRS));
+	const errors = (await Promise.all(chunks.map(fetchFollowUps))).flat();
+	followUpsError = errors.length ? `Follow-ups: ${errors[0]!.slice(0, 220)}${errors.length > 1 ? ` (and ${errors.length - 1} more)` : ''}` : '';
+	renderShipped();
+}
+
+function followUpsPill(p: MergedPr): string {
+	const n = followUps.get(p.key)?.length ?? 0;
+	if (!n) return '';
+	return `<button class="followups-pill" data-followups="${esc(p.key)}" title="Non-blocking asks left on this PR"><i class="fa-solid fa-list-check"></i> ${n} follow-up${n === 1 ? '' : 's'}</button>`;
+}
+
 function renderShipped(): void {
 	const logins = cfg.team.flatMap((m) => Object.values(m.logins));
 	const list = mergedInRange(merged, logins, S.mergedRange, new Date());
@@ -1227,7 +1279,10 @@ function renderShipped(): void {
 	).join('');
 
 	const people = countByAuthor(list, displayName).map(([n, c]) => `${esc(n)} <b>${c}</b>`).join(' · ');
-	const errorLine = mergedError ? `<span class="shipped-error"><i class="fa-solid fa-triangle-exclamation"></i> ${esc(mergedError)}</span>` : '';
+	const errorLine = [mergedError, followUpsError]
+		.filter(Boolean)
+		.map((e) => `<span class="shipped-error"><i class="fa-solid fa-triangle-exclamation"></i> ${esc(e)}</span>`)
+		.join('');
 	$('#shipped-people').innerHTML = (list.length ? people : `Nothing merged ${label}.`) + errorLine;
 
 	const day: Intl.DateTimeFormatOptions = { weekday: 'short', day: 'numeric', month: 'short' };
@@ -1237,11 +1292,13 @@ function renderShipped(): void {
 			return `<li>
 				${avatar(p.author, p.host)}
 				<a href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.title)}</a>
+				${followUpsPill(p)}
 				<span class="ref">${esc(repoShort(p.host, p.owner, p.repo))}#${p.number}</span>
 				<time datetime="${esc(p.mergedAt)}" title="${esc(when?.toLocaleString())}">${esc(when?.toLocaleDateString(undefined, day))}</time>
 			</li>`;
 		})
 		.join('');
+	void refreshFollowUps(list);
 }
 
 // ---------------------------------------------------------------------------
@@ -1363,6 +1420,11 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => rend
 
 const SEVERITY_ORDER: Record<Severity, number> = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
 
+/** The last two parts of a file path, with the line. */
+function findingPath(path: string | null, line: number | null): string {
+	return path ? `<span class="f-path">${esc(path.split('/').slice(-2).join('/'))}${line ? `:${line}` : ''}</span>` : '';
+}
+
 function openBotPopover(btn: HTMLElement, row: Row): void {
 	const b = row.detail?.bot;
 	if (!b) return;
@@ -1376,12 +1438,17 @@ function openBotPopover(btn: HTMLElement, row: Row): void {
 					<span class="sev-tag ${esc(f.severity)}">${esc(f.severity)}</span>
 					<span class="sev-tag">${esc(f.kind)}</span>
 					${f.outdated ? '<span class="sev-tag" title="The code changed since this comment">outdated</span>' : ''}
-					${f.path ? `<span class="f-path">${esc(f.path.split('/').slice(-2).join('/'))}${f.line ? `:${f.line}` : ''}</span>` : ''}
+					${findingPath(f.path, f.line)}
 				</div>
 			</a>`
 		)
 		.join('');
 	pop.innerHTML = `<h3><i class="fa-solid fa-robot"></i> ${b.open} unresolved ${esc(cfg.aiReviewLabel)} thread${b.open === 1 ? '' : 's'} · #${row.light.number}</h3>${items}`;
+	placePopover(pop, btn, row.key);
+}
+
+/** Shows the popover under `btn` (or above it when there is no room). `key` lets a second click close it. */
+function placePopover(pop: HTMLElement, btn: HTMLElement, key: string): void {
 	pop.hidden = false;
 	const r = btn.getBoundingClientRect();
 	const w = pop.offsetWidth;
@@ -1391,8 +1458,29 @@ function openBotPopover(btn: HTMLElement, row: Row): void {
 	if (top + h > window.innerHeight - 16) top = Math.max(16, r.top - h - 6);
 	pop.style.left = `${Math.max(16, left)}px`;
 	pop.style.top = `${top}px`;
-	pop.dataset.key = row.key;
+	pop.dataset.key = key;
 }
+function openFollowUpsPopover(btn: HTMLElement, key: string): void {
+	const list = followUps.get(key);
+	const pr = merged.find((p) => p.key === key);
+	if (!list?.length || !pr) return;
+	const pop = $('#popover');
+	const items = list
+		.map(
+			(f) => `<a class="finding" href="${esc(f.url)}" target="_blank" rel="noopener">
+				<div class="f-title">${esc(f.text)}</div>
+				<div class="f-meta">
+					${avatar(f.author, pr.host)}<span>${esc(displayName(f.author))}</span>
+					<span class="sev-tag">${esc(f.source)}</span>
+					${findingPath(f.path, f.line)}
+				</div>
+			</a>`
+		)
+		.join('');
+	pop.innerHTML = `<h3><i class="fa-solid fa-list-check"></i> ${list.length} follow-up${list.length === 1 ? '' : 's'} · #${pr.number}</h3>${items}`;
+	placePopover(pop, btn, `followups:${key}`);
+}
+
 function closePopover(): void {
 	$('#popover').hidden = true;
 }
@@ -1411,7 +1499,7 @@ document.addEventListener('click', (e) => {
 	if (!(target instanceof Element)) return;
 	const hit = target.closest('button, a');
 	const t = hit instanceof HTMLElement ? hit : null;
-	if (!target.closest('#popover') && !target.closest('[data-bot]')) closePopover();
+	if (!target.closest('#popover') && !target.closest('[data-bot], [data-followups]')) closePopover();
 	if (!t) return;
 	const ds = t.dataset;
 	if (ds.bot) {
@@ -1422,6 +1510,12 @@ document.addEventListener('click', (e) => {
 			return;
 		}
 		if (row?.detail?.bot) openBotPopover(t, row);
+		return;
+	}
+	if (ds.followups) {
+		const pop = $('#popover');
+		if (!pop.hidden && pop.dataset.key === `followups:${ds.followups}`) closePopover();
+		else openFollowUpsPopover(t, ds.followups);
 		return;
 	}
 	if (ds.refresh) {
@@ -1478,6 +1572,7 @@ $<HTMLDetailsElement>('#shipped').open = S.shippedOpen;
 $('#shipped').addEventListener('toggle', () => {
 	S.shippedOpen = $<HTMLDetailsElement>('#shipped').open;
 	save();
+	renderShipped(); // loads follow-ups on open
 });
 // Only visible on narrow screens, where the chip groups start collapsed.
 $('#filters-btn').addEventListener('click', () => {

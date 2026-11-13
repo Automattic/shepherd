@@ -1,5 +1,6 @@
 // Pull request data: the light list search and the full per-PR detail, with caching.
 
+import { extractFollowUps, type FollowUpText } from './followups.ts';
 import type { GhRunner } from './gh.ts';
 import { mergedSearchSince } from './merged.ts';
 import {
@@ -8,6 +9,8 @@ import {
 	type BotFinding,
 	type BotSummary,
 	type Config,
+	type FollowUp,
+	type FollowUpsResponse,
 	type LightPr,
 	type LastActivity,
 	type MergedPr,
@@ -30,6 +33,9 @@ const LOW_BUDGET_DETAIL = 150; // below this, serve cached details
 const BASE_AGE_TTL_MS = 10 * 60_000; // the merge base only moves with the head; this refreshes behindBy
 const BASE_AGE_RETRY_MS = 60_000; // a failed compare call is retried after this
 const BASE_AGE_CACHE_MAX = 1_000;
+const FOLLOWUPS_TTL_MS = 10 * 60_000; // comments rarely change once a PR has merged
+const FOLLOWUPS_BATCH = 10; // PRs per GraphQL query (one repo per query)
+const FOLLOWUPS_CACHE_MAX = 1_000;
 
 // ---------------------------------------------------------------------------
 // Raw GraphQL shapes
@@ -139,6 +145,26 @@ interface CompareData {
 	merge_base_commit: { commit: { committer: { date: string } | null } } | null;
 }
 
+interface RawText {
+	author: { login: string } | null;
+	body: string | null;
+	url: string;
+}
+
+interface RawFollowUpPr {
+	url: string;
+	body: string | null;
+	createdAt: string;
+	author: { login: string } | null;
+	reviews: { nodes: (RawText & { submittedAt: string | null })[] };
+	comments: { nodes: (RawText & { createdAt: string })[] };
+	reviewThreads: { nodes: { path: string | null; line: number | null; comments: { nodes: (RawText & { createdAt: string })[] } }[] };
+}
+
+interface FollowUpsData {
+	repository: Record<string, RawFollowUpPr | null> | null;
+}
+
 interface RefsData {
 	repository: { pullRequest: { headRefName: string; baseRefName: string } | null } | null;
 }
@@ -199,6 +225,20 @@ const DETAIL_QUERY = `query($owner:String!, $name:String!, $n:Int!, $head:String
 	}
 }`;
 
+const FOLLOWUP_FIELDS = `
+	url body createdAt author { login }
+	reviews(last:50) { nodes { author { login } body url submittedAt } }
+	comments(last:100) { nodes { author { login } body url createdAt } }
+	reviewThreads(first:100) { nodes { path line comments(first:10) { nodes { author { login } body url createdAt } } } }`;
+
+/** Several PRs of one repo in one query, aliased p0, p1, ... The numbers are integers, so they are safe to inline. */
+const followUpsQuery = (numbers: number[]) => `query($owner:String!, $name:String!) {
+	rateLimit { remaining limit resetAt cost }
+	repository(owner:$owner, name:$name) {
+		${numbers.map((n, i) => `p${i}: pullRequest(number:${Math.trunc(n)}) { ${FOLLOWUP_FIELDS} }`).join('\n\t\t')}
+	}
+}`;
+
 const REFS_QUERY = `query($owner:String!, $name:String!, $n:Int!) {
 	repository(owner:$owner, name:$name) { pullRequest(number:$n) { headRefName baseRefName } }
 }`;
@@ -208,6 +248,12 @@ const REFS_QUERY = `query($owner:String!, $name:String!, $n:Int!) {
 
 export function prKey(host: string, owner: string, repo: string, number: number | string): string {
 	return `${host}:${owner}/${repo}#${number}`;
+}
+
+/** The reverse of prKey, or null when `key` is not one. */
+export function parsePrKey(key: string): PrTarget | null {
+	const m = /^(.+):([\w.-]+)\/([\w.-]+)#(\d{1,9})$/.exec(key);
+	return m ? { host: m[1]!, owner: m[2]!, repo: m[3]!, number: Number(m[4]) } : null;
 }
 
 /**
@@ -285,12 +331,21 @@ export interface MergedList {
 	total: number;
 }
 
+export interface PrTarget {
+	host: string;
+	owner: string;
+	repo: string;
+	number: number;
+}
+
 export interface PrService {
 	readonly hostKeys: string[];
 	listHost(hostKey: string, reviewerIds: string[]): Promise<{ prs: LightPr[]; throttled: boolean }>;
 	/** The team's PRs merged in the last MERGED_FETCH_DAYS days; callers filter to a range. */
 	listMerged(hostKey: string): Promise<MergedList>;
 	getDetail(req: DetailRequest): Promise<PrDetail>;
+	/** Follow-ups per PR key, cached; uncached PRs of one repo are fetched FOLLOWUPS_BATCH per query. */
+	getFollowUps(targets: PrTarget[]): Promise<FollowUpsResponse>;
 }
 
 export class NotFoundError extends Error {
@@ -663,5 +718,99 @@ export function createPrService(config: Config, gh: GhRunner): PrService {
 		return p;
 	}
 
-	return { hostKeys, listHost, listMerged, getDetail };
+	// ---- follow-ups ----
+
+	const followUpsCache = new Map<string, { at: number; value: FollowUp[] }>();
+	const followUpsInflight = new Map<string, Promise<FollowUp[]>>();
+
+	function shapeFollowUps(hostKey: string, pr: RawFollowUpPr): FollowUp[] {
+		const bot = config.hosts[hostKey]?.bot?.toLowerCase();
+		const texts: FollowUpText[] = [];
+		const add = (t: RawText, source: FollowUpText['source'], at: string | null, path?: string | null, line?: number | null) => {
+			const login = t.author?.login;
+			// The AI-review bot's findings already have their own column; other bots are noise here.
+			if (!login || isBot(login)) return;
+			// A reply addressed to the bot ("@bot rejected: ...") answers a finding; it asks nothing of the author.
+			if (bot && t.body?.trimStart().toLowerCase().startsWith(`@${bot}`)) return;
+			texts.push({ author: login, source, body: t.body, url: t.url, at, path, line });
+		};
+		add(pr, 'description', pr.createdAt);
+		for (const r of pr.reviews.nodes) add(r, 'review', r.submittedAt);
+		for (const c of pr.comments.nodes) add(c, 'comment', c.createdAt);
+		for (const t of pr.reviewThreads.nodes) for (const c of t.comments.nodes) add(c, 'inline', c.createdAt, t.path, t.line);
+		return extractFollowUps(texts);
+	}
+
+	function cacheFollowUps(key: string, value: FollowUp[]): void {
+		followUpsCache.delete(key);
+		if (followUpsCache.size >= FOLLOWUPS_CACHE_MAX) followUpsCache.delete(followUpsCache.keys().next().value!);
+		followUpsCache.set(key, { at: Date.now(), value });
+	}
+
+	/** One query for up to FOLLOWUPS_BATCH PRs of one repo; returns one promise per PR. */
+	function fetchFollowUpsBatch(host: string, owner: string, repo: string, numbers: number[]): Promise<FollowUp[]>[] {
+		const all = gh.query<FollowUpsData>(host, followUpsQuery(numbers), { owner, name: repo }).then((data) => {
+			if (!data.repository) throw new NotFoundError(`Repository ${owner}/${repo} not found`);
+			// A missing PR fails on its own; the others in the batch still count.
+			return numbers.map((n, i): FollowUp[] | Error => {
+				const pr = data.repository![`p${i}`];
+				if (!pr) return new NotFoundError(`Pull request #${n} not found`);
+				const value = shapeFollowUps(host, pr);
+				cacheFollowUps(prKey(host, owner, repo, n), value);
+				return value;
+			});
+		});
+		return numbers.map((_, i) =>
+			all.then((list) => {
+				const v = list[i]!;
+				if (v instanceof Error) throw v;
+				return v;
+			})
+		);
+	}
+
+	async function getFollowUps(targets: PrTarget[]): Promise<FollowUpsResponse> {
+		const waits = new Map<string, Promise<FollowUp[]>>();
+		const toFetch = new Map<string, { host: string; owner: string; repo: string; numbers: number[] }>();
+		for (const t of targets) {
+			const key = prKey(t.host, t.owner, t.repo, t.number);
+			if (waits.has(key)) continue;
+			const hit = followUpsCache.get(key);
+			const r = gh.rate[t.host];
+			if (hit && (Date.now() - hit.at < FOLLOWUPS_TTL_MS || (r && r.remaining < LOW_BUDGET_DETAIL))) {
+				waits.set(key, Promise.resolve(hit.value));
+				continue;
+			}
+			const pending = followUpsInflight.get(key);
+			if (pending) {
+				waits.set(key, pending);
+				continue;
+			}
+			const repoKey = `${t.host}:${t.owner}/${t.repo}`;
+			const group = toFetch.get(repoKey) ?? { host: t.host, owner: t.owner, repo: t.repo, numbers: [] };
+			if (!group.numbers.includes(t.number)) group.numbers.push(t.number);
+			toFetch.set(repoKey, group);
+		}
+		for (const g of toFetch.values()) {
+			for (let i = 0; i < g.numbers.length; i += FOLLOWUPS_BATCH) {
+				const chunk = g.numbers.slice(i, i + FOLLOWUPS_BATCH);
+				fetchFollowUpsBatch(g.host, g.owner, g.repo, chunk).forEach((p, j) => {
+					const key = prKey(g.host, g.owner, g.repo, chunk[j]!);
+					const tracked = p.finally(() => followUpsInflight.delete(key));
+					followUpsInflight.set(key, tracked);
+					waits.set(key, tracked);
+				});
+			}
+		}
+		const keys = [...waits.keys()];
+		const settled = await Promise.allSettled(keys.map((k) => waits.get(k)!));
+		const out: FollowUpsResponse = { followUps: {}, errors: {} };
+		settled.forEach((s, i) => {
+			if (s.status === 'fulfilled') out.followUps[keys[i]!] = s.value;
+			else out.errors[keys[i]!] = (s.reason as Error).message.slice(0, 300);
+		});
+		return out;
+	}
+
+	return { hostKeys, listHost, listMerged, getDetail, getFollowUps };
 }
