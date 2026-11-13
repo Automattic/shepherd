@@ -42,7 +42,7 @@
 
 		<section class="tiles" id="tiles" aria-label="Summary"></section>
 
-		<section class="filters">
+		<section class="filters" id="filters">
 			<div class="people" id="people" aria-label="People"></div>
 			<div class="filter-row">
 				<div class="repos" id="repos"></div>
@@ -52,6 +52,10 @@
 					<i class="fa-solid fa-magnifying-glass"></i>
 					<input id="q" type="search" placeholder="Filter by title, branch, ticket" autocomplete="off">
 				</label>
+				<!-- Narrow screens only: the chip groups above collapse behind this button. -->
+				<button class="filters-btn" id="filters-btn" type="button" aria-expanded="false" aria-controls="people repos approvals toggles">
+					<i class="fa-solid fa-sliders"></i>Filters<span class="count" id="filters-count" hidden></span>
+				</button>
 			</div>
 		</section>
 

@@ -376,14 +376,15 @@ function createRow(light: LightPr): Row {
 	const root = document.createElement('div');
 	root.className = 'row';
 	root.dataset.key = light.key;
+	// data-label names each cell when the columns stack into cards on narrow screens.
 	root.innerHTML = `
 		<div class="c-pr"></div>
-		<div class="c-wait"></div>
-		<div class="c-appr"></div>
-		<div class="c-bot"></div>
-		<div class="c-ppl"></div>
-		<div class="c-status"></div>
-		<div class="c-upd"></div>`;
+		<div class="c-wait" data-label="Waiting on"></div>
+		<div class="c-appr" data-label="Approvals"></div>
+		<div class="c-bot" data-label="${esc(cfg.aiReviewLabel)}"></div>
+		<div class="c-ppl" data-label="Participants"></div>
+		<div class="c-status" data-label="Status"></div>
+		<div class="c-upd" data-label="Updated"></div>`;
 	const q = (c: string): HTMLElement => $(c, root);
 	return {
 		key: light.key,
@@ -955,6 +956,14 @@ function renderChrome(): void {
 	const togglesEl = $('#toggles');
 	if (togglesEl.innerHTML !== toggles) togglesEl.innerHTML = toggles;
 
+	// The collapsed filter button counts chips that differ from their defaults, so a short list is explained.
+	const activeFilters =
+		S.people.length + S.waitingOn.length + S.repos.length + Number(S.onlyApproved) + Number(S.onlyPartial) + Number(!S.drafts) + Number(S.dormant);
+	const filtersCount = $('#filters-count');
+	filtersCount.hidden = !activeFilters;
+	filtersCount.textContent = String(activeFilters);
+	$('#filters-btn').classList.toggle('active', activeFilters > 0);
+
 	// Header bits
 	// Show the budget of the first host that reports one (github.com does; most Enterprise servers don't).
 	const rateHost = Object.keys(cfg.hosts).find((h) => rate[h]);
@@ -1379,6 +1388,11 @@ document.addEventListener('keydown', (e) => {
 window.addEventListener('scroll', closePopover, { passive: true });
 
 $('#refresh').addEventListener('click', refreshNow);
+// Only visible on narrow screens, where the chip groups start collapsed.
+$('#filters-btn').addEventListener('click', () => {
+	const open = $('#filters').classList.toggle('open');
+	$('#filters-btn').setAttribute('aria-expanded', String(open));
+});
 $('#theme').addEventListener('click', () => {
 	S.theme = effectiveTheme() === 'dark' ? 'light' : 'dark';
 	applyTheme();

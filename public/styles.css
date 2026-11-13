@@ -230,6 +230,16 @@ main { padding: 22px 28px 60px; max-width: 1560px; margin: 0 auto; }
 }
 .search:focus-within { border-color: var(--accent); }
 .search input { border: 0; outline: 0; background: transparent; color: var(--text); font: inherit; font-size: 13px; width: 100%; }
+/* Shown only on narrow screens; see the responsive rules below. */
+.filters-btn {
+	display: none; align-items: center; gap: 7px; height: 36px; padding: 0 12px; border-radius: 8px; cursor: pointer; flex: none;
+	border: 1px solid var(--line); background: var(--surface); color: var(--text-2); font-size: 13px;
+}
+.filters-btn.active, .filters.open .filters-btn { color: var(--text); border-color: var(--line-strong); }
+.filters-btn .count {
+	display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px;
+	background: var(--text); color: var(--bg); font-family: var(--mono); font-size: 11px;
+}
 
 /* ---------- Board ---------- */
 .board { display: flex; flex-direction: column; gap: 8px; }
@@ -461,13 +471,65 @@ main { padding: 22px 28px 60px; max-width: 1560px; margin: 0 auto; }
 	.tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 @media (max-width: 900px) {
-	.topbar { padding: 12px 16px; flex-wrap: wrap; }
+	.topbar { padding: 12px 16px; }
+	.brand { flex: 1 1 auto; }
+	.controls { flex-wrap: nowrap; }
 	main { padding: 16px 16px 48px; }
-	.tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+	/* Tiles become a single scrolling strip of compact chips. */
+	.tiles {
+		display: flex; gap: 8px; overflow-x: auto; scroll-snap-type: x proximity; scrollbar-width: none;
+		margin: 0 -16px 12px; padding: 2px 16px 6px; scroll-padding-inline: 16px;
+	}
+	.tiles::-webkit-scrollbar { display: none; }
+	.tile { flex: none; display: flex; align-items: center; gap: 8px; padding: 7px 12px 7px 10px; scroll-snap-align: start; }
+	.tile:hover { transform: none; }
+	.tile .t-value { order: -1; margin-top: 0; font-size: 19px; }
+	.tile .t-label { white-space: nowrap; }
+	.tile .t-note { display: none; }
 	.grid-head { display: none; }
-	.row { grid-template-columns: 1fr 1fr; row-gap: 10px; }
+	.row { grid-template-columns: 1fr 1fr; row-gap: 12px; }
 	.row .c-pr { grid-column: 1 / -1; }
-	.row .c-upd { justify-content: flex-start; }
+	.row .c-upd { justify-content: flex-start; flex-wrap: wrap; row-gap: 3px; }
 	.row.child .c-pr { padding-left: 22px; }
-	.search { min-width: 0; width: 100%; margin-left: 0; }
+
+	/* The column headers are hidden, so each stacked cell names itself. */
+	.row > [data-label]::before {
+		content: attr(data-label); display: block; margin-bottom: 4px;
+		font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--text-3);
+	}
+	.row .c-upd::before { flex-basis: 100%; margin-bottom: 0; }
+	.row .c-ppl::before { margin-bottom: 0; }
+	.row.child > [data-label]::before { font-size: 9.5px; }
+
+	/* Search and a Filters button share one line; the chip groups open beneath it. */
+	.filters { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px; }
+	.filter-row { display: contents; }
+	.search { order: 0; flex: 1 1 0; min-width: 0; height: 36px; margin-left: 0; }
+	.search input { font-size: 16px; } /* 16px keeps iOS from zooming on focus. */
+	.filters-btn { display: inline-flex; order: 1; }
+	.people { order: 2; flex-basis: 100%; padding-top: 4px; }
+	#repos { order: 3; flex-basis: 100%; }
+	#approvals, .toggles { order: 4; padding-left: 0; border-left: 0; }
+	.filters:not(.open) .people, .filters:not(.open) .repos, .filters:not(.open) .toggles { display: none; }
+}
+
+@media (max-width: 640px) {
+	/* One compact sticky line: the rate budget and subtitle give way to the controls. */
+	.topbar { gap: 10px; padding: 10px 16px; }
+	.brand { gap: 10px; }
+	.brand-mark { width: 32px; height: 32px; font-size: 14px; }
+	.brand h1 { font-size: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	.brand-sub, .rate { display: none; }
+	.controls { gap: 6px; }
+	.seg button { padding: 4px 6px; font-size: 11px; }
+	.icon-btn { width: 32px; height: 32px; border-radius: 8px; }
+}
+@media (max-width: 360px) {
+	.brand h1 { display: none; }
+}
+
+/* Touch screens have no hover, so keep the per-row refresh button visible. */
+@media (hover: none) {
+	.row-refresh { opacity: .6; }
 }
