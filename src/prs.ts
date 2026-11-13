@@ -1,6 +1,7 @@
 // Pull request data: the light list search and the full per-PR detail, with caching.
 
 import type { GhRunner } from './gh.ts';
+import { mergedSearchSince } from './merged.ts';
 import {
 	SEVERITIES,
 	type BaseAge,
@@ -9,6 +10,7 @@ import {
 	type Config,
 	type LightPr,
 	type LastActivity,
+	type MergedPr,
 	type MiniPr,
 	type Participant,
 	type PrDetail,
@@ -23,6 +25,7 @@ const LIST_TTL_MS = 2_000;
 const DETAIL_TTL_MS = 3_000;
 const FORCED_DETAIL_TTL_MS = 1_000;
 const LOW_BUDGET_LIST = 300; // below this, reuse the last list for up to 5 minutes
+const MERGED_TTL_MS = 60_000; // merges are history; once a minute is plenty
 const LOW_BUDGET_DETAIL = 150; // below this, serve cached details
 const BASE_AGE_TTL_MS = 10 * 60_000; // the merge base only moves with the head; this refreshes behindBy
 const BASE_AGE_RETRY_MS = 60_000; // a failed compare call is retried after this
@@ -49,11 +52,20 @@ interface RawLightPr {
 	repository: { name: string; owner: { login: string } };
 }
 
-interface SearchData {
+interface RawMergedPr {
+	number: number;
+	title: string;
+	url: string;
+	mergedAt: string | null;
+	author: { login: string } | null;
+	repository: { name: string; owner: { login: string } };
+}
+
+interface SearchData<T = RawLightPr> {
 	search: {
 		issueCount: number;
 		pageInfo: { hasNextPage: boolean; endCursor: string | null };
-		nodes: (RawLightPr | Record<string, never> | null)[];
+		nodes: (T | Record<string, never> | null)[];
 	};
 }
 
@@ -141,13 +153,18 @@ const LIGHT_FIELDS = `
 		repository { name owner { login } }
 	}`;
 
-const SEARCH_QUERY = `query($q:String!, $after:String) {
+const searchQuery = (fields: string) => `query($q:String!, $after:String) {
 	rateLimit { remaining limit resetAt cost }
 	search(query:$q, type:ISSUE, first:100, after:$after) {
 		issueCount pageInfo { hasNextPage endCursor }
-		nodes { ${LIGHT_FIELDS} }
+		nodes { ${fields} }
 	}
 }`;
+
+const SEARCH_QUERY = searchQuery(LIGHT_FIELDS);
+const MERGED_SEARCH_QUERY = searchQuery(
+	'... on PullRequest { number title url mergedAt author { login } repository { name owner { login } } }'
+);
 
 const DETAIL_QUERY = `query($owner:String!, $name:String!, $n:Int!, $head:String!, $base:String!, $withParent:Boolean!) {
 	rateLimit { remaining limit resetAt cost }
@@ -262,9 +279,17 @@ export interface DetailRequest {
 	maxAgeMs?: number;
 }
 
+/** `total` is what GitHub matched; it is larger than `prs.length` when the 500-result cap cut the list. */
+export interface MergedList {
+	prs: MergedPr[];
+	total: number;
+}
+
 export interface PrService {
 	readonly hostKeys: string[];
 	listHost(hostKey: string, reviewerIds: string[]): Promise<{ prs: LightPr[]; throttled: boolean }>;
+	/** The team's PRs merged in the last MERGED_FETCH_DAYS days; callers filter to a range. */
+	listMerged(hostKey: string): Promise<MergedList>;
 	getDetail(req: DetailRequest): Promise<PrDetail>;
 }
 
@@ -291,16 +316,19 @@ export function createPrService(config: Config, gh: GhRunner): PrService {
 
 	const listCache = new Map<string, { at: number; prs: LightPr[] }>();
 
-	async function searchAll(hostKey: string, q: string): Promise<RawLightPr[]> {
-		const nodes: RawLightPr[] = [];
+	/** Up to 5 pages of one search, and how many results GitHub found in all. */
+	async function searchAll<T extends object>(hostKey: string, q: string, query: string): Promise<{ nodes: T[]; total: number }> {
+		const nodes: T[] = [];
+		let total = 0;
 		let after: string | null = null;
 		for (let page = 0; page < 5; page++) {
-			const data: SearchData = await gh.query<SearchData>(hostKey, SEARCH_QUERY, { q, after });
-			for (const n of data.search.nodes) if (n && 'number' in n) nodes.push(n as RawLightPr);
+			const data: SearchData<T> = await gh.query<SearchData<T>>(hostKey, query, { q, after });
+			total = data.search.issueCount;
+			for (const n of data.search.nodes) if (n && 'number' in n) nodes.push(n as T);
 			if (!data.search.pageInfo.hasNextPage) break;
 			after = data.search.pageInfo.endCursor;
 		}
-		return nodes;
+		return { nodes, total };
 	}
 
 	function lightPr(hostKey: string, n: RawLightPr): LightPr {
@@ -325,15 +353,8 @@ export function createPrService(config: Config, gh: GhRunner): PrService {
 		};
 	}
 
-	async function listHost(hostKey: string, reviewerIds: string[]) {
-		const cacheKey = `${hostKey}|${reviewerIds.join(',')}`;
-		const cached = listCache.get(cacheKey);
-		const r = gh.rate[hostKey];
-		if (cached && r && r.remaining < LOW_BUDGET_LIST && Date.now() - cached.at < 5 * 60_000) {
-			return { prs: cached.prs, throttled: true };
-		}
-		if (cached && Date.now() - cached.at < LIST_TTL_MS) return { prs: cached.prs, throttled: false };
-
+	/** Search qualifiers for the tracked repos and the team's authors on one host. */
+	function teamScope(hostKey: string): { repos: string; authors: string } {
 		const repos = config.repos
 			.filter((x) => x.host === hostKey)
 			.map((x) => `repo:${x.owner}/${x.name}`)
@@ -343,6 +364,19 @@ export function createPrService(config: Config, gh: GhRunner): PrService {
 			.filter((l): l is string => Boolean(l))
 			.map((l) => `author:${l}`)
 			.join(' ');
+		return { repos, authors };
+	}
+
+	async function listHost(hostKey: string, reviewerIds: string[]) {
+		const cacheKey = `${hostKey}|${reviewerIds.join(',')}`;
+		const cached = listCache.get(cacheKey);
+		const r = gh.rate[hostKey];
+		if (cached && r && r.remaining < LOW_BUDGET_LIST && Date.now() - cached.at < 5 * 60_000) {
+			return { prs: cached.prs, throttled: true };
+		}
+		if (cached && Date.now() - cached.at < LIST_TTL_MS) return { prs: cached.prs, throttled: false };
+
+		const { repos, authors } = teamScope(hostKey);
 		const searches: { kind: 'team' | 'review'; id?: string; q: string }[] = [];
 		if (authors) searches.push({ kind: 'team', q: `is:pr is:open ${repos} ${authors}` });
 		for (const id of reviewerIds) {
@@ -350,10 +384,10 @@ export function createPrService(config: Config, gh: GhRunner): PrService {
 			if (login) searches.push({ kind: 'review', id, q: `is:pr is:open ${repos} user-review-requested:${login}` });
 		}
 
-		const results = await Promise.all(searches.map((s) => searchAll(hostKey, s.q)));
+		const results = await Promise.all(searches.map((s) => searchAll<RawLightPr>(hostKey, s.q, SEARCH_QUERY)));
 		const byKey = new Map<string, LightPr>();
 		searches.forEach((s, i) => {
-			for (const node of results[i] ?? []) {
+			for (const node of results[i]?.nodes ?? []) {
 				const pr = lightPr(hostKey, node);
 				const existing = byKey.get(pr.key) ?? pr;
 				if (s.kind === 'team') existing.authoredByTeam = true;
@@ -364,6 +398,48 @@ export function createPrService(config: Config, gh: GhRunner): PrService {
 		const prs = [...byKey.values()];
 		listCache.set(cacheKey, { at: Date.now(), prs });
 		return { prs, throttled: false };
+	}
+
+	// ---- merged ----
+
+	const mergedCache = new Map<string, { at: number; value: MergedList }>();
+	const mergedInflight = new Map<string, Promise<MergedList>>();
+
+	function listMerged(hostKey: string): Promise<MergedList> {
+		const cached = mergedCache.get(hostKey);
+		const r = gh.rate[hostKey];
+		const ttl = r && r.remaining < LOW_BUDGET_LIST ? 5 * 60_000 : MERGED_TTL_MS;
+		if (cached && Date.now() - cached.at < ttl) return Promise.resolve(cached.value);
+		const pending = mergedInflight.get(hostKey);
+		if (pending) return pending;
+
+		const p = (async () => {
+			// One search per host, like the open list; GitHub accepted 120 author: qualifiers in one query when tried.
+			const { repos, authors } = teamScope(hostKey);
+			// Newest first, so a search with more than 500 results drops the oldest merges.
+			const q = `is:pr is:merged merged:>=${mergedSearchSince(new Date())} ${repos} ${authors} sort:updated-desc`;
+			const { nodes, total } = authors ? await searchAll<RawMergedPr>(hostKey, q, MERGED_SEARCH_QUERY) : { nodes: [], total: 0 };
+			const prs = nodes.map((n): MergedPr => {
+				const owner = n.repository.owner.login;
+				const repo = n.repository.name;
+				return {
+					key: prKey(hostKey, owner, repo, n.number),
+					host: hostKey,
+					owner,
+					repo,
+					number: n.number,
+					title: n.title,
+					url: n.url,
+					author: n.author?.login ?? 'ghost',
+					mergedAt: n.mergedAt,
+				};
+			});
+			const value = { prs, total };
+			mergedCache.set(hostKey, { at: Date.now(), value });
+			return value;
+		})().finally(() => mergedInflight.delete(hostKey));
+		mergedInflight.set(hostKey, p);
+		return p;
 	}
 
 	// ---- detail ----
@@ -579,5 +655,5 @@ export function createPrService(config: Config, gh: GhRunner): PrService {
 		return p;
 	}
 
-	return { hostKeys, listHost, getDetail };
+	return { hostKeys, listHost, listMerged, getDetail };
 }

@@ -138,6 +138,10 @@ Some hosts reject a push when the PR's base is older than a set number of hours.
 
 The MCP tools return `baseAgeHours` for every open PR, and `baseTooOld` when the repo has a limit.
 
+### Shipped
+
+The **Shipped** section, collapsed under the tiles, lists the PRs the team merged in the tracked repos: **This week** (since Monday 00:00 in your time zone), **Last week** (the Monday to Sunday before) or **Last 30 days**. A line on top counts them per person; the list below is newest first. The server searches the last 32 days once a minute, one search per host, and the page filters to the range you pick, so switching ranges sends no request. The page remembers the range and whether the section is open.
+
 ### What "waiting on" means
 
 A PR is waiting on someone when any of these is true:
@@ -204,6 +208,7 @@ The same process answers MCP at `http://127.0.0.1:5050/mcp`. It uses the Streama
 | --- | --- | --- |
 | `review_queue` | "What is waiting on me?" or on someone else, with the reason for each PR (`requested`, `turn` or `author`) | `person` (default `me`) |
 | `list_prs` | The team's open PRs, filtered | `author`, `repo`, `waiting_on`, `include_drafts`, `include_dormant`, `has_ai_review_findings`, `limit` |
+| `merged_prs` | "What did we ship this week?": the team's merged PRs with a count per person, in the server's time zone | `range` (`this-week`, `last-week` or `last-30-days`; default `this-week`), `author`, `repo` |
 | `get_pr` | One PR in full: every unresolved AI-review finding, participants with last-active times, who acted last (and whether that was you or the author), stack, checks, and any herdr panes working on it | `url`, or `repo` and `number` |
 | `team` | The roster with each person's logins, the tracked repos, the AI-review bots and the Linear workspace | |
 
@@ -334,6 +339,7 @@ When a PR leaves the list, the page checks it directly before changing anything,
 bun run dev         # restarts the server when a file changes
 bun run typecheck   # tsc --noEmit
 bun run check       # typecheck, plus a bundle of the browser client
+bun test            # unit tests (src/*.test.ts)
 ```
 
 | Path | Role |
@@ -345,6 +351,7 @@ bun run check       # typecheck, plus a bundle of the browser client
 | `src/mcp.ts` | The MCP endpoint and its tools |
 | `src/waiting.ts` | What "waiting on" means, shared by the dashboard and the MCP tools |
 | `src/base-age.ts` | How old a PR's base is, shared by the dashboard and the MCP tools |
+| `src/merged.ts` | The Shipped ranges and filter, shared by the dashboard and the MCP tools |
 | `src/herdr.ts` | Optional herdr integration: pane scan, PR matching and pane focus over herdr's socket |
 | `src/types.ts` | Types shared by the server, the MCP endpoint and the browser client |
 | `web/app.ts` | The dashboard client: no framework, bundled by Bun into `/app.js` |

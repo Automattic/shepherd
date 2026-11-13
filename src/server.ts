@@ -8,7 +8,7 @@ import { createGh } from './gh.ts';
 import { createHerdr } from './herdr.ts';
 import { createMcpHandler } from './mcp.ts';
 import { createPrService, NotFoundError } from './prs.ts';
-import type { DetailResponse, ErrorResponse, HerdrLinksResponse, LightPr, ListResponse, PaneMatchPr } from './types.ts';
+import type { DetailResponse, ErrorResponse, HerdrLinksResponse, LightPr, ListResponse, MergedPr, MergedResponse, PaneMatchPr } from './types.ts';
 
 const PUBLIC_DIR = join(ROOT, 'public');
 const CLIENT_ENTRY = join(ROOT, 'web', 'app.ts');
@@ -72,6 +72,22 @@ async function listPrs(url: URL): Promise<Response> {
 		}
 	});
 	return json<ListResponse>(200, { prs: list, errors, throttled, rate: gh.rate, fetchedAt: new Date().toISOString() });
+}
+
+/** The team's merged PRs for the widest range; the page filters to the range picked, with no new request. */
+async function listMerged(): Promise<Response> {
+	const settled = await Promise.allSettled(prs.hostKeys.map((h) => prs.listMerged(h)));
+	const list: MergedPr[] = [];
+	const errors: Record<string, string> = {};
+	settled.forEach((s, i) => {
+		const host = prs.hostKeys[i]!;
+		if (s.status === 'rejected') errors[host] = (s.reason as Error).message;
+		else {
+			list.push(...s.value.prs);
+			if (s.value.total > s.value.prs.length) errors[host] = `showing the newest ${s.value.prs.length} of ${s.value.total} merged PRs`;
+		}
+	});
+	return json<MergedResponse>(200, { prs: list, errors });
 }
 
 async function getPr(url: URL): Promise<Response> {
@@ -149,6 +165,7 @@ const server = Bun.serve({
 			if (url.pathname === '/api/config') return json(200, publicConfig(config));
 			if (url.pathname === '/api/prs') return await listPrs(url);
 			if (url.pathname === '/api/pr') return await getPr(url);
+			if (url.pathname === '/api/merged') return await listMerged();
 			if (url.pathname === '/api/herdr/links') return await herdrLinks(req);
 			if (url.pathname === '/api/herdr/focus') return await herdrFocus(req);
 			if (url.pathname.startsWith('/api/')) return json<ErrorResponse>(404, { error: 'not found' });
