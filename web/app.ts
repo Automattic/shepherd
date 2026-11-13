@@ -541,11 +541,12 @@ function cellWait(row: Row): string {
 		const watched = m && reviewers().includes(m.id);
 		parts.push(`<span class="avatar-wrap ${watched ? 'watch' : ''}" title="${esc(m?.name || u.name || u.login)}">${avatar(u.login, host)}</span>`);
 	}
-	// Beyond review requests: your turn, and changes waiting on the author.
+	// Beyond review requests: your team's request, your turn, and changes waiting on the author.
 	const mine = waitReasonsFor(row, cfg.me);
 	if (!mine.includes('requested') && mine.length) {
 		const why = mine.map((r) => WAIT_REASON_TEXT[r]).join('; ');
-		parts.unshift(`<span class="you-pill" title="Waiting on you: ${esc(why)}">${avatar(loginOn(meMember(), host) ?? '', host)}You</span>`);
+		const icon = mine.includes('team') ? '<i class="fa-solid fa-users"></i>' : '';
+		parts.unshift(`<span class="you-pill" title="Waiting on you: ${esc(why)}">${avatar(loginOn(meMember(), host) ?? '', host)}You${icon}</span>`);
 	}
 	if (changesRequestedPending(d) && !isMe(d.author.login, host)) {
 		parts.push(
@@ -1141,7 +1142,8 @@ async function refreshList({ force = false }: { force?: boolean } = {}): Promise
 		}
 		for (const row of rows.values()) {
 			if (row.gone || seen.has(row.key) || hostErrors[row.light.host]) continue;
-			const stillWanted = row.light.authoredByTeam || row.light.requestedFor.some((id) => reviewers().includes(id));
+			const stillWanted =
+				row.light.authoredByTeam || row.light.teamRequested || row.light.requestedFor.some((id) => reviewers().includes(id));
 			if (!stillWanted) {
 				removeRow(row); // a review-request toggle was switched off
 				continue;

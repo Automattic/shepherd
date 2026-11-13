@@ -21,6 +21,11 @@ export interface HostConfig {
 	concurrency?: number;
 	/** Login of an AI code-review bot on this host whose unresolved threads are counted, or null. */
 	bot: string | null;
+	/**
+	 * Optional: GitHub teams ("org/team") on this host that the people in `team` review for.
+	 * A PR that requests one of them waits on every team member with a login here, except its author.
+	 */
+	reviewTeams?: string[];
 }
 
 export interface RepoConfig {
@@ -98,6 +103,8 @@ export interface LightPr {
 	authoredByTeam: boolean;
 	/** Team member ids whose direct review request matched this PR. */
 	requestedFor: string[];
+	/** The PR requests a review from one of the host's `reviewTeams`. */
+	teamRequested: boolean;
 }
 
 export type Severity = 'critical' | 'high' | 'medium' | 'low' | 'info';
@@ -199,7 +206,8 @@ export interface PrDetail {
 	/** statusCheckRollup state, e.g. SUCCESS, FAILURE, PENDING; null when there are no checks. */
 	checks: string | null;
 	size: { additions: number; deletions: number; files: number };
-	requested: { users: { login: string; name: string | null }[]; teams: { slug: string; name: string }[] };
+	/** `reviewTeam`: the team is one of the host's `reviewTeams`. */
+	requested: { users: { login: string; name: string | null }[]; teams: { slug: string; name: string; reviewTeam: boolean }[] };
 	/** Latest opinionated review per reviewer. */
 	reviews: PrReview[];
 	/** Null on hosts without an AI-review bot. */
