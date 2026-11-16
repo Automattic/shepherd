@@ -28,7 +28,7 @@ export function configProblems(c: Partial<Config>): string[] {
 	if (c.linear && (!c.linear.workspace || !Array.isArray(c.linear.keys))) out.push('`linear` needs `workspace` and `keys` (or remove it)');
 	if (c.features !== undefined) {
 		if (typeof c.features !== 'object' || c.features === null || Array.isArray(c.features)) {
-			out.push('`features` must be an object, or no such field');
+			out.push('`features` must be an object (or remove it)');
 		} else {
 			for (const [k, v] of Object.entries(c.features)) {
 				if (!isFeature(k)) out.push(`\`features.${k}\` is not a feature (use ${FEATURES.slice(0, -1).join(', ')} or ${FEATURES.at(-1)})`);

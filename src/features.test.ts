@@ -41,8 +41,8 @@ describe('features in config.json', () => {
 	});
 
 	test('rejects a value that is not an object', () => {
-		expect(configProblems({ ...base, features: [] as never })).toEqual(['`features` must be an object, or no such field']);
-		expect(configProblems({ ...base, features: 'off' as never })).toEqual(['`features` must be an object, or no such field']);
+		expect(configProblems({ ...base, features: [] as never })).toEqual(['`features` must be an object (or remove it)']);
+		expect(configProblems({ ...base, features: 'off' as never })).toEqual(['`features` must be an object (or remove it)']);
 	});
 
 	test('rejects unknown keys and values that are not true or false', () => {
