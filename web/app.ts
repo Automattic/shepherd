@@ -26,9 +26,10 @@ import { baseAgeHours, baseTooOld } from '../src/base-age.ts';
 import { resolveFeatures, type Features } from '../src/features.ts';
 import { FOLLOWUPS_MAX_PRS, liveFollowUps, needingFollowUp } from '../src/followups.ts';
 import { countByAuthor, isMergedRange, MERGED_RANGE_LABELS, MERGED_RANGES, mergedInRange, type MergedRange } from '../src/merged.ts';
-import { apiHeaders, apiUrl, readEmbedOptions } from '../src/embed.ts';
+import { apiHeaders, apiUrl, readEmbedOptions, sendsToken } from '../src/embed.ts';
 import { PUSH_POLICY_LABELS, resolvePushPolicy } from '../src/push-policy.ts';
 import { parseRepoKey, repoChipLabels, repoKey } from '../src/repo-chips.ts';
+import { rowMaxAge } from '../src/row-refresh.ts';
 import { mountShell } from './shell.ts';
 import { changesRequestedPending, isTurnOf, WAIT_REASON_TEXT, waitReasons, type WaitReason } from '../src/waiting.ts';
 
@@ -244,10 +245,16 @@ const save = (): void => {
 
 const reviewers = (): string[] => S.reviewers ?? [];
 
+// A host page that embeds the client can set `window.SHEPHERD`; see docs/embedding.md.
+const RAW_EMBED: unknown = (globalThis as { SHEPHERD?: unknown }).SHEPHERD;
+const EMBEDDED = RAW_EMBED !== undefined;
+const EMBED = readEmbedOptions(RAW_EMBED);
+
 // The server prints a `#token=` link when SHEPHERD_TOKEN is set. Keep the token in this
 // origin's storage (other ports on 127.0.0.1 can't read it) and send it as a header.
+// In a host page, the hash belongs to the host: the client does not read it, change it or reload on it.
 const TOKEN_KEY = 'shepherd.token';
-let token = new URLSearchParams(location.hash.slice(1)).get('token') ?? '';
+let token = EMBEDDED ? '' : (new URLSearchParams(location.hash.slice(1)).get('token') ?? '');
 if (token) history.replaceState(null, '', location.pathname + location.search);
 try {
 	if (token) localStorage.setItem(TOKEN_KEY, token);
@@ -256,18 +263,20 @@ try {
 	/* storage unavailable: a token from the link still works for this page load */
 }
 // Pasting the link into an open dashboard only changes the hash, so reload to pick it up.
-addEventListener('hashchange', () => {
-	if (new URLSearchParams(location.hash.slice(1)).has('token')) location.reload();
-});
+if (!EMBEDDED) {
+	addEventListener('hashchange', () => {
+		if (new URLSearchParams(location.hash.slice(1)).has('token')) location.reload();
+	});
+}
+// The token belongs to this origin. An `apiBase` on another origin never gets it.
+const apiToken = sendsToken(EMBED.apiBase, location.origin) ? token : '';
 
-// A host page that embeds the client can set `window.SHEPHERD`; see docs/embedding.md.
-const EMBED = readEmbedOptions((globalThis as { SHEPHERD?: unknown }).SHEPHERD);
 // The element that holds the dashboard. All the markup and styles of the client stay inside it.
 const ROOT = mountShell(EMBED);
 
 // Every API call goes through here. `apiHeaders()` gives the order of the headers.
 const api = (path: string, init: RequestInit = {}): Promise<Response> => {
-	const headers = apiHeaders(EMBED.headers, init.headers, token);
+	const headers = apiHeaders(EMBED.headers, init.headers, apiToken);
 	return fetch(apiUrl(path, EMBED.apiBase), { ...init, headers });
 };
 
@@ -987,6 +996,8 @@ function scheduleLayout(): void {
 }
 
 function layout(): void {
+	// Before boot (or when a banner stopped it), there is no config and no list to show.
+	if (!booted) return;
 	const container = $('#groups');
 	const before = new Map<Element, number>();
 	for (const el of container.children) before.set(el, el.getBoundingClientRect().top);
@@ -1074,6 +1085,21 @@ function listedRepoChips(inScopeRows: Row[]): { key: string; label: string; icon
 	return list.sort((a, b) => a.label.localeCompare(b.label));
 }
 
+/**
+ * The repo chips when the config has repos: one chip for each repo of the config, plus a chip with a count
+ * of 0 for each selected repo that the config no longer has (from a saved filter), so that the user can clear it.
+ */
+function configRepoChips(inScopeRows: Row[]): { key: string; label: string; icon: string; n: number }[] {
+	const chips = cfg.repos.map((r) => ({
+		key: r.short,
+		label: r.short,
+		icon: hostIcon(r.host),
+		n: inScopeRows.filter((x) => x.light.host === r.host && x.light.repo === r.name && x.light.owner === r.owner).length,
+	}));
+	const unknown = S.repos.filter((key) => !chips.some((c) => c.key === key));
+	return [...chips, ...unknown.map((key) => ({ key, label: key, icon: 'fa-solid fa-code-branch', n: 0 }))];
+}
+
 /** The number of different repos of the listed rows: the same as the number of repo chips that have rows. */
 const listedRepoCount = (): number =>
 	new Set(
@@ -1123,14 +1149,7 @@ function renderChrome(): void {
 	const peopleEl = $('#people');
 	if (peopleEl.innerHTML !== people) peopleEl.innerHTML = people;
 
-	const repoChips = cfg.repos.length
-		? cfg.repos.map((r) => ({
-				key: r.short,
-				label: r.short,
-				icon: hostIcon(r.host),
-				n: inScopeRows.filter((x) => x.light.host === r.host && x.light.repo === r.name && x.light.owner === r.owner).length,
-			}))
-		: listedRepoChips(inScopeRows);
+	const repoChips = cfg.repos.length ? configRepoChips(inScopeRows) : listedRepoChips(inScopeRows);
 	const repos = repoChips
 		.map(({ key, label, icon, n }) => {
 			const on = S.repos.includes(key);
@@ -1206,10 +1225,14 @@ let active = 0;
 function maxAge(row: Row): number {
 	// The server can set these per host. Otherwise hosts that report a GraphQL budget (github.com) get a slower floor than unmetered ones.
 	const hostCfg = cfg.hosts[row.light.host];
-	const floor = hostCfg?.rowRefreshFloorMs ?? (rate[row.light.host] || isDotcom(row.light.host) ? 120_000 : 20_000);
 	const hostRate = rate[row.light.host];
-	const low = hostRate !== undefined && hostRate.remaining < 500;
-	return low ? (hostCfg?.rowRefreshLowBudgetMs ?? 600_000) : Math.max(S.interval, floor);
+	return rowMaxAge({
+		floorMs: hostCfg?.rowRefreshFloorMs,
+		lowBudgetMs: hostCfg?.rowRefreshLowBudgetMs,
+		metered: Boolean(hostRate) || isDotcom(row.light.host),
+		lowBudget: hostRate !== undefined && hostRate.remaining < 500,
+		intervalMs: S.interval,
+	});
 }
 
 function enqueue(row: Row, { force = false, priority = false }: { force?: boolean; priority?: boolean } = {}): void {
@@ -1897,34 +1920,50 @@ setInterval(() => {
 // ---------------------------------------------------------------------------
 // Boot
 
+/** Shows why the dashboard did not start. `html` must be escaped already. */
+function bootBanner(icon: string, html: string): void {
+	const banner = $('#banner');
+	banner.hidden = false;
+	banner.innerHTML = `<i class="${icon}"></i><div>${html}</div>`;
+}
+
 void (async function boot(): Promise<void> {
 	applyTheme();
-	const res = await api('/api/config');
+	let res: Response;
+	try {
+		res = await api('/api/config');
+	} catch (e) {
+		bootBanner('fa-solid fa-plug-circle-exclamation', `<strong>The dashboard could not reach /api/config.</strong> ${esc(errorMessage(e))}`);
+		return;
+	}
 	if (res.status === 401) {
-		const banner = $('#banner');
-		banner.hidden = false;
-		banner.textContent = 'This server needs a token. Open the dashboard link it printed at startup (the one ending in #token=…).';
+		bootBanner(
+			'fa-solid fa-lock',
+			!EMBEDDED
+				? 'This server needs a token. Open the dashboard link it printed at startup (the one ending in #token=…).'
+				: '<strong>The API did not accept this request</strong> (HTTP 401). Sign in to this site again, or ask its admin.',
+		);
 		return;
 	}
 	const config: unknown = await res.json().catch(() => undefined);
 	// A failed request is not a version problem: show its status and error instead.
 	if (!res.ok || config === undefined) {
 		const detail = responseError(config) || (res.ok ? 'The response is not JSON.' : res.statusText || 'The request failed.');
-		const banner = $('#banner');
-		banner.hidden = false;
-		banner.innerHTML = `<i class="fa-solid fa-triangle-exclamation"></i><div><strong>The dashboard could not load /api/config</strong> (HTTP ${res.status}). ${esc(detail)}</div>`;
+		bootBanner('fa-solid fa-triangle-exclamation', `<strong>The dashboard could not load /api/config</strong> (HTTP ${res.status}). ${esc(detail)}`);
 		return;
 	}
 	// Stop before any row renders: a server with another API version can send shapes this client misreads.
 	const versionProblem = apiVersionProblem(config);
 	if (versionProblem) {
-		const banner = $('#banner');
-		banner.hidden = false;
-		banner.innerHTML = `<i class="fa-solid fa-code-compare"></i><div><strong>The dashboard cannot read this server.</strong> ${esc(versionProblem)}</div>`;
-		$('#brand-sub').textContent = 'API version mismatch';
+		bootBanner('fa-solid fa-code-compare', `<strong>The dashboard cannot read this server.</strong> ${esc(versionProblem)}`);
+		const brandSub = ROOT.querySelector('#brand-sub'); // not there with `header: false`
+		if (brandSub) brandSub.textContent = 'API version mismatch';
 		return;
 	}
-	if (!isPublicConfig(config)) throw new Error('Unexpected response from /api/config');
+	if (!isPublicConfig(config)) {
+		bootBanner('fa-solid fa-triangle-exclamation', '<strong>The dashboard could not read /api/config.</strong> The response does not have the fields of a Shepherd config.');
+		return;
+	}
 	cfg = config;
 	booted = true;
 	features = resolveFeatures(cfg.features);

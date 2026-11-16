@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { apiHeaders, apiUrl, readEmbedOptions } from './embed.ts';
+import { apiHeaders, apiUrl, readEmbedOptions, sendsToken } from './embed.ts';
 
 test('readEmbedOptions gives no options when window.SHEPHERD is not an object', () => {
 	for (const raw of [undefined, null, 'x', 42, true, ['/x']]) expect(readEmbedOptions(raw)).toEqual({});
@@ -80,4 +80,15 @@ test('readEmbedOptions keeps a mount selector and a boolean header', () => {
 test('readEmbedOptions ignores a mount or header that is not valid', () => {
 	for (const mount of ['', '   ', 42, null, {}, ['#x']]) expect(readEmbedOptions({ mount })).toEqual({});
 	for (const header of ['false', 0, null, {}]) expect(readEmbedOptions({ header })).toEqual({});
+});
+
+test('sendsToken allows the default, a path and a URL on the page origin only', () => {
+	const page = 'https://app.example';
+	expect(sendsToken(undefined, page)).toBe(true);
+	expect(sendsToken('/my-app/api', page)).toBe(true);
+	expect(sendsToken('https://app.example/shepherd', page)).toBe(true);
+	expect(sendsToken('HTTPS://APP.example:443/shepherd', page)).toBe(true);
+	for (const apiBase of ['https://other.example/api', 'http://app.example/api', 'https://app.example:8443/api', 'https://app.example.evil/api', '//other.example/api']) {
+		expect(sendsToken(apiBase, page)).toBe(false);
+	}
 });

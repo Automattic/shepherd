@@ -91,6 +91,19 @@ export function apiUrl(path: string, apiBase: string | undefined): string {
 }
 
 /**
+ * True when the client may send its bearer token to `apiBase`: the default `/api`, a path, or a URL
+ * on the page's own origin. The token belongs to this origin, so a URL on another origin (or the
+ * same host over another scheme or port) never gets it. That server needs its own `headers`.
+ */
+export function sendsToken(apiBase: string | undefined, pageOrigin: string): boolean {
+	try {
+		return new URL(apiBase ?? '/', pageOrigin).origin === pageOrigin;
+	} catch {
+		return false;
+	}
+}
+
+/**
  * The headers of one API call, in this order: the host's headers, then the headers of the call,
  * then the bearer token. The token is added only when no earlier header sets `Authorization`.
  */

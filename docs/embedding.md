@@ -22,7 +22,7 @@ The client reads the object one time, when it starts. Changes to the object afte
 | Key | Purpose |
 | --- | --- |
 | `apiBase` | Replaces the `/api` prefix of every API call. For example, `/api/prs?reviewers=…` goes to `/my-app/api/shepherd/prs?reviewers=…`. Use a path on the same origin (it starts with one `/`) or a URL that starts with `http://` or `https://`. A URL on a different origin needs CORS on that server. The client removes a trailing `/`. |
-| `headers` | An object of header names and string values. The client adds them to every API call. |
+| `headers` | An object of header names and string values. The client adds them to every API call. The browser does not send some headers that a page sets, for example `Cookie`, `Host`, `Origin`, `Referer` and the names that start with `Sec-` or `Proxy-`. Use other names. |
 | `mount` | The element that gets the dashboard: a CSS selector or an element. The default is `#shepherd`. The client replaces the content of the element. When no element matches, the client stops with an error in the browser console. |
 | `header` | `false` removes the brand header (the logo, the name and the line below it). The controls (the rate budget, the refresh interval, **Refresh now** and the theme button) stay in a bar at the top of the dashboard. This bar does not stick to the top of the window. The default is `true`. |
 
@@ -34,6 +34,8 @@ The host's API must give the same responses as the paths below on the local serv
 - `/api/merged`
 - `/api/followups`
 - `/api/herdr/links` and `/api/herdr/focus` (only when herdr is on)
+
+The local server answers `POST /api/herdr/*` only for a page on `localhost`, `127.0.0.1` or `[::1]`, or for a request with no `Origin` header. A page on another origin that calls the local server directly gets an error for these two paths.
 
 ## What the host page must include
 
@@ -85,6 +87,12 @@ The client sets the headers of each API call in this order. A later header with 
 1. The `headers` from `window.SHEPHERD`.
 2. The headers of the call itself, for example `content-type` on a `POST`.
 3. `Authorization: Bearer <token>`, when the page has a token from a `#token=` link (see [Token](configuration.md#token-optional)). The client adds it only when the headers from steps 1 and 2 have no `Authorization` header.
+
+The token belongs to the origin of the page. The client sends it only when `apiBase` is missing, is a path, or is a URL on the same origin (the same scheme, host and port). A server on another origin does not get it, so give that server its own `Authorization` in `headers`.
+
+When `window.SHEPHERD` is set, the hash of the page belongs to the host page. The client does not read a `#token=` from it, does not remove it, and does not reload the page when it changes. A token that this browser saved before for the origin still works.
+
+When `/api/config` answers 401 and `window.SHEPHERD` is set, the page shows a general message. Only the local server prints a `#token=` link.
 
 ## Without `window.SHEPHERD`
 

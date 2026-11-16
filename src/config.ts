@@ -4,6 +4,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { FEATURES, isFeature, resolveFeatures, type Features } from './features.ts';
 import { isPushPolicy, PUSH_POLICIES } from './push-policy.ts';
+import { MIN_ROW_REFRESH_MS } from './row-refresh.ts';
 import { API_VERSION, type Config, type PublicConfig } from './types.ts';
 
 /** The project root (one level above src/). */
@@ -21,9 +22,6 @@ function fail(message: string): never {
 }
 
 const POLICY_LIST = PUSH_POLICIES.map((p) => `"${p}"`).join(', ');
-
-/** The shortest allowed `rowRefreshFloorMs` and `rowRefreshLowBudgetMs`: the page must not load a row more often than every 10 seconds. */
-export const MIN_ROW_REFRESH_MS = 10_000;
 
 /** Checks the shape of a parsed config and returns a list of problems. */
 export function problems(c: Partial<Config>): string[] {
@@ -73,6 +71,10 @@ export function problems(c: Partial<Config>): string[] {
 			if (v !== undefined && !(typeof v === 'number' && Number.isFinite(v) && v >= MIN_ROW_REFRESH_MS)) {
 				out.push(`hosts.${key}.${field} must be a number of milliseconds (${MIN_ROW_REFRESH_MS} or more), or no such field`);
 			}
+		}
+		const { rowRefreshFloorMs: floor, rowRefreshLowBudgetMs: low } = h;
+		if (typeof floor === 'number' && typeof low === 'number' && low < floor) {
+			out.push(`hosts.${key}.rowRefreshLowBudgetMs must not be less than rowRefreshFloorMs: a low budget must not load rows sooner`);
 		}
 	}
 	for (const [i, r] of c.repos!.entries()) {

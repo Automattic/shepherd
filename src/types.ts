@@ -113,7 +113,8 @@ export interface PublicConfig {
 	 * server that has only the open-PR endpoints sets the others to false.
 	 */
 	features?: Partial<Features>;
-	refresh: RefreshMode;
+	/** A missing value means "rows". */
+	refresh?: RefreshMode;
 }
 
 // ---------------------------------------------------------------------------
