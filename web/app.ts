@@ -1264,7 +1264,7 @@ async function refreshList({ force = false }: { force?: boolean } = {}): Promise
 				row = createRow(pr);
 				rows.set(pr.key, row);
 				renderRow(row);
-				// The age check below still refreshes listed details that are too old.
+				// In "rows" mode, the age check below still refreshes listed details that are too old.
 				if (!applyListedDetail(row, detail, skew) && inScope(row)) enqueue(row, { priority: true });
 				continue;
 			}
@@ -1272,9 +1272,11 @@ async function refreshList({ force = false }: { force?: boolean } = {}): Promise
 			const changed = pr.updatedAt !== row.light.updatedAt;
 			row.light = { ...row.light, ...pr, updatedAt: changed ? pr.updatedAt : row.light.updatedAt };
 			row.missing = 0;
+			// "list" mode has no age check, so details that stay behind the list (a failed load, a row out of scope) count as changed.
+			const behind = listOnly && !!row.detail && row.detail.updatedAt !== row.light.updatedAt;
 			// "Refresh now" asks for every row again, except in "list" mode.
-			if ((!force || listOnly) && changed && applyListedDetail(row, detail, skew)) continue;
-			if ((changed || (force && !listOnly)) && inScope(row)) enqueue(row, { force: true, priority: changed });
+			if ((!force || listOnly) && (changed || behind) && applyListedDetail(row, detail, skew)) continue;
+			if ((changed || behind || (force && !listOnly)) && inScope(row)) enqueue(row, { force: true, priority: changed });
 		}
 		for (const row of rows.values()) {
 			if (row.gone || seen.has(row.key) || hostErrors[row.light.host]) continue;

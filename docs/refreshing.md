@@ -28,6 +28,6 @@ The server can change these rules (see [Refresh rules](configuration.md#refresh-
 
 - `rowRefreshFloorMs` on a host replaces the floor in step 3 for that host.
 - `rowRefreshLowBudgetMs` on a host replaces the 10 minutes for that host when its budget is low.
-- `refresh: "list"` removes step 3. A row with details loads again only when its **updated** time changes, when the user clicks its refresh button, or when it leaves the list. **Refresh now** and `R` ask for one new list with `/api/prs?force=1` and do not ask for each row. A forced list skips the server's 2-second list cache, but it reuses a list that is less than one second old. Forced calls at the same time share one search, and a low budget still reuses the last list.
+- `refresh: "list"` removes step 3. A row with details loads again only when its **updated** time changes, when the user clicks its refresh button, or when it leaves the list. If that load fails, or the row is hidden at that time, the page tries again on the next tick. **Refresh now** and `R` ask for one new list with `/api/prs?force=1` and do not ask for each row. A forced list skips the server's 2-second list cache, but it reuses a list that is less than one second old. Forced calls at the same time share one search, and a low budget still reuses the last list.
 
 With `refresh: "list"`, a page load, an auto refresh and **Refresh now** each make one `/api/prs` call when the server already has the details. A row that the server has no details for still makes one `/api/pr` call.
