@@ -26,7 +26,7 @@ Rows are sorted in four bands:
 This is the **Review order**, the default. Choose **Newest first** in the sort control to sort by the last update instead:
 
 - A group sorts by the newest update of its PRs, so a stack stays together.
-- The bands do not change the order, but each group keeps its green, dark cyan or orange left border.
+- The bands have no effect on the position of a group. Each group keeps its green, dark cyan or orange left border.
 - The page saves your choice.
 
 ## How old the base is
