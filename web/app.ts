@@ -24,6 +24,7 @@ import type {
 import { baseAgeHours, baseTooOld } from '../src/base-age.ts';
 import { FOLLOWUPS_MAX_PRS, liveFollowUps, needingFollowUp } from '../src/followups.ts';
 import { countByAuthor, isMergedRange, MERGED_RANGE_LABELS, MERGED_RANGES, mergedInRange, type MergedRange } from '../src/merged.ts';
+import { parseRepoKey, repoChipLabels, repoKey } from '../src/repo-chips.ts';
 import { changesRequestedPending, isTurnOf, WAIT_REASON_TEXT, waitReasons, type WaitReason } from '../src/waiting.ts';
 
 // ---------------------------------------------------------------------------
@@ -279,6 +280,10 @@ const member = (login: string | null | undefined): TeamMember | null => memberBy
 // With no repos in the config, the short name is the repo name.
 const repoShort = (host: string, owner: string, name: string): string =>
 	cfg.repos.find((r) => r.host === host && r.owner === owner && r.name === name)?.short || name;
+// The value that the repo filter (S.repos) holds for a repo: the short name from the config, or, with no repos
+// in the config, the full repo key, so that two repos with the same name get different chips.
+const repoFilterKey = (host: string, owner: string, name: string): string =>
+	cfg.repos.length ? repoShort(host, owner, name) : repoKey({ host, owner, name });
 const linearUrl = (key: string): string => `https://linear.app/${cfg.linear?.workspace ?? ''}/issue/${key}`;
 
 // ---------------------------------------------------------------------------
@@ -837,7 +842,7 @@ function inScope(row: Row): boolean {
 function matchesFilters(row: Row, { ignoreTile = false }: { ignoreTile?: boolean } = {}): boolean {
 	if (!inScope(row)) return false;
 	const l = row.light;
-	if (S.repos.length && !S.repos.includes(repoShort(l.host, l.owner, l.repo))) return false;
+	if (S.repos.length && !S.repos.includes(repoFilterKey(l.host, l.owner, l.repo))) return false;
 	// Names filter by owner; clocks by whose review is waiting. Each is "any of", and the two combine with AND.
 	if (S.people.length) {
 		const authorId = member(l.author.login)?.id;
@@ -998,27 +1003,36 @@ function layout(): void {
 
 /**
  * The repo chips when the config has no repos, for a server that finds PRs another way (for example by author).
- * One chip for each repo of the listed rows, in name order, plus a chip for each selected repo with no rows,
- * so that a saved selection stays visible and the user can clear it.
+ * One chip for each repo (host, owner and name) of the listed rows, plus a chip for each selected repo with no rows,
+ * so that a saved selection stays visible and the user can clear it. The label is the repo name, or `owner/name`
+ * when two chips have the same name. The chips are in label order.
  */
-function listedRepoChips(inScopeRows: Row[]): { short: string; icon: string; n: number }[] {
-	const chips = new Map<string, { short: string; icon: string; n: number }>();
+function listedRepoChips(inScopeRows: Row[]): { key: string; label: string; icon: string; n: number }[] {
+	const chips = new Map<string, { key: string; label: string; icon: string; n: number }>();
 	for (const r of rows.values()) {
 		if (r.gone) continue;
-		const short = repoShort(r.light.host, r.light.owner, r.light.repo);
-		if (!chips.has(short)) chips.set(short, { short, icon: hostIcon(r.light.host), n: 0 });
+		const key = repoKey({ host: r.light.host, owner: r.light.owner, name: r.light.repo });
+		if (!chips.has(key)) chips.set(key, { key, label: '', icon: hostIcon(r.light.host), n: 0 });
 	}
-	for (const short of S.repos) if (!chips.has(short)) chips.set(short, { short, icon: 'fa-solid fa-code-branch', n: 0 });
+	for (const key of S.repos) if (!chips.has(key)) chips.set(key, { key, label: '', icon: 'fa-solid fa-code-branch', n: 0 });
 	for (const r of inScopeRows) {
-		const chip = chips.get(repoShort(r.light.host, r.light.owner, r.light.repo));
+		const chip = chips.get(repoKey({ host: r.light.host, owner: r.light.owner, name: r.light.repo }));
 		if (chip) chip.n++;
 	}
-	return [...chips.values()].sort((a, b) => a.short.localeCompare(b.short));
+	const list = [...chips.values()];
+	const labels = repoChipLabels(
+		list.map((c) => parseRepoKey(c.key)),
+		(host) => cfg.hosts[host]?.label || cfg.hosts[host]?.hostname || host,
+	);
+	list.forEach((c, i) => (c.label = labels[i]!));
+	return list.sort((a, b) => a.label.localeCompare(b.label));
 }
 
-/** The number of different repos of the listed rows. */
+/** The number of different repos of the listed rows: the same as the number of repo chips that have rows. */
 const listedRepoCount = (): number =>
-	new Set([...rows.values()].filter((r) => !r.gone).map((r) => `${r.light.host}/${r.light.owner}/${r.light.repo}`)).size;
+	new Set(
+		[...rows.values()].filter((r) => !r.gone).map((r) => repoKey({ host: r.light.host, owner: r.light.owner, name: r.light.repo })),
+	).size;
 
 function renderChrome(): void {
 	const scoped = [...rows.values()].filter((r) => matchesFilters(r, { ignoreTile: true }));
@@ -1064,15 +1078,16 @@ function renderChrome(): void {
 
 	const repoChips = cfg.repos.length
 		? cfg.repos.map((r) => ({
-				short: r.short,
+				key: r.short,
+				label: r.short,
 				icon: hostIcon(r.host),
 				n: inScopeRows.filter((x) => x.light.host === r.host && x.light.repo === r.name && x.light.owner === r.owner).length,
 			}))
 		: listedRepoChips(inScopeRows);
 	const repos = repoChips
-		.map(({ short, icon, n }) => {
-			const on = S.repos.includes(short);
-			return `<button class="chip-btn ${on ? 'on' : ''}" data-repo="${esc(short)}"><i class="${icon}"></i>${esc(short)} <span class="count">${n}</span></button>`;
+		.map(({ key, label, icon, n }) => {
+			const on = S.repos.includes(key);
+			return `<button class="chip-btn ${on ? 'on' : ''}" data-repo="${esc(key)}"><i class="${icon}"></i>${esc(label)} <span class="count">${n}</span></button>`;
 		})
 		.join('');
 	const reposEl = $('#repos');
