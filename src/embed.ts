@@ -12,18 +12,29 @@ export interface ShepherdEmbedOptions {
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
-/** A path on this origin ("/x/api") or an http(s) URL. Other values give `undefined`. */
+// A fixed origin to parse a path against. A path that resolves to a different origin is not a path.
+const PATH_ORIGIN = 'http://path.invalid';
+
+/**
+ * A path on this origin ("/x/api") or an http(s) URL. Other values give `undefined`.
+ * The URL parser changes `\` to `/` and removes tabs and newlines, so "/\evil.example" goes to
+ * another origin. Thus the check parses the value. It also rejects a query, a fragment and a
+ * user name or password, because these values break every call.
+ */
 function readApiBase(v: unknown): string | undefined {
 	if (typeof v !== 'string') return undefined;
-	const base = v.trim().replace(/\/+$/, '');
-	if (v.trim().startsWith('/') && !v.trim().startsWith('//')) return base;
+	const raw = v.trim();
+	if (/[\\\s?#]/.test(raw)) return undefined;
+	const isPath = raw.startsWith('/');
+	let url: URL;
 	try {
-		const url = new URL(base);
-		if (url.protocol === 'http:' || url.protocol === 'https:') return base;
+		url = isPath ? new URL(raw, PATH_ORIGIN) : new URL(raw);
 	} catch {
-		/* not a URL */
+		return undefined;
 	}
-	return undefined;
+	if (isPath ? url.origin !== PATH_ORIGIN : url.protocol !== 'http:' && url.protocol !== 'https:') return undefined;
+	if (url.username || url.password) return undefined;
+	return raw.replace(/\/+$/, '');
 }
 
 /** Keeps only the entries that `Headers` accepts, with a string value. */

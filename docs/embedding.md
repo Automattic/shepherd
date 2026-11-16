@@ -36,6 +36,7 @@ The client ignores a value that is not valid, and uses the default for it:
 
 - When `window.SHEPHERD` is not an object, the client ignores it.
 - When `apiBase` is not a string, is empty, is a relative path such as `api`, starts with `//`, or is a URL that is not `http` or `https`, the client uses `/api`.
+- When `apiBase` has a `\`, a space, a tab, a newline, a `?`, a `#`, or a user name or password, the client uses `/api`.
 - The client ignores each header that has a value that is not a string, or a name or value that the browser does not accept.
 
 ## Headers and the token

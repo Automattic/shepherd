@@ -17,6 +17,18 @@ test('readEmbedOptions ignores an apiBase that is not valid', () => {
 	}
 });
 
+test('readEmbedOptions ignores a path apiBase that the URL parser sends to another origin', () => {
+	for (const apiBase of ['/\\evil.example/api', '/\t/evil.example/api', '/\n/evil.example', '/\r/evil.example', '/ /x']) {
+		expect(readEmbedOptions({ apiBase })).toEqual({});
+	}
+});
+
+test('readEmbedOptions ignores an apiBase with a query, a fragment or credentials', () => {
+	for (const apiBase of ['/x?a=1', '/x?', '/x#f', 'https://example.com/s?a=1', 'https://u:p@example.com/s', 'https://u@example.com/s']) {
+		expect(readEmbedOptions({ apiBase })).toEqual({});
+	}
+});
+
 test('readEmbedOptions keeps only valid headers with string values', () => {
 	const opts = readEmbedOptions({
 		headers: { 'X-Nonce': 'abc', 'X-Number': 1, 'bad name': 'x', 'X-Bad-Value': 'a\nb', 'X-Csrf': '' },
