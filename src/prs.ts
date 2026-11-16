@@ -25,6 +25,8 @@ import {
 
 const DEFAULT_BRANCHES = new Set(['trunk', 'main', 'master', 'develop']);
 const LIST_TTL_MS = 2_000;
+// In "list" mode, every list call reuses a list this new, a failed search waits this long, and a detail call (also a forced one) reuses details this new, so no client calls GitHub more often.
+const LIST_MODE_TTL_MS = 10_000;
 const DETAIL_TTL_MS = 3_000;
 const FORCED_DETAIL_TTL_MS = 1_000;
 const LOW_BUDGET_LIST = 300; // below this, reuse the last list for up to 5 minutes
@@ -354,10 +356,13 @@ export interface PrTarget {
 
 export interface PrService {
 	readonly hostKeys: string[];
+	/** Reuses a list for LIST_TTL_MS, or LIST_MODE_TTL_MS when `refresh` is "list". A low budget still reuses the last list, and calls at the same time share one search. */
 	listHost(hostKey: string, reviewerIds: string[]): Promise<{ prs: LightPr[]; throttled: boolean }>;
 	/** The team's PRs merged in the last MERGED_FETCH_DAYS days; callers filter to a range. */
 	listMerged(hostKey: string): Promise<MergedList>;
 	getDetail(req: DetailRequest): Promise<PrDetail>;
+	/** The cached details of a PR, only when they are for this `updatedAt`. Never calls GitHub. */
+	cachedDetail(key: string, updatedAt: string): PrDetail | null;
 	/** Follow-ups per PR key, cached; uncached PRs of one repo are fetched FOLLOWUPS_BATCH per query. */
 	getFollowUps(targets: PrTarget[]): Promise<FollowUpsResponse>;
 }
@@ -384,6 +389,9 @@ export function createPrService(config: Config, gh: GhRunner): PrService {
 	// ---- list ----
 
 	const listCache = new Map<string, { at: number; prs: LightPr[] }>();
+	const listInflight = new Map<string, Promise<{ prs: LightPr[]; throttled: boolean }>>();
+	// In "list" mode, the last failed search per cache key, so calls in the next LIST_MODE_TTL_MS get its error.
+	const listFailed = new Map<string, { at: number; error: unknown }>();
 
 	/** Up to 5 pages of one search, and how many results GitHub found in all. */
 	async function searchAll<T extends object>(hostKey: string, q: string, query: string): Promise<{ nodes: T[]; total: number }> {
@@ -439,15 +447,37 @@ export function createPrService(config: Config, gh: GhRunner): PrService {
 		return { repos, authors };
 	}
 
-	async function listHost(hostKey: string, reviewerIds: string[]) {
+	function listHost(hostKey: string, reviewerIds: string[]) {
+		const listMode = config.refresh === 'list';
 		const cacheKey = `${hostKey}|${reviewerIds.join(',')}`;
 		const cached = listCache.get(cacheKey);
 		const r = gh.rate[hostKey];
 		if (cached && r && r.remaining < LOW_BUDGET_LIST && Date.now() - cached.at < 5 * 60_000) {
-			return { prs: cached.prs, throttled: true };
+			return Promise.resolve({ prs: cached.prs, throttled: true });
 		}
-		if (cached && Date.now() - cached.at < LIST_TTL_MS) return { prs: cached.prs, throttled: false };
+		if (cached && Date.now() - cached.at < (listMode ? LIST_MODE_TTL_MS : LIST_TTL_MS)) return Promise.resolve({ prs: cached.prs, throttled: false });
+		// Calls at the same time share one search, also from many pages.
+		const pending = listInflight.get(cacheKey);
+		if (pending) return pending;
+		const failed = listFailed.get(cacheKey);
+		if (listMode && failed && Date.now() - failed.at < LIST_MODE_TTL_MS) return Promise.reject(failed.error);
+		const p = searchHost(hostKey, reviewerIds, cacheKey)
+			.then(
+				(v) => {
+					listFailed.delete(cacheKey);
+					return v;
+				},
+				(e: unknown) => {
+					if (listMode) listFailed.set(cacheKey, { at: Date.now(), error: e });
+					throw e;
+				}
+			)
+			.finally(() => listInflight.delete(cacheKey));
+		listInflight.set(cacheKey, p);
+		return p;
+	}
 
+	async function searchHost(hostKey: string, reviewerIds: string[], cacheKey: string) {
 		const { repos, authors } = teamScope(hostKey);
 		// Repos with allAuthors list every open PR, so they skip the author filter. That search also finds the team's PRs.
 		const hostRepos = config.repos.filter((x) => x.host === hostKey);
@@ -711,7 +741,7 @@ export function createPrService(config: Config, gh: GhRunner): PrService {
 		const cached = detailCache.get(key);
 		const r = gh.rate[host];
 		if (cached && r && r.remaining < LOW_BUDGET_DETAIL) return { ...cached.value, throttled: true };
-		const ttl = req.maxAgeMs ?? (req.force ? FORCED_DETAIL_TTL_MS : DETAIL_TTL_MS);
+		const ttl = Math.max(req.maxAgeMs ?? (req.force ? FORCED_DETAIL_TTL_MS : DETAIL_TTL_MS), config.refresh === 'list' ? LIST_MODE_TTL_MS : 0);
 		if (cached && Date.now() - cached.at < ttl) return cached.value;
 		const pending = inflight.get(key);
 		if (pending) return pending;
@@ -744,6 +774,11 @@ export function createPrService(config: Config, gh: GhRunner): PrService {
 		})().finally(() => inflight.delete(key));
 		inflight.set(key, p);
 		return p;
+	}
+
+	function cachedDetail(key: string, updatedAt: string): PrDetail | null {
+		const value = detailCache.get(key)?.value;
+		return value && value.updatedAt === updatedAt ? value : null;
 	}
 
 	// ---- follow-ups ----
@@ -848,5 +883,5 @@ export function createPrService(config: Config, gh: GhRunner): PrService {
 		return out;
 	}
 
-	return { hostKeys, listHost, listMerged, getDetail, getFollowUps };
+	return { hostKeys, listHost, listMerged, getDetail, cachedDetail, getFollowUps };
 }

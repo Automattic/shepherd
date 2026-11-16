@@ -55,7 +55,11 @@ async function listPrs(url: URL): Promise<Response> {
 	settled.forEach((s, i) => {
 		const host = prs.hostKeys[i]!;
 		if (s.status === 'fulfilled') {
-			list.push(...s.value.prs);
+			// Send the details we already have, so the page does not ask for each row again.
+			for (const pr of s.value.prs) {
+				const detail = prs.cachedDetail(pr.key, pr.updatedAt);
+				list.push(detail ? { ...pr, detail } : pr);
+			}
 			throttled[host] = s.value.throttled;
 		} else {
 			errors[host] = (s.reason as Error).message;
