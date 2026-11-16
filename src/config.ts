@@ -2,6 +2,7 @@
 
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { FEATURES, isFeature, resolveFeatures } from './features.ts';
 import type { Config, PublicConfig } from './types.ts';
 
 /** The project root (one level above src/). */
@@ -19,12 +20,22 @@ function fail(message: string): never {
 }
 
 /** Checks the shape of a parsed config and returns a list of problems. */
-function problems(c: Partial<Config>): string[] {
+export function configProblems(c: Partial<Config>): string[] {
 	const out: string[] = [];
 	if (!Array.isArray(c.team) || !c.team.length) out.push('`team` must be a non-empty array');
 	if (!c.hosts || typeof c.hosts !== 'object') out.push('`hosts` must be an object');
 	if (!Array.isArray(c.repos) || !c.repos.length) out.push('`repos` must be a non-empty array');
 	if (c.linear && (!c.linear.workspace || !Array.isArray(c.linear.keys))) out.push('`linear` needs `workspace` and `keys` (or remove it)');
+	if (c.features !== undefined) {
+		if (typeof c.features !== 'object' || c.features === null || Array.isArray(c.features)) {
+			out.push('`features` must be an object, or no such field');
+		} else {
+			for (const [k, v] of Object.entries(c.features)) {
+				if (!isFeature(k)) out.push(`\`features.${k}\` is not a feature (use ${FEATURES.slice(0, -1).join(', ')} or ${FEATURES.at(-1)})`);
+				else if (typeof v !== 'boolean') out.push(`\`features.${k}\` must be true or false`);
+			}
+		}
+	}
 	if (out.length) return out;
 
 	const ids = new Set<string>();
@@ -75,7 +86,7 @@ export async function loadConfig(): Promise<Config> {
 	} catch (e) {
 		fail(`${file} is not valid JSON: ${(e as Error).message}`);
 	}
-	const issues = problems(parsed);
+	const issues = configProblems(parsed);
 	if (issues.length) fail(`${file} has problems:\n${issues.map((p) => `  - ${p}`).join('\n')}`);
 	return parsed as Config;
 }
@@ -90,5 +101,7 @@ export function publicConfig(config: Config): PublicConfig {
 		),
 		linear: config.linear ?? null,
 		aiReviewLabel: config.aiReviewLabel || 'AI review',
+		// herdr.enabled: false turns the herdr chips off too, so the page does not ask for them.
+		features: resolveFeatures({ ...config.features, ...(config.herdr?.enabled === false ? { herdr: false } : {}) }),
 	};
 }

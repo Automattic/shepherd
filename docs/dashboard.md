@@ -36,7 +36,7 @@ The MCP tools return `baseAgeHours` for every open PR, and `baseTooOld` when the
 
 ## Shipped
 
-The **Shipped** section, collapsed under the tiles, lists the PRs the team merged in the tracked repos: **This week** (since Monday 00:00 in your time zone), **Last week** (the Monday to Sunday before) or **Last 30 days**. A line on top counts them per person; the list below is newest first. The server searches the last 32 days once a minute, one search per host, and the page filters to the range you pick, so switching ranges sends no request. The page remembers the range and whether the section is open.
+The **Shipped** section, collapsed under the tiles, lists the PRs the team merged in the tracked repos: **This week** (since Monday 00:00 in your time zone), **Last week** (the Monday to Sunday before) or **Last 30 days**. A line on top counts them per person; the list below is newest first. The server searches the last 32 days once a minute, one search per host, and the page filters to the range you pick, so switching ranges sends no request. The page remembers the range and whether the section is open. To remove the section, or only its follow-ups, see [Turn features off](configuration.md#turn-features-off).
 
 ### Follow-ups
 
