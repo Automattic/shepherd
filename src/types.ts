@@ -109,6 +109,11 @@ export interface LightPr {
 	requestedFor: string[];
 	/** The PR requests a review from one of the host's `reviewTeams`. */
 	teamRequested: boolean;
+	/**
+	 * The details the server already has for this `updatedAt`, if any. The page shows them at once,
+	 * and calls /api/pr for the row only when they are older than the row's refresh interval.
+	 */
+	detail?: PrDetail;
 }
 
 export type Severity = 'critical' | 'high' | 'medium' | 'low' | 'info';

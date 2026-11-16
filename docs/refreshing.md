@@ -8,6 +8,8 @@ On each tick, the page:
 2. Reloads any row whose **updated** time changed.
 3. Reloads any row older than the interval, with a floor of 20 seconds on hosts without a rate limit and 2 minutes on github.com.
 
+The list carries the details the server already has for each PR's current **updated** time. The page shows them at once and asks for a row again only when they are older than the limit in step 3, so reloading the page does not fetch every row again. **Refresh now** still asks for every row.
+
 Loading a PR's details also makes one REST compare call to measure the base age. The result is cached per head commit for 10 minutes, so new commits on the base branch don't trigger a call on every refresh. A failed call is retried after a minute.
 
 The github.com floor exists because it allows 5,000 GraphQL points an hour, and a 5-second interval would use them up. The header shows the remaining github.com budget. Below 500, rows reload at most every 10 minutes; below 300, the server reuses the last list.

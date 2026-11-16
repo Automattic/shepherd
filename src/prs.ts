@@ -350,6 +350,8 @@ export interface PrService {
 	/** The team's PRs merged in the last MERGED_FETCH_DAYS days; callers filter to a range. */
 	listMerged(hostKey: string): Promise<MergedList>;
 	getDetail(req: DetailRequest): Promise<PrDetail>;
+	/** The cached details of a PR, only when they are for this `updatedAt`. Never calls GitHub. */
+	cachedDetail(key: string, updatedAt: string): PrDetail | null;
 	/** Follow-ups per PR key, cached; uncached PRs of one repo are fetched FOLLOWUPS_BATCH per query. */
 	getFollowUps(targets: PrTarget[]): Promise<FollowUpsResponse>;
 }
@@ -736,6 +738,11 @@ export function createPrService(config: Config, gh: GhRunner): PrService {
 		return p;
 	}
 
+	function cachedDetail(key: string, updatedAt: string): PrDetail | null {
+		const value = detailCache.get(key)?.value;
+		return value && value.updatedAt === updatedAt ? value : null;
+	}
+
 	// ---- follow-ups ----
 
 	const followUpsCache = new Map<string, { at: number; value: FollowUp[] }>();
@@ -838,5 +845,5 @@ export function createPrService(config: Config, gh: GhRunner): PrService {
 		return out;
 	}
 
-	return { hostKeys, listHost, listMerged, getDetail, getFollowUps };
+	return { hostKeys, listHost, listMerged, getDetail, cachedDetail, getFollowUps };
 }
