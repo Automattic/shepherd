@@ -469,11 +469,10 @@ const PUSH_POLICY_ICONS = {
 	push: 'fa-solid fa-code-commit',
 } as const;
 
-/** How the author wants to receive changes; nothing on your own PRs or when no policy covers the PR. */
+/** How changes to the PR's branch should arrive; nothing on your own PRs (always open to pushes) or when no policy covers the PR. */
 function pushPolicyPill(l: LightPr): string {
-	if (isMe(l.author.login, l.host)) return '';
-	const p = resolvePushPolicy(cfg, { host: l.host, owner: l.owner, repo: l.repo, author: l.author.login });
-	if (!p.policy) return '';
+	const p = resolvePushPolicy(cfg, { host: l.host, owner: l.owner, repo: l.repo, author: l.author.login, fork: l.fork });
+	if (!p.policy || p.source === 'own') return '';
 	return `<span class="push-pill ${p.policy}" title="${esc(p.instruction)}"><i class="${PUSH_POLICY_ICONS[p.policy]}"></i>${PUSH_POLICY_LABELS[p.policy]}</span>`;
 }
 

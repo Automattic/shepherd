@@ -113,6 +113,8 @@ export interface LightPr {
 	createdAt: string;
 	headRefName: string;
 	baseRefName: string;
+	/** The fork owner's login when the head branch is in another repo; null when it is in this repo. */
+	fork: string | null;
 	author: PrAuthor;
 	authoredByTeam: boolean;
 	/** The PR is in a repo with `allAuthors`, so it is listed whoever wrote it. */
@@ -216,6 +218,8 @@ export interface PrDetail {
 	createdAt: string;
 	headRefName: string;
 	baseRefName: string;
+	/** The fork owner's login when the head branch is in another repo; null when it is in this repo. */
+	fork: string | null;
 	author: PrAuthor;
 	mergeable: 'MERGEABLE' | 'CONFLICTING' | 'UNKNOWN' | null;
 	reviewDecision: 'APPROVED' | 'CHANGES_REQUESTED' | 'REVIEW_REQUIRED' | null;

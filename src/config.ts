@@ -80,6 +80,34 @@ export function problems(c: Partial<Config>): string[] {
 	return out;
 }
 
+/** Valid but likely unintended settings. They are printed at startup and don't stop the server. */
+export function warnings(c: Config): string[] {
+	const out: string[] = [];
+	c.repos.forEach((r, i) => {
+		if (!r.pushPolicyByAuthor) return;
+		const where = `repos[${i}] (${r.owner}/${r.name}) pushPolicyByAuthor`;
+		const host = c.hosts[r.host]?.hostname ?? r.host;
+		// Which team member or outside login each key names, matched the way resolvePushPolicy matches it.
+		const seen = new Map<string, string>();
+		for (const key of Object.keys(r.pushPolicyByAuthor)) {
+			const k = key.toLowerCase();
+			const byId = c.team.find((m) => m.id.toLowerCase() === k);
+			const byLogin = c.team.find((m) => m.logins[r.host]?.toLowerCase() === k);
+			if (byId && byLogin && byId !== byLogin) {
+				out.push(`${where}."${key}" is the team id of ${byId.id} and the ${host} login of ${byLogin.id}; it applies only to ${byId.id}`);
+			}
+			const who = byId ? `team member ${byId.id}` : byLogin ? `team member ${byLogin.id}` : `the ${host} login "${k}"`;
+			if (!byId && !byLogin) {
+				out.push(`${where}."${key}" matches no team id or ${host} login on the team, so it applies only to an outside author with that login`);
+			}
+			const prev = seen.get(who);
+			if (prev !== undefined) out.push(`${where}."${key}" and "${prev}" both name ${who}; keep one`);
+			else seen.set(who, key);
+		}
+	});
+	return out;
+}
+
 export async function loadConfig(): Promise<Config> {
 	const file = join(ROOT, process.env.SHEPHERD_CONFIG || 'config.json');
 	const f = Bun.file(file);
@@ -94,6 +122,8 @@ export async function loadConfig(): Promise<Config> {
 	}
 	const issues = problems(parsed);
 	if (issues.length) fail(`${file} has problems:\n${issues.map((p) => `  - ${p}`).join('\n')}`);
+	const notes = warnings(parsed as Config);
+	if (notes.length) console.warn(`${file} has settings to check:\n${notes.map((p) => `  - ${p}`).join('\n')}`);
 	return parsed as Config;
 }
 
