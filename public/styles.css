@@ -31,8 +31,6 @@
 	--font: 'Geist', ui-sans-serif, system-ui, -apple-system, sans-serif;
 	--mono: 'Geist Mono', ui-monospace, 'SF Mono', Menlo, monospace;
 	--cols: minmax(0, 1fr) 170px 150px 160px 150px 124px 84px;
-	/* Where the column headers stick: below the top bar. A host page can set it on the mount element. */
-	--sticky-top: 65px;
 	color-scheme: light;
 }
 
@@ -125,8 +123,8 @@
 	border-bottom: 1px solid var(--line);
 }
 /* `header: false`: no brand, and the controls do not stick, so they do not cover the host's own header. */
-.shepherd.no-header { --sticky-top: 0px; }
 .shepherd.no-header .topbar { position: relative; z-index: auto; justify-content: flex-end; }
+.shepherd.no-header .grid-head { top: var(--sticky-top, 0px); }
 .shepherd .brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .shepherd .brand-mark {
 	display: grid; place-items: center; width: 36px; height: 36px; border-radius: 10px;
@@ -254,7 +252,8 @@
 .shepherd .board { display: flex; flex-direction: column; gap: 8px; }
 .shepherd .grid-head, .shepherd .row { display: grid; grid-template-columns: var(--cols); align-items: center; column-gap: 16px; }
 .shepherd .grid-head {
-	position: sticky; top: var(--sticky-top); z-index: 5;
+	/* Below the top bar (65px), or at the top with `header: false`. A host page can set --sticky-top. */
+	position: sticky; top: var(--sticky-top, 65px); z-index: 5;
 	padding: 8px 18px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--text-3);
 	background: var(--bg);
 }

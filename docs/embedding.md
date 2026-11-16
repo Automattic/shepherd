@@ -54,7 +54,7 @@ The client renders all its markup into the mount element. The host page must loa
 All the rules in `styles.css` start with `.shepherd`, the class that the client adds to the mount element. The CSS variables (`--bg`, `--text` and the others) and the dark theme also apply only to that element. The file does not change `html`, `body`, the elements of the host page, or the variables on `:root`. The animation names start with `shepherd-`.
 
 - The theme button and the saved theme set `data-theme` on the mount element, not on `<html>`. Without a saved theme, the dashboard follows the system setting (`prefers-color-scheme`).
-- The column headers of the list stick to the top of the window. When the host page has its own fixed header, set `--sticky-top` on the mount element to the height of that header, for example `#shepherd { --sticky-top: 56px; }`.
+- The column headers of the list stick to the top of the window (with `header: false`) or below the top bar. When the host page has its own fixed header, set `--sticky-top` on the mount element to the height of that header, for example `#shepherd { --sticky-top: 56px; }`. A rule with any selector works, because `styles.css` does not set this variable.
 
 ## Limits
 
