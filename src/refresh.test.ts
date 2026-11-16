@@ -1,9 +1,10 @@
 // Server refresh rules: the `refresh` and `rowRefresh*` config keys, and the list cache in "list" mode. Run with `bun test`.
 
 import { afterEach, describe, expect, setSystemTime, test } from 'bun:test';
-import { MIN_ROW_REFRESH_MS, problems, publicConfig } from './config.ts';
+import { problems, publicConfig, warnings } from './config.ts';
 import type { GhRunner } from './gh.ts';
 import { createPrService } from './prs.ts';
+import { MIN_ROW_REFRESH_MS, rowMaxAge } from './row-refresh.ts';
 import type { Config } from './types.ts';
 
 const base: Config = {
@@ -26,11 +27,11 @@ describe('refresh config', () => {
 	});
 
 	test('valid values pass and reach the public config', () => {
-		const c: Config = { ...withHost({ rowRefreshFloorMs: 300_000, rowRefreshLowBudgetMs: MIN_ROW_REFRESH_MS }), refresh: 'list' };
+		const c: Config = { ...withHost({ rowRefreshFloorMs: MIN_ROW_REFRESH_MS, rowRefreshLowBudgetMs: 300_000 }), refresh: 'list' };
 		expect(problems(c)).toEqual([]);
 		const pub = publicConfig(c);
 		expect(pub.refresh).toBe('list');
-		expect(pub.hosts.github).toMatchObject({ rowRefreshFloorMs: 300_000, rowRefreshLowBudgetMs: 10_000 });
+		expect(pub.hosts.github).toMatchObject({ rowRefreshFloorMs: 10_000, rowRefreshLowBudgetMs: 300_000 });
 	});
 
 	test('bad values are reported', () => {
@@ -43,6 +44,48 @@ describe('refresh config', () => {
 				'hosts.github.rowRefreshLowBudgetMs must be a number of milliseconds (10000 or more), or no such field',
 			]);
 		}
+	});
+
+	test('a low-budget interval shorter than the floor is a warning, not a problem', () => {
+		const low = withHost({ rowRefreshFloorMs: 300_000, rowRefreshLowBudgetMs: 60_000 });
+		expect(problems(low)).toEqual([]);
+		expect(warnings(low)).toEqual([
+			'hosts.github.rowRefreshLowBudgetMs (60000) is less than rowRefreshFloorMs (300000); when the budget is low, the page uses the floor',
+		]);
+		expect(warnings(withHost({ rowRefreshFloorMs: 60_000, rowRefreshLowBudgetMs: 60_000 }))).toEqual([]);
+		expect(warnings(withHost({ rowRefreshLowBudgetMs: 60_000 }))).toEqual([]);
+	});
+});
+
+describe('rowMaxAge (client)', () => {
+	const at = (over: Partial<Parameters<typeof rowMaxAge>[0]>): number =>
+		rowMaxAge({ floorMs: undefined, lowBudgetMs: undefined, metered: false, lowBudget: false, intervalMs: 5_000, ...over });
+
+	test('without server values, it keeps the default floors', () => {
+		expect(at({})).toBe(20_000);
+		expect(at({ metered: true })).toBe(120_000);
+		expect(at({ intervalMs: 300_000 })).toBe(300_000);
+		expect(at({ lowBudget: true, metered: true })).toBe(600_000);
+	});
+
+	test('a server value that is not a finite number is ignored', () => {
+		for (const v of ['60000', null, Number.NaN, Infinity, {}]) {
+			expect(at({ floorMs: v })).toBe(20_000);
+			expect(at({ lowBudget: true, lowBudgetMs: v })).toBe(600_000);
+		}
+	});
+
+	test('a server value under 10 seconds is raised to 10 seconds', () => {
+		for (const v of [0, -1, 1, 9_999]) {
+			expect(at({ floorMs: v })).toBe(MIN_ROW_REFRESH_MS);
+			expect(at({ lowBudget: true, lowBudgetMs: v, floorMs: v })).toBe(MIN_ROW_REFRESH_MS);
+		}
+	});
+
+	test('a low budget never loads a row sooner than the floor or the interval', () => {
+		expect(at({ lowBudget: true, floorMs: 300_000, lowBudgetMs: 60_000 })).toBe(300_000);
+		expect(at({ lowBudget: true, floorMs: 900_000 })).toBe(900_000);
+		expect(at({ lowBudget: true, intervalMs: 900_000 })).toBe(900_000);
 	});
 });
 

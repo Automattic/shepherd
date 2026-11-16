@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { parseRepoKey, repoChipLabels, repoKey, type RepoId } from './repo-chips.ts';
+import { parseRepoKey, repoChipLabels, repoKey, unknownSelectedRepos, type RepoId } from './repo-chips.ts';
 
 const id = (host: string, owner: string, name: string): RepoId => ({ host, owner, name });
 const hostLabel = (host: string): string => (host === 'github' ? 'GitHub' : 'GHE');
@@ -50,4 +50,10 @@ describe('repoChipLabels', () => {
 			'jetpack',
 		]);
 	});
+});
+
+test('unknownSelectedRepos gives the selected repos that have no chip, in order', () => {
+	expect(unknownSelectedRepos(['old', 'app', 'gone'], ['app', 'api'])).toEqual(['old', 'gone']);
+	expect(unknownSelectedRepos([], ['app'])).toEqual([]);
+	expect(unknownSelectedRepos(['app'], ['app'])).toEqual([]);
 });

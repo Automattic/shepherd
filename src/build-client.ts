@@ -23,13 +23,13 @@ export interface ClientBundle {
 	map?: string;
 }
 
-/** Runs Bun.build and returns its outputs. Exits the process with the build logs when the build fails. */
-async function bundle(config: Parameters<typeof Bun.build>[0]): Promise<Bun.BuildArtifact[]> {
-	const result = await Bun.build(config);
+/** Runs Bun.build and returns its outputs. Throws an error with the build logs when the build fails. */
+export async function bundle(config: Parameters<typeof Bun.build>[0]): Promise<Bun.BuildArtifact[]> {
+	const result = await Bun.build({ ...config, throw: false });
 	if (!result.success || result.outputs.length === 0) {
-		console.error(`Could not bundle ${config.entrypoints.join(', ')}:`);
-		for (const log of result.logs) console.error(log);
-		process.exit(1);
+		const where = (log: (typeof result.logs)[number]): string =>
+			log.position ? `${log.position.file}:${log.position.line}:${log.position.column}: ` : '';
+		throw new Error([`Could not bundle ${config.entrypoints.join(', ')}:`, ...result.logs.map((log) => where(log) + log.message)].join('\n'));
 	}
 	return result.outputs;
 }
@@ -59,7 +59,8 @@ function rootRelativeSources(mapText: string): string {
 	return JSON.stringify(map);
 }
 
-if (import.meta.main) {
+/** `bun run build:client`: writes the minified client, its styles and index.html to dist/. */
+async function writeDist(): Promise<void> {
 	const outDir = join(ROOT, 'dist');
 	await mkdir(outDir, { recursive: true });
 	const client = await buildClient({ minify: true });
@@ -69,4 +70,13 @@ if (import.meta.main) {
 	await writeFile(join(outDir, 'styles.css'), await styles!.text());
 	await copyFile(join(PUBLIC_DIR, 'index.html'), join(outDir, 'index.html'));
 	console.log(`Wrote app.js, app.js.map, styles.css and index.html to ${outDir}`);
+}
+
+if (import.meta.main) {
+	try {
+		await writeDist();
+	} catch (e) {
+		console.error(e);
+		process.exit(1);
+	}
 }
