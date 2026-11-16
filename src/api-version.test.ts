@@ -1,11 +1,10 @@
 import { describe, expect, test } from 'bun:test';
-import { apiVersionProblem, SUPPORTED_API_VERSIONS } from './api-version.ts';
+import { apiVersionProblem } from './api-version.ts';
 import { publicConfig } from './config.ts';
 import { API_VERSION, type Config } from './types.ts';
 
 describe('apiVersionProblem', () => {
 	test('accepts the version that the client was built with', () => {
-		expect(SUPPORTED_API_VERSIONS).toContain(API_VERSION);
 		expect(apiVersionProblem({ apiVersion: API_VERSION })).toBe('');
 	});
 
@@ -14,11 +13,11 @@ describe('apiVersionProblem', () => {
 		expect(apiVersionProblem(null)).toContain('sent no API version');
 	});
 
-	test('rejects a version that the client does not support', () => {
+	test('rejects every version other than API_VERSION', () => {
 		const msg = apiVersionProblem({ apiVersion: API_VERSION + 1 });
 		expect(msg).toContain(`API version ${API_VERSION + 1}`);
 		expect(msg).toContain(`supports API version ${API_VERSION}`);
-		expect(apiVersionProblem({ apiVersion: 0 })).not.toBe('');
+		expect(apiVersionProblem({ apiVersion: API_VERSION - 1 })).toContain(`API version ${API_VERSION - 1}`);
 	});
 
 	test('rejects a version that is not a whole number', () => {

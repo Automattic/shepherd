@@ -44,7 +44,7 @@ The host's API must send the same JSON shapes as `src/types.ts`, and `/api/confi
 
 ## API version
 
-`API_VERSION` in `src/types.ts` is the version of the JSON shapes in that file. `/api/config` sends it as `apiVersion`.
+`API_VERSION` in `src/types.ts` is the version of the JSON shapes in that file. `/api/config` sends it as `apiVersion`. The client accepts only the `API_VERSION` that it was built with. It does not accept a range of versions.
 
 Increase `API_VERSION` by 1 when a change in `src/types.ts` can break an old client or an old server. Examples:
 

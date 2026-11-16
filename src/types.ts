@@ -68,7 +68,7 @@ export const API_VERSION = 1;
 
 /** What GET /api/config returns: the config without local-only details. */
 export interface PublicConfig {
-	/** The `API_VERSION` of the server. The client stops when it does not support it. */
+	/** The `API_VERSION` of the server. The client stops when it is not the client's own `API_VERSION`. */
 	apiVersion: number;
 	me: string;
 	team: TeamMember[];
