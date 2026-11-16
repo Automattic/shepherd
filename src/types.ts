@@ -36,6 +36,8 @@ export interface RepoConfig {
 	short: string;
 	/** Optional: flag open PRs whose merge base with the base branch is older than this many hours. */
 	maxBaseAgeHours?: number;
+	/** Optional: list every open PR in this repo, including PRs by people outside `team`. */
+	allAuthors?: boolean;
 }
 
 export interface LinearConfig {
@@ -101,6 +103,8 @@ export interface LightPr {
 	baseRefName: string;
 	author: PrAuthor;
 	authoredByTeam: boolean;
+	/** The PR is in a repo with `allAuthors`, so it is listed whoever wrote it. */
+	inAllAuthorsRepo: boolean;
 	/** Team member ids whose direct review request matched this PR. */
 	requestedFor: string[];
 	/** The PR requests a review from one of the host's `reviewTeams`. */

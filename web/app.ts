@@ -1251,7 +1251,7 @@ async function refreshList({ force = false }: { force?: boolean } = {}): Promise
 		for (const row of rows.values()) {
 			if (row.gone || seen.has(row.key) || hostErrors[row.light.host]) continue;
 			const stillWanted =
-				row.light.authoredByTeam || row.light.teamRequested || row.light.requestedFor.some((id) => reviewers().includes(id));
+				row.light.authoredByTeam || row.light.inAllAuthorsRepo || row.light.teamRequested || row.light.requestedFor.some((id) => reviewers().includes(id));
 			if (!stillWanted) {
 				removeRow(row); // a review-request toggle was switched off
 				continue;

@@ -410,6 +410,7 @@ export function createPrService(config: Config, gh: GhRunner): PrService {
 			baseRefName: n.baseRefName,
 			author: { login: n.author?.login ?? 'ghost', name: n.author?.name ?? null },
 			authoredByTeam: false,
+			inAllAuthorsRepo: false,
 			requestedFor: [],
 			teamRequested: false,
 		};
@@ -439,8 +440,15 @@ export function createPrService(config: Config, gh: GhRunner): PrService {
 		if (cached && Date.now() - cached.at < LIST_TTL_MS) return { prs: cached.prs, throttled: false };
 
 		const { repos, authors } = teamScope(hostKey);
-		const searches: { kind: 'team' | 'review' | 'teamReview'; id?: string; q: string }[] = [];
-		if (authors) searches.push({ kind: 'team', q: `is:pr is:open ${repos} ${authors}` });
+		// Repos with allAuthors list every open PR, so they skip the author filter. That search also finds the team's PRs.
+		const hostRepos = config.repos.filter((x) => x.host === hostKey);
+		const qualifiers = (list: typeof hostRepos) => list.map((x) => `repo:${x.owner}/${x.name}`).join(' ');
+		const teamRepos = qualifiers(hostRepos.filter((x) => !x.allAuthors));
+		const allAuthorsRepos = qualifiers(hostRepos.filter((x) => x.allAuthors));
+		const teamLogins = new Set(config.team.map((m) => loginFor(m, hostKey)?.toLowerCase()).filter(Boolean));
+		const searches: { kind: 'team' | 'allAuthors' | 'review' | 'teamReview'; id?: string; q: string }[] = [];
+		if (authors && teamRepos) searches.push({ kind: 'team', q: `is:pr is:open ${teamRepos} ${authors}` });
+		if (allAuthorsRepos) searches.push({ kind: 'allAuthors', q: `is:pr is:open ${allAuthorsRepos}` });
 		for (const id of reviewerIds) {
 			const login = loginFor(teamById.get(id), hostKey);
 			if (login) searches.push({ kind: 'review', id, q: `is:pr is:open ${repos} user-review-requested:${login}` });
@@ -458,6 +466,10 @@ export function createPrService(config: Config, gh: GhRunner): PrService {
 				const pr = lightPr(hostKey, node);
 				const existing = byKey.get(pr.key) ?? pr;
 				if (s.kind === 'team') existing.authoredByTeam = true;
+				else if (s.kind === 'allAuthors') {
+					existing.inAllAuthorsRepo = true;
+					if (teamLogins.has(existing.author.login.toLowerCase())) existing.authoredByTeam = true;
+				}
 				else if (s.kind === 'teamReview') existing.teamRequested = true;
 				else if (s.id) existing.requestedFor.push(s.id);
 				byKey.set(pr.key, existing);
