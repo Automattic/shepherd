@@ -21,3 +21,13 @@ When a PR leaves the list, the page checks it directly before changing anything,
 - **Merged:** the row shows a **Merged** badge for six seconds, then fades out.
 - **Closed:** the row fades out.
 - **Still open but no longer matching** (for example, you submitted the review it asked for): the row is removed after two checks in a row.
+
+## Server settings
+
+The server can change these rules (see [Refresh rules](configuration.md#refresh-rules)):
+
+- `rowRefreshFloorMs` on a host replaces the floor in step 3 for that host.
+- `rowRefreshLowBudgetMs` on a host replaces the 10 minutes for that host when its budget is low.
+- `refresh: "list"` removes step 3. A row with details loads again only when its **updated** time changes, when the user clicks its refresh button, or when it leaves the list. If that load fails, or the row is hidden at that time, the page tries again on a later tick. The page does not load a row from the list more often than every 10 seconds, so a row that changes again within 10 seconds loads on a later tick. **Refresh now** and `R` ask for one new list and do not ask for each row. The server reuses a list until it is 10 seconds old, for all list calls (also the MCP tools), so a click can show a list that is up to 10 seconds old. After a failed search, the server returns the same error for 10 seconds. A row load, also from the refresh button of the row, reuses details that are less than 10 seconds old. List calls at the same time share one search, and a low budget still reuses the last list. A server in `"rows"` mode keeps the 2-second list cache.
+
+With `refresh: "list"`, a page load, an auto refresh and **Refresh now** each make one `/api/prs` call when the server already has the details. A row that the server has no details for still makes one `/api/pr` call.

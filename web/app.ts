@@ -45,6 +45,8 @@ interface Row {
 	queued: boolean;
 	force: boolean;
 	lastFetch: number;
+	/** When the last `/api/pr` call for this row started, also a call that failed. */
+	lastTry: number;
 	/** List refreshes in a row that did not return this PR. */
 	missing: number;
 	error: string | null;
@@ -170,6 +172,8 @@ const INTERVALS: readonly { label: string; ms: number }[] = [
 	{ label: '5m', ms: 300_000 },
 	{ label: '15m', ms: 900_000 },
 ];
+/** In "list" mode, the page does not load a row from the list more often than this. */
+const LIST_ROW_RETRY_MS = 10_000;
 const DORMANT_MS = 60 * 24 * 3600 * 1000;
 const DEFAULT_BRANCHES: ReadonlySet<string> = new Set(['trunk', 'main', 'master', 'develop']);
 const MAX_PARALLEL = 5; // leaves one browser connection free for the list call
@@ -429,6 +433,7 @@ function createRow(light: LightPr): Row {
 		queued: false,
 		force: false,
 		lastFetch: 0,
+		lastTry: 0,
 		missing: 0,
 		error: null,
 		gone: false,
@@ -1122,11 +1127,12 @@ const queue: Row[] = [];
 let active = 0;
 
 function maxAge(row: Row): number {
-	// Hosts that report a GraphQL budget (github.com) get a slower floor than unmetered ones.
-	const floor = rate[row.light.host] || isDotcom(row.light.host) ? 120_000 : 20_000;
+	// The server can set these per host. Otherwise hosts that report a GraphQL budget (github.com) get a slower floor than unmetered ones.
+	const hostCfg = cfg.hosts[row.light.host];
+	const floor = hostCfg?.rowRefreshFloorMs ?? (rate[row.light.host] || isDotcom(row.light.host) ? 120_000 : 20_000);
 	const hostRate = rate[row.light.host];
 	const low = hostRate !== undefined && hostRate.remaining < 500;
-	return low ? 600_000 : Math.max(S.interval, floor);
+	return low ? (hostCfg?.rowRefreshLowBudgetMs ?? 600_000) : Math.max(S.interval, floor);
 }
 
 function enqueue(row: Row, { force = false, priority = false }: { force?: boolean; priority?: boolean } = {}): void {
@@ -1155,6 +1161,7 @@ function pump(): void {
 
 async function fetchDetail(row: Row): Promise<void> {
 	row.fetching = true;
+	row.lastTry = Date.now();
 	setCell(row, 'upd', cellUpdated(row), false);
 	const ctrl = new AbortController();
 	const timer = setTimeout(() => ctrl.abort(), 60_000);
@@ -1258,6 +1265,8 @@ async function refreshList({ force = false }: { force?: boolean } = {}): Promise
 	if (listBusy) return;
 	listBusy = true;
 	$('#refresh').classList.add('busy');
+	// In "list" mode, Refresh now asks only for the list, not for each row.
+	const listOnly = cfg.refresh === 'list';
 	try {
 		const res = await api(`/api/prs?reviewers=${encodeURIComponent(reviewers().join(','))}`);
 		const body: unknown = await res.json();
@@ -1276,17 +1285,22 @@ async function refreshList({ force = false }: { force?: boolean } = {}): Promise
 				row = createRow(pr);
 				rows.set(pr.key, row);
 				renderRow(row);
-				// The age check below still refreshes listed details that are too old.
+				// In "rows" mode, the age check below still refreshes listed details that are too old.
 				if (!applyListedDetail(row, detail, skew) && inScope(row)) enqueue(row, { priority: true });
 				continue;
 			}
 			if (row.gone) continue;
-			const changed = pr.updatedAt !== row.light.updatedAt;
+			// In "list" mode, the cached list can be older than details from the row refresh button, so only a newer time counts.
+			const changed = listOnly ? Date.parse(pr.updatedAt) > Date.parse(row.light.updatedAt) : pr.updatedAt !== row.light.updatedAt;
 			row.light = { ...row.light, ...pr, updatedAt: changed ? pr.updatedAt : row.light.updatedAt };
 			row.missing = 0;
-			// "Refresh now" asks for every row again, as before.
-			if (!force && changed && applyListedDetail(row, detail, skew)) continue;
-			if ((changed || force) && inScope(row)) enqueue(row, { force: true, priority: changed });
+			// "list" mode has no age check, so details that stay behind the list (a failed load, a row out of scope) count as changed.
+			const behind = listOnly && !!row.detail && row.detail.updatedAt !== row.light.updatedAt;
+			// "Refresh now" asks for every row again, except in "list" mode.
+			if ((!force || listOnly) && (changed || behind) && applyListedDetail(row, detail, skew)) continue;
+			// In "list" mode, a row loads at most once in LIST_ROW_RETRY_MS. A skipped row stays behind and loads on a later tick.
+			const due = !listOnly || Date.now() - row.lastTry >= LIST_ROW_RETRY_MS;
+			if (((due && (changed || behind)) || (force && !listOnly)) && inScope(row)) enqueue(row, { force: true, priority: changed });
 		}
 		for (const row of rows.values()) {
 			if (row.gone || seen.has(row.key) || hostErrors[row.light.host]) continue;
@@ -1302,7 +1316,9 @@ async function refreshList({ force = false }: { force?: boolean } = {}): Promise
 		}
 		const now = Date.now();
 		for (const row of rows.values()) {
-			if (!row.gone && inScope(row) && (!row.detail || now - row.lastFetch > maxAge(row))) enqueue(row);
+			// In "list" mode, a row with details loads again only when its updatedAt changes, and a failed first load waits LIST_ROW_RETRY_MS.
+			const due = !listOnly || now - row.lastTry >= LIST_ROW_RETRY_MS;
+			if (!row.gone && inScope(row) && ((!row.detail && due) || (!listOnly && now - row.lastFetch > maxAge(row)))) enqueue(row);
 		}
 	} catch (e) {
 		hostErrors = { server: errorMessage(e) };
