@@ -2,6 +2,7 @@
 
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { isPushPolicy, PUSH_POLICIES } from './push-policy.ts';
 import type { Config, PublicConfig } from './types.ts';
 
 /** The project root (one level above src/). */
@@ -18,8 +19,10 @@ function fail(message: string): never {
 	process.exit(1);
 }
 
+const POLICY_LIST = PUSH_POLICIES.map((p) => `"${p}"`).join(', ');
+
 /** Checks the shape of a parsed config and returns a list of problems. */
-function problems(c: Partial<Config>): string[] {
+export function problems(c: Partial<Config>): string[] {
 	const out: string[] = [];
 	if (!Array.isArray(c.team) || !c.team.length) out.push('`team` must be a non-empty array');
 	if (!c.hosts || typeof c.hosts !== 'object') out.push('`hosts` must be an object');
@@ -40,6 +43,7 @@ function problems(c: Partial<Config>): string[] {
 				if (!c.hosts![host]) out.push(`team[${i}] (${m.id}) has a login for unknown host "${host}"`);
 			}
 		}
+		if (m.pushPolicy !== undefined && !isPushPolicy(m.pushPolicy)) out.push(`team[${i}] (${m.id}) needs "pushPolicy" to be one of ${POLICY_LIST}, or no such field`);
 		if (ids.has(m.id)) out.push(`team id "${m.id}" is used twice`);
 		ids.add(m.id);
 	}
@@ -59,7 +63,48 @@ function problems(c: Partial<Config>): string[] {
 		if (r.allAuthors !== undefined && typeof r.allAuthors !== 'boolean') {
 			out.push(`repos[${i}] (${r.owner}/${r.name}) needs "allAuthors" to be true or false, or no such field`);
 		}
+		if (r.pushPolicy !== undefined && !isPushPolicy(r.pushPolicy)) {
+			out.push(`repos[${i}] (${r.owner}/${r.name}) needs "pushPolicy" to be one of ${POLICY_LIST}, or no such field`);
+		}
+		if (r.pushPolicyByAuthor !== undefined) {
+			const map = r.pushPolicyByAuthor as unknown;
+			if (!map || typeof map !== 'object' || Array.isArray(map)) {
+				out.push(`repos[${i}] (${r.owner}/${r.name}) needs "pushPolicyByAuthor" to be an object of team id or login to policy, or no such field`);
+			} else {
+				for (const [who, policy] of Object.entries(map)) {
+					if (!isPushPolicy(policy)) out.push(`repos[${i}] (${r.owner}/${r.name}) pushPolicyByAuthor."${who}" must be one of ${POLICY_LIST}`);
+				}
+			}
+		}
 	}
+	return out;
+}
+
+/** Valid but likely unintended settings. They are printed at startup and don't stop the server. */
+export function warnings(c: Config): string[] {
+	const out: string[] = [];
+	c.repos.forEach((r, i) => {
+		if (!r.pushPolicyByAuthor) return;
+		const where = `repos[${i}] (${r.owner}/${r.name}) pushPolicyByAuthor`;
+		const host = c.hosts[r.host]?.hostname ?? r.host;
+		// Which team member or outside login each key names, matched the way resolvePushPolicy matches it.
+		const seen = new Map<string, string>();
+		for (const key of Object.keys(r.pushPolicyByAuthor)) {
+			const k = key.toLowerCase();
+			const byId = c.team.find((m) => m.id.toLowerCase() === k);
+			const byLogin = c.team.find((m) => m.logins[r.host]?.toLowerCase() === k);
+			if (byId && byLogin && byId !== byLogin) {
+				out.push(`${where}."${key}" is the team id of ${byId.id} and the ${host} login of ${byLogin.id}; it applies only to ${byId.id}`);
+			}
+			const who = byId ? `team member ${byId.id}` : byLogin ? `team member ${byLogin.id}` : `the ${host} login "${k}"`;
+			if (!byId && !byLogin) {
+				out.push(`${where}."${key}" matches no team id or ${host} login on the team, so it applies only to an outside author with that login`);
+			}
+			const prev = seen.get(who);
+			if (prev !== undefined) out.push(`${where}."${key}" and "${prev}" both name ${who}; keep one`);
+			else seen.set(who, key);
+		}
+	});
 	return out;
 }
 
@@ -77,6 +122,8 @@ export async function loadConfig(): Promise<Config> {
 	}
 	const issues = problems(parsed);
 	if (issues.length) fail(`${file} has problems:\n${issues.map((p) => `  - ${p}`).join('\n')}`);
+	const notes = warnings(parsed as Config);
+	if (notes.length) console.warn(`${file} has settings to check:\n${notes.map((p) => `  - ${p}`).join('\n')}`);
 	return parsed as Config;
 }
 

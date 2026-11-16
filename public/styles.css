@@ -440,6 +440,8 @@
 .shepherd .merged-pill { padding: 1px 7px; border-radius: 6px; background: var(--merged); color: #fff; font-size: 11px; font-weight: 600; }
 .shepherd .base-pill { padding: 1px 7px; border-radius: 6px; background: var(--surface-3); color: var(--text-2); font-size: 11px; font-weight: 500; white-space: nowrap; }
 .shepherd .base-pill.old { background: var(--warn-soft); color: var(--warn); font-weight: 600; }
+.shepherd .push-pill { display: inline-flex; align-items: center; gap: 4px; padding: 1px 7px; border-radius: 6px; background: var(--surface-3); color: var(--text-2); font-size: 11px; font-weight: 500; white-space: nowrap; }
+.shepherd .push-pill.review-only { background: var(--warn-soft); color: var(--warn); }
 .shepherd .size { font-family: var(--mono); font-size: 11px; }
 .shepherd .size .add { color: var(--ok); }
 .shepherd .size .del { color: var(--bad); }
