@@ -1183,10 +1183,13 @@ function applyDetail(row: Row, d: PrDetail, at: number): void {
 	else scheduleChrome();
 }
 
-/** Uses the details that came with the list, when they match the row. Returns false when the row still needs /api/pr. */
-function applyListedDetail(row: Row, detail: PrDetail | undefined): boolean {
+/**
+ * Uses the details that came with the list, when they match the row. Returns false when the row still needs /api/pr.
+ * `skew` is the browser clock minus the server clock; it moves the server's `fetchedAt` to the browser clock.
+ */
+function applyListedDetail(row: Row, detail: PrDetail | undefined, skew: number): boolean {
 	if (!detail || detail.updatedAt !== row.light.updatedAt) return false;
-	const at = Date.parse(detail.fetchedAt);
+	const at = Math.min(Date.parse(detail.fetchedAt) + skew, Date.now());
 	if (Number.isNaN(at)) return false;
 	// A row that loads at the same time already has newer details on the way.
 	if (row.fetching || (row.detail && row.lastFetch >= at)) return true;
@@ -1252,6 +1255,8 @@ async function refreshList({ force = false }: { force?: boolean } = {}): Promise
 		lastList = Date.now();
 		if (!list) throw new Error(responseError(body) || 'Unexpected response from /api/prs');
 		const seen = new Set<string>();
+		// The server and the browser clocks can differ; listed details carry server times.
+		const skew = Date.now() - (Date.parse(list.fetchedAt) || Date.now());
 		for (const { detail, ...pr } of list.prs) {
 			seen.add(pr.key);
 			let row = rows.get(pr.key);
@@ -1260,7 +1265,7 @@ async function refreshList({ force = false }: { force?: boolean } = {}): Promise
 				rows.set(pr.key, row);
 				renderRow(row);
 				// The age check below still refreshes listed details that are too old.
-				if (!applyListedDetail(row, detail) && inScope(row)) enqueue(row, { priority: true });
+				if (!applyListedDetail(row, detail, skew) && inScope(row)) enqueue(row, { priority: true });
 				continue;
 			}
 			if (row.gone) continue;
@@ -1268,7 +1273,7 @@ async function refreshList({ force = false }: { force?: boolean } = {}): Promise
 			row.light = { ...row.light, ...pr, updatedAt: changed ? pr.updatedAt : row.light.updatedAt };
 			row.missing = 0;
 			// "Refresh now" asks for every row again, except in "list" mode.
-			if ((!force || listOnly) && changed && applyListedDetail(row, detail)) continue;
+			if ((!force || listOnly) && changed && applyListedDetail(row, detail, skew)) continue;
 			if ((changed || (force && !listOnly)) && inScope(row)) enqueue(row, { force: true, priority: changed });
 		}
 		for (const row of rows.values()) {
