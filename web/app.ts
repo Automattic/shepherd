@@ -28,6 +28,7 @@ import { countByAuthor, isMergedRange, MERGED_RANGE_LABELS, MERGED_RANGES, merge
 import { apiHeaders, apiUrl, readEmbedOptions } from '../src/embed.ts';
 import { PUSH_POLICY_LABELS, resolvePushPolicy } from '../src/push-policy.ts';
 import { parseRepoKey, repoChipLabels, repoKey } from '../src/repo-chips.ts';
+import { mountShell } from './shell.ts';
 import { changesRequestedPending, isTurnOf, WAIT_REASON_TEXT, waitReasons, type WaitReason } from '../src/waiting.ts';
 
 // ---------------------------------------------------------------------------
@@ -113,7 +114,8 @@ interface Tile {
 // ---------------------------------------------------------------------------
 // DOM and narrowing helpers
 
-function $<T extends Element = HTMLElement>(sel: string, root: ParentNode = document): T {
+/** Finds an element inside the mount element, so an ID on the host page does not match. */
+function $<T extends Element = HTMLElement>(sel: string, root: ParentNode = ROOT): T {
 	const el = root.querySelector<T>(sel);
 	if (!el) throw new Error(`Missing element: ${sel}`);
 	return el;
@@ -259,6 +261,8 @@ addEventListener('hashchange', () => {
 
 // A host page that embeds the client can set `window.SHEPHERD`; see docs/embedding.md.
 const EMBED = readEmbedOptions((globalThis as { SHEPHERD?: unknown }).SHEPHERD);
+// The element that holds the dashboard. All the markup and styles of the client stay inside it.
+const ROOT = mountShell(EMBED);
 
 // Every API call goes through here. `apiHeaders()` gives the order of the headers.
 const api = (path: string, init: RequestInit = {}): Promise<Response> => {
@@ -356,7 +360,7 @@ function initialsAvatar(login: string): string {
 }
 
 // Replace broken avatar images with initials.
-document.addEventListener(
+ROOT.addEventListener(
 	'error',
 	(e) => {
 		const img = e.target;
@@ -577,14 +581,14 @@ async function copyPrUrls(button: HTMLElement, key: string, onlyThis: boolean): 
 	}, 1400);
 }
 
-/** A tooltip on <body> (so no cell or card clips it), kept inside the viewport. */
+/** A fixed tooltip at the end of the mount element (so no cell or card clips it), kept inside the viewport. */
 function showCopyTip(anchor: HTMLElement, text: string): HTMLElement {
-	document.querySelector('.copy-tip')?.remove();
+	ROOT.querySelector('.copy-tip')?.remove();
 	const tip = document.createElement('div');
 	tip.className = 'copy-tip';
 	tip.setAttribute('role', 'status');
 	tip.textContent = text;
-	document.body.appendChild(tip);
+	ROOT.appendChild(tip);
 	const a = anchor.getBoundingClientRect();
 	const t = tip.getBoundingClientRect();
 	const margin = 8;
@@ -1171,9 +1175,12 @@ function renderChrome(): void {
 		rateEl.classList.toggle('low', gh.remaining < 500);
 	}
 	const total = [...rows.values()].filter((r) => !r.gone).length;
-	$('#brand-sub').textContent = lastList
-		? `${total} open PRs across ${cfg.repos.length || listedRepoCount()} repos · list checked ${new Date(lastList).toLocaleTimeString()}`
-		: 'Loading…';
+	const brandSub = ROOT.querySelector('#brand-sub'); // not there with `header: false`
+	if (brandSub) {
+		brandSub.textContent = lastList
+			? `${total} open PRs across ${cfg.repos.length || listedRepoCount()} repos · list checked ${new Date(lastList).toLocaleTimeString()}`
+			: 'Loading…';
+	}
 
 	const errs = Object.entries(hostErrors);
 	const banner = $('#banner');
@@ -1610,7 +1617,7 @@ function schedule(): void {
 	const bar = $('#tick');
 	bar.style.animation = 'none';
 	void bar.offsetWidth;
-	bar.style.animation = `tick ${S.interval}ms linear forwards`;
+	bar.style.animation = `shepherd-tick ${S.interval}ms linear forwards`;
 }
 
 function tick(): void {
@@ -1634,9 +1641,13 @@ document.addEventListener('visibilitychange', () => {
 function effectiveTheme(): Theme {
 	return S.theme || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
 }
+// The theme applies to the mount element. On the standalone page, it also applies to <html>, for the page color.
 function applyTheme(): void {
-	if (S.theme) document.documentElement.dataset.theme = S.theme;
-	else delete document.documentElement.dataset.theme;
+	const els = document.documentElement.classList.contains('shepherd-page') ? [ROOT, document.documentElement] : [ROOT];
+	for (const el of els) {
+		if (S.theme) el.dataset.theme = S.theme;
+		else delete el.dataset.theme;
+	}
 }
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => renderChrome());
 
@@ -1726,7 +1737,7 @@ document.addEventListener('click', (e) => {
 	const hit = target.closest('button, a');
 	const t = hit instanceof HTMLElement ? hit : null;
 	if (!target.closest('#popover') && !target.closest('[data-bot], [data-followups]')) closePopover();
-	if (!t) return;
+	if (!t || !ROOT.contains(t)) return; // a click on the host page
 	const ds = t.dataset;
 	if (ds.bot) {
 		const row = rows.get(ds.bot);
@@ -1796,14 +1807,17 @@ document.addEventListener('click', (e) => {
 document.addEventListener('contextmenu', (e) => {
 	if (!e.ctrlKey || !(e.target instanceof Element)) return;
 	const button = e.target.closest<HTMLElement>('[data-copy]');
-	if (!button?.dataset.copy) return;
+	if (!button?.dataset.copy || !ROOT.contains(button)) return;
 	e.preventDefault();
 	void copyPrUrls(button, button.dataset.copy, true);
 });
 
 document.addEventListener('keydown', (e) => {
 	if (e.key === 'Escape') closePopover();
-	if (!(e.target instanceof Element) || e.target.matches('input, textarea') || e.metaKey || e.ctrlKey || e.altKey) return;
+	// Ignore the keys in all editable elements, also the ones on a host page (a select or a contenteditable editor).
+	const t = e.target;
+	if (!(t instanceof Element) || t.matches('input, textarea, select') || (t instanceof HTMLElement && t.isContentEditable)) return;
+	if (e.metaKey || e.ctrlKey || e.altKey) return;
 	if (e.key === 'r') refreshNow();
 	if (e.key === '/') {
 		e.preventDefault();

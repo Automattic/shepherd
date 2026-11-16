@@ -71,3 +71,13 @@ test('apiHeaders without options or a token gives only the call headers', () => 
 	expect([...h.keys()]).toEqual(['content-type']);
 	expect([...apiHeaders(undefined, undefined, '').keys()]).toEqual([]);
 });
+
+test('readEmbedOptions keeps a mount selector and a boolean header', () => {
+	expect(readEmbedOptions({ mount: '#shepherd', header: false })).toEqual({ mount: '#shepherd', header: false });
+	expect(readEmbedOptions({ mount: ' .dash ', header: true })).toEqual({ mount: '.dash', header: true });
+});
+
+test('readEmbedOptions ignores a mount or header that is not valid', () => {
+	for (const mount of ['', '   ', 42, null, {}, ['#x']]) expect(readEmbedOptions({ mount })).toEqual({});
+	for (const header of ['false', 0, null, {}]) expect(readEmbedOptions({ header })).toEqual({});
+});

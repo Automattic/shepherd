@@ -29,10 +29,11 @@ Run `bun run check` and `bun test` before you open a pull request.
 | `src/repo-chips.ts` | Keys and labels of the repo chips when the config has no repos, used by the browser client |
 | `src/followups.ts` | What counts as a follow-up: parses descriptions, reviews and comments |
 | `src/herdr.ts` | Optional herdr integration: pane scan, PR matching and pane focus over herdr's socket |
-| `src/embed.ts` | Options that a host page gives to the client in `window.SHEPHERD`: API base path and extra headers |
+| `src/embed.ts` | Options that a host page gives to the client in `window.SHEPHERD`: API base path, extra headers, mount element and header |
 | `src/types.ts` | Types shared by the server, the MCP endpoint and the browser client |
 | `web/app.ts` | The dashboard client: no framework, bundled by Bun into `/app.js` |
-| `public/` | `index.html` and `styles.css` |
+| `web/shell.ts` | The markup of the dashboard, which the client renders into the mount element |
+| `public/` | `index.html` (only the mount element) and `styles.css` (scoped to `.shepherd`) |
 
 The page loads Font Awesome 6.5.2 from cdnjs and the Geist fonts from Google Fonts. Everything else is local.
 
