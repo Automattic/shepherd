@@ -48,16 +48,18 @@ describe('refresh config', () => {
 
 function service(remaining?: number, config: Config = { ...base, refresh: 'list' }) {
 	const queries: string[] = [];
+	const state = { fail: false };
 	const gh: GhRunner = {
 		rate: remaining === undefined ? {} : { github: { remaining, limit: 5000, resetAt: '', at: Date.now() } },
 		get: () => Promise.reject(new Error('not used')),
 		query: async <T>(_host: string, _q: string, vars?: Record<string, unknown>) => {
 			queries.push(String(vars?.q));
 			await Bun.sleep(5);
+			if (state.fail) throw new Error('search failed');
 			return { search: { issueCount: 0, pageInfo: { hasNextPage: false, endCursor: null }, nodes: [] } } as T;
 		},
 	};
-	return { prs: createPrService(config, gh), queries };
+	return { prs: createPrService(config, gh), queries, state };
 }
 
 describe('listHost', () => {
@@ -109,5 +111,28 @@ describe('listHost', () => {
 		const r = await prs.listHost('github', []);
 		expect(queries).toHaveLength(1);
 		expect(r.throttled).toBe(true);
+	});
+
+	test('in "list" mode, a failed search gives its error for 10 seconds', async () => {
+		const { prs, queries, state } = service();
+		state.fail = true;
+		const start = Date.now();
+		await expect(prs.listHost('github', [])).rejects.toThrow('search failed');
+		state.fail = false;
+		setSystemTime(new Date(start + 9_900));
+		await expect(prs.listHost('github', [])).rejects.toThrow('search failed');
+		expect(queries).toHaveLength(1);
+		setSystemTime(new Date(start + 10_100));
+		await prs.listHost('github', []);
+		expect(queries).toHaveLength(2);
+	});
+
+	test('in "rows" mode, a failed search does not wait', async () => {
+		const { prs, queries, state } = service(undefined, base);
+		state.fail = true;
+		await expect(prs.listHost('github', [])).rejects.toThrow('search failed');
+		state.fail = false;
+		await prs.listHost('github', []);
+		expect(queries).toHaveLength(2);
 	});
 });

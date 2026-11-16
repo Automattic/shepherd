@@ -25,7 +25,7 @@ import {
 
 const DEFAULT_BRANCHES = new Set(['trunk', 'main', 'master', 'develop']);
 const LIST_TTL_MS = 2_000;
-// In "list" mode, every list call reuses a list this new, so no client starts a search more often.
+// In "list" mode, every list call reuses a list this new, and a failed search waits this long, so no client starts a search more often.
 const LIST_MODE_TTL_MS = 10_000;
 const DETAIL_TTL_MS = 3_000;
 const FORCED_DETAIL_TTL_MS = 1_000;
@@ -382,6 +382,8 @@ export function createPrService(config: Config, gh: GhRunner): PrService {
 
 	const listCache = new Map<string, { at: number; prs: LightPr[] }>();
 	const listInflight = new Map<string, Promise<{ prs: LightPr[]; throttled: boolean }>>();
+	// In "list" mode, the last failed search per cache key, so calls in the next LIST_MODE_TTL_MS get its error.
+	const listFailed = new Map<string, { at: number; error: unknown }>();
 
 	/** Up to 5 pages of one search, and how many results GitHub found in all. */
 	async function searchAll<T extends object>(hostKey: string, q: string, query: string): Promise<{ nodes: T[]; total: number }> {
@@ -448,7 +450,20 @@ export function createPrService(config: Config, gh: GhRunner): PrService {
 		// Calls at the same time share one search, also from many pages.
 		const pending = listInflight.get(cacheKey);
 		if (pending) return pending;
-		const p = searchHost(hostKey, reviewerIds, cacheKey).finally(() => listInflight.delete(cacheKey));
+		const failed = listFailed.get(cacheKey);
+		if (listMode && failed && Date.now() - failed.at < LIST_MODE_TTL_MS) return Promise.reject(failed.error);
+		const p = searchHost(hostKey, reviewerIds, cacheKey)
+			.then(
+				(v) => {
+					listFailed.delete(cacheKey);
+					return v;
+				},
+				(e: unknown) => {
+					if (listMode) listFailed.set(cacheKey, { at: Date.now(), error: e });
+					throw e;
+				}
+			)
+			.finally(() => listInflight.delete(cacheKey));
 		listInflight.set(cacheKey, p);
 		return p;
 	}
