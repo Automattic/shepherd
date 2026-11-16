@@ -64,6 +64,7 @@ export interface Config {
 export interface PublicConfig {
 	me: string;
 	team: TeamMember[];
+	/** Empty when the server has no fixed list of repos. The page then makes the repo chips from the listed PRs. */
 	repos: RepoConfig[];
 	hosts: Record<string, Pick<HostConfig, 'hostname' | 'label' | 'bot'>>;
 	linear: LinearConfig | null;

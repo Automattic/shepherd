@@ -276,6 +276,7 @@ const meMember = (): TeamMember | undefined => cfg.team.find((m) => m.id === cfg
 const isMe = (login: string | null | undefined, host: string): boolean =>
 	(login || '').toLowerCase() === (loginOn(meMember(), host) || '').toLowerCase();
 const member = (login: string | null | undefined): TeamMember | null => memberByLogin.get((login || '').toLowerCase()) || null;
+// With no repos in the config, the short name is the repo name.
 const repoShort = (host: string, owner: string, name: string): string =>
 	cfg.repos.find((r) => r.host === host && r.owner === owner && r.name === name)?.short || name;
 const linearUrl = (key: string): string => `https://linear.app/${cfg.linear?.workspace ?? ''}/issue/${key}`;
@@ -995,6 +996,30 @@ function layout(): void {
 // ---------------------------------------------------------------------------
 // Header, tiles, filter chips
 
+/**
+ * The repo chips when the config has no repos, for a server that finds PRs another way (for example by author).
+ * One chip for each repo of the listed rows, in name order, plus a chip for each selected repo with no rows,
+ * so that a saved selection stays visible and the user can clear it.
+ */
+function listedRepoChips(inScopeRows: Row[]): { short: string; icon: string; n: number }[] {
+	const chips = new Map<string, { short: string; icon: string; n: number }>();
+	for (const r of rows.values()) {
+		if (r.gone) continue;
+		const short = repoShort(r.light.host, r.light.owner, r.light.repo);
+		if (!chips.has(short)) chips.set(short, { short, icon: hostIcon(r.light.host), n: 0 });
+	}
+	for (const short of S.repos) if (!chips.has(short)) chips.set(short, { short, icon: 'fa-solid fa-code-branch', n: 0 });
+	for (const r of inScopeRows) {
+		const chip = chips.get(repoShort(r.light.host, r.light.owner, r.light.repo));
+		if (chip) chip.n++;
+	}
+	return [...chips.values()].sort((a, b) => a.short.localeCompare(b.short));
+}
+
+/** The number of different repos of the listed rows. */
+const listedRepoCount = (): number =>
+	new Set([...rows.values()].filter((r) => !r.gone).map((r) => `${r.light.host}/${r.light.owner}/${r.light.repo}`)).size;
+
 function renderChrome(): void {
 	const scoped = [...rows.values()].filter((r) => matchesFilters(r, { ignoreTile: true }));
 	const count = (fn: (r: Row) => unknown): number => scoped.filter((r) => fn(r)).length;
@@ -1037,12 +1062,17 @@ function renderChrome(): void {
 	const peopleEl = $('#people');
 	if (peopleEl.innerHTML !== people) peopleEl.innerHTML = people;
 
-	const repos = cfg.repos
-		.map((r) => {
-			const n = inScopeRows.filter((x) => x.light.host === r.host && x.light.repo === r.name && x.light.owner === r.owner).length;
-			const on = S.repos.includes(r.short);
-			const icon = hostIcon(r.host);
-			return `<button class="chip-btn ${on ? 'on' : ''}" data-repo="${esc(r.short)}"><i class="${icon}"></i>${esc(r.short)} <span class="count">${n}</span></button>`;
+	const repoChips = cfg.repos.length
+		? cfg.repos.map((r) => ({
+				short: r.short,
+				icon: hostIcon(r.host),
+				n: inScopeRows.filter((x) => x.light.host === r.host && x.light.repo === r.name && x.light.owner === r.owner).length,
+			}))
+		: listedRepoChips(inScopeRows);
+	const repos = repoChips
+		.map(({ short, icon, n }) => {
+			const on = S.repos.includes(short);
+			return `<button class="chip-btn ${on ? 'on' : ''}" data-repo="${esc(short)}"><i class="${icon}"></i>${esc(short)} <span class="count">${n}</span></button>`;
 		})
 		.join('');
 	const reposEl = $('#repos');
@@ -1085,7 +1115,7 @@ function renderChrome(): void {
 	}
 	const total = [...rows.values()].filter((r) => !r.gone).length;
 	$('#brand-sub').textContent = lastList
-		? `${total} open PRs across ${cfg.repos.length} repos · list checked ${new Date(lastList).toLocaleTimeString()}`
+		? `${total} open PRs across ${cfg.repos.length || listedRepoCount()} repos · list checked ${new Date(lastList).toLocaleTimeString()}`
 		: 'Loading…';
 
 	const errs = Object.entries(hostErrors);
