@@ -19,11 +19,12 @@ function fail(message: string): never {
 }
 
 /** Checks the shape of a parsed config and returns a list of problems. */
-function problems(c: Partial<Config>): string[] {
+export function problems(c: Partial<Config>): string[] {
 	const out: string[] = [];
 	if (!Array.isArray(c.team) || !c.team.length) out.push('`team` must be a non-empty array');
 	if (!c.hosts || typeof c.hosts !== 'object') out.push('`hosts` must be an object');
 	if (!Array.isArray(c.repos) || !c.repos.length) out.push('`repos` must be a non-empty array');
+	if (c.refresh !== undefined && c.refresh !== 'rows' && c.refresh !== 'list') out.push('`refresh` must be "rows" or "list", or no such field');
 	if (c.linear && (!c.linear.workspace || !Array.isArray(c.linear.keys))) out.push('`linear` needs `workspace` and `keys` (or remove it)');
 	if (out.length) return out;
 
@@ -48,6 +49,12 @@ function problems(c: Partial<Config>): string[] {
 		if (!h.hostname) out.push(`hosts.${key} needs a hostname`);
 		if (h.reviewTeams !== undefined && !(Array.isArray(h.reviewTeams) && h.reviewTeams.every((t) => typeof t === 'string' && /^[\w.-]+\/[\w.-]+$/.test(t)))) {
 			out.push(`hosts.${key}.reviewTeams must be a list of "org/team" names, or no such field`);
+		}
+		for (const field of ['rowRefreshFloorMs', 'rowRefreshLowBudgetMs'] as const) {
+			const v = h[field];
+			if (v !== undefined && !(typeof v === 'number' && Number.isFinite(v) && v >= 0)) {
+				out.push(`hosts.${key}.${field} must be a number of milliseconds (0 or more), or no such field`);
+			}
 		}
 	}
 	for (const [i, r] of c.repos!.entries()) {
@@ -86,9 +93,13 @@ export function publicConfig(config: Config): PublicConfig {
 		team: config.team,
 		repos: config.repos,
 		hosts: Object.fromEntries(
-			Object.entries(config.hosts).map(([k, h]) => [k, { hostname: h.hostname, label: h.label, bot: h.bot }])
+			Object.entries(config.hosts).map(([k, h]) => [
+				k,
+				{ hostname: h.hostname, label: h.label, bot: h.bot, rowRefreshFloorMs: h.rowRefreshFloorMs, rowRefreshLowBudgetMs: h.rowRefreshLowBudgetMs },
+			])
 		),
 		linear: config.linear ?? null,
 		aiReviewLabel: config.aiReviewLabel || 'AI review',
+		refresh: config.refresh ?? 'rows',
 	};
 }

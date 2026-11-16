@@ -59,7 +59,10 @@ async function listPrs(url: URL): Promise<Response> {
 		.split(',')
 		.filter((id) => teamIds.has(id))
 		.sort();
-	const settled = await Promise.allSettled(prs.hostKeys.map((h) => prs.listHost(h, reviewerIds)));
+	// force=1 (Refresh now in "list" mode) skips the short list cache. listHost still shares searches
+	// that run at the same time and reuses the last list when the budget is low, so many pages cannot multiply the calls.
+	const force = url.searchParams.get('force') === '1';
+	const settled = await Promise.allSettled(prs.hostKeys.map((h) => prs.listHost(h, reviewerIds, { force })));
 	const list: LightPr[] = [];
 	const errors: Record<string, string> = {};
 	const throttled: Record<string, boolean> = {};

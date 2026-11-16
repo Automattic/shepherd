@@ -1107,11 +1107,12 @@ const queue: Row[] = [];
 let active = 0;
 
 function maxAge(row: Row): number {
-	// Hosts that report a GraphQL budget (github.com) get a slower floor than unmetered ones.
-	const floor = rate[row.light.host] || isDotcom(row.light.host) ? 120_000 : 20_000;
+	// The server can set these per host. Otherwise hosts that report a GraphQL budget (github.com) get a slower floor than unmetered ones.
+	const hostCfg = cfg.hosts[row.light.host];
+	const floor = hostCfg?.rowRefreshFloorMs ?? (rate[row.light.host] || isDotcom(row.light.host) ? 120_000 : 20_000);
 	const hostRate = rate[row.light.host];
 	const low = hostRate !== undefined && hostRate.remaining < 500;
-	return low ? 600_000 : Math.max(S.interval, floor);
+	return low ? (hostCfg?.rowRefreshLowBudgetMs ?? 600_000) : Math.max(S.interval, floor);
 }
 
 function enqueue(row: Row, { force = false, priority = false }: { force?: boolean; priority?: boolean } = {}): void {
@@ -1240,8 +1241,10 @@ async function refreshList({ force = false }: { force?: boolean } = {}): Promise
 	if (listBusy) return;
 	listBusy = true;
 	$('#refresh').classList.add('busy');
+	// In "list" mode, Refresh now asks the server for a new list instead of asking for each row.
+	const listOnly = cfg.refresh === 'list';
 	try {
-		const res = await api(`/api/prs?reviewers=${encodeURIComponent(reviewers().join(','))}`);
+		const res = await api(`/api/prs?reviewers=${encodeURIComponent(reviewers().join(','))}${listOnly && force ? '&force=1' : ''}`);
 		const body: unknown = await res.json();
 		const list = isListResponse(body) ? body : null;
 		hostErrors = list?.errors || {};
@@ -1264,9 +1267,9 @@ async function refreshList({ force = false }: { force?: boolean } = {}): Promise
 			const changed = pr.updatedAt !== row.light.updatedAt;
 			row.light = { ...row.light, ...pr, updatedAt: changed ? pr.updatedAt : row.light.updatedAt };
 			row.missing = 0;
-			// "Refresh now" asks for every row again, as before.
-			if (!force && changed && applyListedDetail(row, detail)) continue;
-			if ((changed || force) && inScope(row)) enqueue(row, { force: true, priority: changed });
+			// "Refresh now" asks for every row again, except in "list" mode.
+			if ((!force || listOnly) && changed && applyListedDetail(row, detail)) continue;
+			if ((changed || (force && !listOnly)) && inScope(row)) enqueue(row, { force: true, priority: changed });
 		}
 		for (const row of rows.values()) {
 			if (row.gone || seen.has(row.key) || hostErrors[row.light.host]) continue;
@@ -1282,7 +1285,8 @@ async function refreshList({ force = false }: { force?: boolean } = {}): Promise
 		}
 		const now = Date.now();
 		for (const row of rows.values()) {
-			if (!row.gone && inScope(row) && (!row.detail || now - row.lastFetch > maxAge(row))) enqueue(row);
+			// In "list" mode, a row with details loads again only when its updatedAt changes.
+			if (!row.gone && inScope(row) && (!row.detail || (!listOnly && now - row.lastFetch > maxAge(row)))) enqueue(row);
 		}
 	} catch (e) {
 		hostErrors = { server: errorMessage(e) };

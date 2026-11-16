@@ -25,6 +25,7 @@ import {
 
 const DEFAULT_BRANCHES = new Set(['trunk', 'main', 'master', 'develop']);
 const LIST_TTL_MS = 2_000;
+const FORCED_LIST_TTL_MS = 1_000; // a forced list (Refresh now) still reuses a list this new
 const DETAIL_TTL_MS = 3_000;
 const FORCED_DETAIL_TTL_MS = 1_000;
 const LOW_BUDGET_LIST = 300; // below this, reuse the last list for up to 5 minutes
@@ -346,7 +347,8 @@ export interface PrTarget {
 
 export interface PrService {
 	readonly hostKeys: string[];
-	listHost(hostKey: string, reviewerIds: string[]): Promise<{ prs: LightPr[]; throttled: boolean }>;
+	/** `force` skips the short list cache. A low budget still reuses the last list, and calls at the same time share one search. */
+	listHost(hostKey: string, reviewerIds: string[], opts?: { force?: boolean }): Promise<{ prs: LightPr[]; throttled: boolean }>;
 	/** The team's PRs merged in the last MERGED_FETCH_DAYS days; callers filter to a range. */
 	listMerged(hostKey: string): Promise<MergedList>;
 	getDetail(req: DetailRequest): Promise<PrDetail>;
@@ -378,6 +380,7 @@ export function createPrService(config: Config, gh: GhRunner): PrService {
 	// ---- list ----
 
 	const listCache = new Map<string, { at: number; prs: LightPr[] }>();
+	const listInflight = new Map<string, Promise<{ prs: LightPr[]; throttled: boolean }>>();
 
 	/** Up to 5 pages of one search, and how many results GitHub found in all. */
 	async function searchAll<T extends object>(hostKey: string, q: string, query: string): Promise<{ nodes: T[]; total: number }> {
@@ -432,15 +435,23 @@ export function createPrService(config: Config, gh: GhRunner): PrService {
 		return { repos, authors };
 	}
 
-	async function listHost(hostKey: string, reviewerIds: string[]) {
+	function listHost(hostKey: string, reviewerIds: string[], { force = false }: { force?: boolean } = {}) {
 		const cacheKey = `${hostKey}|${reviewerIds.join(',')}`;
 		const cached = listCache.get(cacheKey);
 		const r = gh.rate[hostKey];
 		if (cached && r && r.remaining < LOW_BUDGET_LIST && Date.now() - cached.at < 5 * 60_000) {
-			return { prs: cached.prs, throttled: true };
+			return Promise.resolve({ prs: cached.prs, throttled: true });
 		}
-		if (cached && Date.now() - cached.at < LIST_TTL_MS) return { prs: cached.prs, throttled: false };
+		if (cached && Date.now() - cached.at < (force ? FORCED_LIST_TTL_MS : LIST_TTL_MS)) return Promise.resolve({ prs: cached.prs, throttled: false });
+		// Calls at the same time share one search, also forced ones from many pages.
+		const pending = listInflight.get(cacheKey);
+		if (pending) return pending;
+		const p = searchHost(hostKey, reviewerIds, cacheKey).finally(() => listInflight.delete(cacheKey));
+		listInflight.set(cacheKey, p);
+		return p;
+	}
 
+	async function searchHost(hostKey: string, reviewerIds: string[], cacheKey: string) {
 		const { repos, authors } = teamScope(hostKey);
 		// Repos with allAuthors list every open PR, so they skip the author filter. That search also finds the team's PRs.
 		const hostRepos = config.repos.filter((x) => x.host === hostKey);
