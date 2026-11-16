@@ -252,6 +252,8 @@ const api = (path: string, init: RequestInit = {}): Promise<Response> => {
 
 // Assigned in boot() before anything reads it.
 let cfg: PublicConfig;
+// True after boot() sets cfg. While it is false (a banner stopped boot), nothing may load or render data.
+let booted = false;
 const memberByLogin = new Map<string, TeamMember>(); // lowercased login (either host) -> member
 const rows = new Map<string, Row>(); // key -> row
 const groupEls = new Map<string, HTMLDivElement>(); // root key -> element
@@ -998,6 +1000,7 @@ function layout(): void {
 // Header, tiles, filter chips
 
 function renderChrome(): void {
+	if (!booted) return;
 	const scoped = [...rows.values()].filter((r) => matchesFilters(r, { ignoreTile: true }));
 	const count = (fn: (r: Row) => unknown): number => scoped.filter((r) => fn(r)).length;
 	const botOpen = scoped.reduce((n, r) => n + (r.detail?.bot?.open || 0), 0);
@@ -1222,7 +1225,7 @@ function removeRow(row: Row): void {
 }
 
 async function refreshList({ force = false }: { force?: boolean } = {}): Promise<void> {
-	if (listBusy) return;
+	if (listBusy || !booted) return;
 	listBusy = true;
 	$('#refresh').classList.add('busy');
 	try {
@@ -1287,7 +1290,7 @@ let mergedBusy = false;
 let mergedFetchedAt = 0;
 
 async function refreshMerged({ force = false }: { force?: boolean } = {}): Promise<void> {
-	if (mergedBusy || (!force && Date.now() - mergedFetchedAt < MERGED_REFRESH_MS)) return;
+	if (!booted || mergedBusy || (!force && Date.now() - mergedFetchedAt < MERGED_REFRESH_MS)) return;
 	mergedBusy = true;
 	mergedFetchedAt = Date.now();
 	try {
@@ -1365,6 +1368,7 @@ function followUpsPill(p: MergedPr): string {
 }
 
 function renderShipped(): void {
+	if (!booted) return;
 	const logins = cfg.team.flatMap((m) => Object.values(m.logins));
 	const list = mergedInRange(merged, logins, S.mergedRange, new Date());
 	const label = MERGED_RANGE_LABELS[S.mergedRange].toLowerCase();
@@ -1761,6 +1765,7 @@ void (async function boot(): Promise<void> {
 	}
 	if (!isPublicConfig(config)) throw new Error('Unexpected response from /api/config');
 	cfg = config;
+	booted = true;
 	for (const m of cfg.team) {
 		for (const login of Object.values(m.logins)) memberByLogin.set(login.toLowerCase(), m);
 	}
