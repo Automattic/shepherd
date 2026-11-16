@@ -2,6 +2,7 @@
 
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { isPushPolicy, PUSH_POLICIES } from './push-policy.ts';
 import type { Config, PublicConfig } from './types.ts';
 
 /** The project root (one level above src/). */
@@ -18,8 +19,10 @@ function fail(message: string): never {
 	process.exit(1);
 }
 
+const POLICY_LIST = PUSH_POLICIES.map((p) => `"${p}"`).join(', ');
+
 /** Checks the shape of a parsed config and returns a list of problems. */
-function problems(c: Partial<Config>): string[] {
+export function problems(c: Partial<Config>): string[] {
 	const out: string[] = [];
 	if (!Array.isArray(c.team) || !c.team.length) out.push('`team` must be a non-empty array');
 	if (!c.hosts || typeof c.hosts !== 'object') out.push('`hosts` must be an object');
@@ -40,6 +43,7 @@ function problems(c: Partial<Config>): string[] {
 				if (!c.hosts![host]) out.push(`team[${i}] (${m.id}) has a login for unknown host "${host}"`);
 			}
 		}
+		if (m.pushPolicy !== undefined && !isPushPolicy(m.pushPolicy)) out.push(`team[${i}] (${m.id}) needs "pushPolicy" to be one of ${POLICY_LIST}, or no such field`);
 		if (ids.has(m.id)) out.push(`team id "${m.id}" is used twice`);
 		ids.add(m.id);
 	}
@@ -58,6 +62,19 @@ function problems(c: Partial<Config>): string[] {
 		}
 		if (r.allAuthors !== undefined && typeof r.allAuthors !== 'boolean') {
 			out.push(`repos[${i}] (${r.owner}/${r.name}) needs "allAuthors" to be true or false, or no such field`);
+		}
+		if (r.pushPolicy !== undefined && !isPushPolicy(r.pushPolicy)) {
+			out.push(`repos[${i}] (${r.owner}/${r.name}) needs "pushPolicy" to be one of ${POLICY_LIST}, or no such field`);
+		}
+		if (r.pushPolicyByAuthor !== undefined) {
+			const map = r.pushPolicyByAuthor as unknown;
+			if (!map || typeof map !== 'object' || Array.isArray(map)) {
+				out.push(`repos[${i}] (${r.owner}/${r.name}) needs "pushPolicyByAuthor" to be an object of team id or login to policy, or no such field`);
+			} else {
+				for (const [who, policy] of Object.entries(map)) {
+					if (!isPushPolicy(policy)) out.push(`repos[${i}] (${r.owner}/${r.name}) pushPolicyByAuthor."${who}" must be one of ${POLICY_LIST}`);
+				}
+			}
 		}
 	}
 	return out;

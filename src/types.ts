@@ -10,7 +10,15 @@ export interface TeamMember {
 	short: string;
 	/** Login per host, keyed by a key of `Config.hosts` (e.g. { "github": "octocat" }). */
 	logins: Record<string, string>;
+	/** Optional: how this person wants to receive changes on PRs they wrote (see docs/push-policy.md). */
+	pushPolicy?: PushPolicy;
 }
+
+/**
+ * How a PR's author wants to receive changes from reviewers and their agents: comments only, a separate PR
+ * against their branch, or commits pushed to their branch.
+ */
+export type PushPolicy = 'review-only' | 'stacked-pr' | 'push';
 
 export interface HostConfig {
 	hostname: string;
@@ -38,6 +46,10 @@ export interface RepoConfig {
 	maxBaseAgeHours?: number;
 	/** Optional: list every open PR in this repo, including PRs by people outside `team`. */
 	allAuthors?: boolean;
+	/** Optional: the push policy for PRs in this repo. Combined with the author's, the stricter one wins. */
+	pushPolicy?: PushPolicy;
+	/** Optional: per-author policies in this repo, keyed by team id or login. They win over every other setting. */
+	pushPolicyByAuthor?: Record<string, PushPolicy>;
 }
 
 export interface LinearConfig {

@@ -7,6 +7,7 @@ import { liveFollowUps } from './followups.ts';
 import type { HerdrService } from './herdr.ts';
 import { countByAuthor, isMergedRange, MERGED_RANGES, mergedInRange, rangeBounds } from './merged.ts';
 import type { PrService } from './prs.ts';
+import { PUSH_POLICIES, resolvePushPolicy } from './push-policy.ts';
 import type { Config, FollowUp, LightPr, MergedPr, PrDetail, RepoConfig, TeamMember } from './types.ts';
 import { changesRequestedPending, waitReasons, type WaitReason } from './waiting.ts';
 
@@ -126,6 +127,10 @@ export function createMcpHandler(config: Config, prs: PrService, herdr: HerdrSer
 
 	// ---- shaping ----
 
+	/** The author's push preference, with the instruction an agent should follow before changing their branch. */
+	const pushPolicyOf = (p: { host: string; owner: string; repo: string; author: { login: string } }) =>
+		resolvePushPolicy(config, { host: p.host, owner: p.owner, repo: p.repo, author: p.author.login });
+
 	function summarize(d: PrDetail, { findings = false } = {}) {
 		const baseHours = baseAgeHours(d.baseAge);
 		return {
@@ -138,6 +143,7 @@ export function createMcpHandler(config: Config, prs: PrService, herdr: HerdrSer
 			state: d.state,
 			draft: d.isDraft,
 			author: nameOf(d.author.login),
+			pushPolicy: pushPolicyOf(d),
 			created: d.createdAt,
 			updated: d.updatedAt,
 			branch: `${d.headRefName} -> ${d.baseRefName}`,
@@ -201,6 +207,7 @@ export function createMcpHandler(config: Config, prs: PrService, herdr: HerdrSer
 			url: p.url,
 			title: p.title,
 			author: nameOf(p.author.login),
+			pushPolicy: pushPolicyOf(p),
 			updated: p.updatedAt,
 			error: `details unavailable: ${error}`,
 		};
@@ -264,7 +271,8 @@ export function createMcpHandler(config: Config, prs: PrService, herdr: HerdrSer
 		{
 			name: 'team',
 			title: 'Team and repos',
-			description: 'List the people on the team (with their login on each GitHub host), who "me" is, and the repos the dashboard tracks.',
+			description:
+				'List the people on the team (with their login on each GitHub host and how they want to receive changes on their PRs), who "me" is, and the repos the dashboard tracks with their push policies.',
 			inputSchema: { type: 'object', properties: {}, additionalProperties: false },
 			annotations: { readOnlyHint: true, openWorldHint: false },
 			run: async () => ({
@@ -273,8 +281,17 @@ export function createMcpHandler(config: Config, prs: PrService, herdr: HerdrSer
 					id: m.id,
 					name: m.name,
 					logins: Object.fromEntries(Object.entries(m.logins).map(([host, login]) => [hostname(host), login])),
+					pushPolicy: m.pushPolicy ?? null,
 				})),
-				repos: config.repos.map((r) => ({ short: r.short, repo: `${r.owner}/${r.name}`, host: hostname(r.host) })),
+				repos: config.repos.map((r) => ({
+					short: r.short,
+					repo: `${r.owner}/${r.name}`,
+					host: hostname(r.host),
+					pushPolicy: r.pushPolicy ?? null,
+					...(r.pushPolicyByAuthor ? { pushPolicyByAuthor: r.pushPolicyByAuthor } : {}),
+				})),
+				// review-only: comments only. stacked-pr: changes go in a separate PR against the author's branch. push: commits to the branch are welcome.
+				pushPolicies: PUSH_POLICIES,
 				aiReview: { label: reviewLabel, bots: Object.fromEntries(Object.values(config.hosts).filter((h) => h.bot).map((h) => [h.hostname, h.bot])) },
 				linear: config.linear ? `https://linear.app/${config.linear.workspace}` : null,
 				// GitHub teams per host whose review requests put a PR in the team's queue; null when none are set.
@@ -285,7 +302,7 @@ export function createMcpHandler(config: Config, prs: PrService, herdr: HerdrSer
 			name: 'list_prs',
 			title: 'List open team pull requests',
 			description:
-				'List open pull requests written by the team in the tracked repos, plus every open PR in repos set to include all authors. Each result says whose review it waits on (and whether one of the configured review teams is requested), who approved, how many AI-review bot threads are unresolved, who has participated (most recently active first), any Linear tickets, and any stacked parent PR. Filter by author, repo, requested reviewer, or review-team request.',
+				'List open pull requests written by the team in the tracked repos, plus every open PR in repos set to include all authors. Each result says whose review it waits on (and whether one of the configured review teams is requested), who approved, how many AI-review bot threads are unresolved, who has participated (most recently active first), any Linear tickets, any stacked parent PR, and the pushPolicy of the author (follow its instruction before changing their branch). Filter by author, repo, requested reviewer, or review-team request.',
 			inputSchema: {
 				type: 'object',
 				properties: {
@@ -460,7 +477,7 @@ export function createMcpHandler(config: Config, prs: PrService, herdr: HerdrSer
 			name: 'get_pr',
 			title: 'Pull request details',
 			description:
-				'Full status of one pull request: reviewers waiting, approvals, every unresolved AI-review bot finding (severity, file, link), participants and when each was last active (who to ping), the most recent activity (who acted last, and whether it was the author or "me"), checks, conflicts, how old the base is (baseAgeHours, and baseTooOld when the repo sets maxBaseAgeHours), Linear tickets, stacked PRs, follow-ups (non-blocking asks left in the description, reviews and comments, with who wrote each and a link; `followUpsMaybeDone` counts the asks written before the last commit, which are left out), and any local herdr terminal panes working on it. Give a PR URL, or a repo plus number.',
+				'Full status of one pull request: reviewers waiting, approvals, every unresolved AI-review bot finding (severity, file, link), participants and when each was last active (who to ping), the most recent activity (who acted last, and whether it was the author or "me"), checks, conflicts, how old the base is (baseAgeHours, and baseTooOld when the repo sets maxBaseAgeHours), Linear tickets, stacked PRs, follow-ups (non-blocking asks left in the description, reviews and comments, with who wrote each and a link; `followUpsMaybeDone` counts the asks written before the last commit, which are left out), any local herdr terminal panes working on it, and pushPolicy: how the author wants to receive changes (review-only, stacked-pr or push) with an instruction to follow before committing to their branch. Give a PR URL, or a repo plus number.',
 			inputSchema: {
 				type: 'object',
 				properties: {
@@ -534,7 +551,7 @@ export function createMcpHandler(config: Config, prs: PrService, herdr: HerdrSer
 					capabilities: { tools: { listChanged: false } },
 					serverInfo: { name: 'shepherd', title: 'Shepherd PR dashboard', version: '0.3.0' },
 					instructions:
-						"Read-only view of the team's pull requests. Use review_queue for what waits on someone's review, list_prs for the team's open PRs, merged_prs for what the team merged this week, last week or in the last 30 days, get_pr for one PR's AI-review findings and who to ping, team for the roster.",
+						"Read-only view of the team's pull requests. Use review_queue for what waits on someone's review, list_prs for the team's open PRs, merged_prs for what the team merged this week, last week or in the last 30 days, get_pr for one PR's AI-review findings and who to ping, team for the roster. Every PR carries the author's pushPolicy: follow its instruction before pushing to, or opening a PR against, someone else's branch.",
 				});
 			}
 			case 'ping':

@@ -24,6 +24,7 @@ import type {
 import { baseAgeHours, baseTooOld } from '../src/base-age.ts';
 import { FOLLOWUPS_MAX_PRS, liveFollowUps, needingFollowUp } from '../src/followups.ts';
 import { countByAuthor, isMergedRange, MERGED_RANGE_LABELS, MERGED_RANGES, mergedInRange, type MergedRange } from '../src/merged.ts';
+import { PUSH_POLICY_LABELS, resolvePushPolicy } from '../src/push-policy.ts';
 import { changesRequestedPending, isTurnOf, WAIT_REASON_TEXT, waitReasons, type WaitReason } from '../src/waiting.ts';
 
 // ---------------------------------------------------------------------------
@@ -462,6 +463,20 @@ const STATE_ICONS: Record<PrVisualState, string> = {
 	closed: 'fa-solid fa-circle-xmark',
 };
 
+const PUSH_POLICY_ICONS = {
+	'review-only': 'fa-regular fa-comment-dots',
+	'stacked-pr': 'fa-solid fa-code-fork',
+	push: 'fa-solid fa-code-commit',
+} as const;
+
+/** How the author wants to receive changes; nothing on your own PRs or when no policy covers the PR. */
+function pushPolicyPill(l: LightPr): string {
+	if (isMe(l.author.login, l.host)) return '';
+	const p = resolvePushPolicy(cfg, { host: l.host, owner: l.owner, repo: l.repo, author: l.author.login });
+	if (!p.policy) return '';
+	return `<span class="push-pill ${p.policy}" title="${esc(p.instruction)}"><i class="${PUSH_POLICY_ICONS[p.policy]}"></i>${PUSH_POLICY_LABELS[p.policy]}</span>`;
+}
+
 function cellPr(row: Row): string {
 	const l = row.light;
 	const d = row.detail;
@@ -477,6 +492,7 @@ function cellPr(row: Row): string {
 	if (row.depth === 0 || member(l.author.login) === null || !sameAuthorAsParent(row)) {
 		meta.push(`<span class="meta-item">${avatar(l.author.login, l.host)}${esc(displayName(l.author.login))}</span>`);
 	}
+	meta.push(pushPolicyPill(l));
 	for (const k of linearKeys(row)) {
 		meta.push(`<a class="linear" href="${linearUrl(k)}" target="_blank" rel="noopener" title="Open ${k} in Linear"><i class="fa-solid fa-ticket"></i>${k}</a>`);
 	}
