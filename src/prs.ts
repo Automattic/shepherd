@@ -25,7 +25,7 @@ import {
 
 const DEFAULT_BRANCHES = new Set(['trunk', 'main', 'master', 'develop']);
 const LIST_TTL_MS = 2_000;
-// In "list" mode, every list call reuses a list this new, and a failed search waits this long, so no client starts a search more often.
+// In "list" mode, every list call reuses a list this new, a failed search waits this long, and a detail call (also a forced one) reuses details this new, so no client calls GitHub more often.
 const LIST_MODE_TTL_MS = 10_000;
 const DETAIL_TTL_MS = 3_000;
 const FORCED_DETAIL_TTL_MS = 1_000;
@@ -731,7 +731,7 @@ export function createPrService(config: Config, gh: GhRunner): PrService {
 		const cached = detailCache.get(key);
 		const r = gh.rate[host];
 		if (cached && r && r.remaining < LOW_BUDGET_DETAIL) return { ...cached.value, throttled: true };
-		const ttl = req.maxAgeMs ?? (req.force ? FORCED_DETAIL_TTL_MS : DETAIL_TTL_MS);
+		const ttl = Math.max(req.maxAgeMs ?? (req.force ? FORCED_DETAIL_TTL_MS : DETAIL_TTL_MS), config.refresh === 'list' ? LIST_MODE_TTL_MS : 0);
 		if (cached && Date.now() - cached.at < ttl) return cached.value;
 		const pending = inflight.get(key);
 		if (pending) return pending;

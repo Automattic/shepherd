@@ -136,3 +136,60 @@ describe('listHost', () => {
 		expect(queries).toHaveLength(2);
 	});
 });
+
+describe('getDetail', () => {
+	afterEach(() => setSystemTime());
+
+	const now = new Date().toISOString();
+	// The smallest DETAIL_QUERY answer that shapeDetail reads.
+	const detailData = {
+		repository: {
+			defaultBranchRef: { name: 'main', target: { oid: 'base0' } },
+			stackedOnThis: { nodes: [] },
+			pullRequest: {
+				number: 1, title: 'PR', url: 'https://github.com/example-org/app/pull/1', state: 'OPEN', merged: false, mergedAt: null,
+				isDraft: false, updatedAt: now, createdAt: now, headRefName: 'feature', baseRefName: 'main', headRefOid: 'head0',
+				baseRefOid: 'base0', baseRef: { target: { oid: 'base0' } }, body: null, mergeable: 'MERGEABLE', reviewDecision: null,
+				additions: 1, deletions: 0, changedFiles: 1, author: { login: 'alice' }, statusCheckRollup: null,
+				reviewRequests: { nodes: [] }, latestOpinionatedReviews: { nodes: [] }, participants: { totalCount: 0, nodes: [] },
+				comments: { nodes: [] }, reviews: { nodes: [] }, commits: { nodes: [] }, reviewThreads: { nodes: [] },
+			},
+		},
+	};
+
+	function detailService(config: Config) {
+		const state = { queries: 0 };
+		const gh: GhRunner = {
+			rate: {},
+			get: () => Promise.reject(new Error('no compare in this test')),
+			query: async <T>() => {
+				state.queries++;
+				return detailData as T;
+			},
+		};
+		return { prs: createPrService(config, gh), state };
+	}
+
+	const req = { host: 'github', owner: 'example-org', repo: 'app', number: 1, head: 'feature', base: 'main', force: true };
+
+	test('in "list" mode, a forced call reuses details that are less than 10 seconds old', async () => {
+		const { prs, state } = detailService({ ...base, refresh: 'list' });
+		const start = Date.now();
+		await prs.getDetail(req);
+		setSystemTime(new Date(start + 9_900));
+		await prs.getDetail(req);
+		expect(state.queries).toBe(1);
+		setSystemTime(new Date(start + 10_100));
+		await prs.getDetail(req);
+		expect(state.queries).toBe(2);
+	});
+
+	test('in "rows" mode, a forced call reuses details for 1 second only', async () => {
+		const { prs, state } = detailService(base);
+		const start = Date.now();
+		await prs.getDetail(req);
+		setSystemTime(new Date(start + 1_100));
+		await prs.getDetail(req);
+		expect(state.queries).toBe(2);
+	});
+});
