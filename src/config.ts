@@ -2,7 +2,7 @@
 
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { FEATURES, isFeature, resolveFeatures } from './features.ts';
+import { FEATURES, isFeature, resolveFeatures, type Features } from './features.ts';
 import type { Config, PublicConfig } from './types.ts';
 
 /** The project root (one level above src/). */
@@ -91,6 +91,11 @@ export async function loadConfig(): Promise<Config> {
 	return parsed as Config;
 }
 
+/** The features that this server has. herdr.enabled: false turns the herdr chips off too, so the page does not ask for them. */
+export function configFeatures(config: Config): Features {
+	return resolveFeatures({ ...config.features, ...(config.herdr?.enabled === false ? { herdr: false } : {}) });
+}
+
 export function publicConfig(config: Config): PublicConfig {
 	return {
 		me: config.me,
@@ -101,7 +106,6 @@ export function publicConfig(config: Config): PublicConfig {
 		),
 		linear: config.linear ?? null,
 		aiReviewLabel: config.aiReviewLabel || 'AI review',
-		// herdr.enabled: false turns the herdr chips off too, so the page does not ask for them.
-		features: resolveFeatures({ ...config.features, ...(config.herdr?.enabled === false ? { herdr: false } : {}) }),
+		features: configFeatures(config),
 	};
 }

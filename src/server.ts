@@ -3,7 +3,7 @@
 
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { join, normalize } from 'node:path';
-import { DEFAULT_PORT, loadConfig, publicConfig, ROOT } from './config.ts';
+import { configFeatures, DEFAULT_PORT, loadConfig, publicConfig, ROOT } from './config.ts';
 import { createGh } from './gh.ts';
 import { createHerdr } from './herdr.ts';
 import { createMcpHandler } from './mcp.ts';
@@ -20,7 +20,7 @@ const gh = createGh(config);
 const prs = createPrService(config, gh);
 const herdr = createHerdr(config);
 const handleMcp = createMcpHandler(config, prs, herdr);
-const features = publicConfig(config).features!;
+const features = configFeatures(config);
 
 // Optional bearer token for /mcp and /api/*. It comes from the environment, not config.json,
 // because config files are often readable by other users on the same machine.
