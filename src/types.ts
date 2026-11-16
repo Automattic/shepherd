@@ -34,6 +34,13 @@ export interface HostConfig {
 	 * A PR that requests one of them waits on every team member with a login here, except its author.
 	 */
 	reviewTeams?: string[];
+	/**
+	 * Optional: the shortest time (ms) before the page loads a row on this host again.
+	 * Defaults to 2 minutes on github.com and on hosts that report a GraphQL budget, and 20 seconds on other hosts.
+	 */
+	rowRefreshFloorMs?: number;
+	/** Optional: the time (ms) between row loads on this host when its GraphQL budget is low. Defaults to 10 minutes. */
+	rowRefreshLowBudgetMs?: number;
 }
 
 export interface RepoConfig {
@@ -70,16 +77,34 @@ export interface Config {
 	/** Optional herdr integration; on by default whenever herdr is installed and running. */
 	herdr?: { enabled?: boolean; transcriptTailKb?: number };
 	ignoreParticipants?: string[];
+	/**
+	 * Optional: when the page loads a row again. "rows" (the default) also loads rows that are older than
+	 * the refresh floor, and Refresh now loads every row. "list" loads a row only when the list shows a new
+	 * `updatedAt` for it, or when the user asks for that row.
+	 */
+	refresh?: RefreshMode;
 }
+
+export type RefreshMode = 'rows' | 'list';
+
+/**
+ * The version of the JSON shapes in this file that the server sends and the client reads.
+ * Increase it when a change here breaks an old client or an old server. See CONTRIBUTING.md.
+ */
+export const API_VERSION = 1;
 
 /** What GET /api/config returns: the config without local-only details. */
 export interface PublicConfig {
+	/** The `API_VERSION` of the server. The client stops when it is not the client's own `API_VERSION`. */
+	apiVersion: number;
 	me: string;
 	team: TeamMember[];
+	/** Empty when the server has no fixed list of repos. The page then makes the repo chips from the listed PRs. */
 	repos: RepoConfig[];
-	hosts: Record<string, Pick<HostConfig, 'hostname' | 'label' | 'bot'>>;
+	hosts: Record<string, Pick<HostConfig, 'hostname' | 'label' | 'bot' | 'rowRefreshFloorMs' | 'rowRefreshLowBudgetMs'>>;
 	linear: LinearConfig | null;
 	aiReviewLabel: string;
+	refresh: RefreshMode;
 }
 
 // ---------------------------------------------------------------------------
@@ -123,6 +148,11 @@ export interface LightPr {
 	requestedFor: string[];
 	/** The PR requests a review from one of the host's `reviewTeams`. */
 	teamRequested: boolean;
+	/**
+	 * The details the server already has for this `updatedAt`, if any. The page shows them at once,
+	 * and calls /api/pr for the row only when they are older than the row's refresh interval.
+	 */
+	detail?: PrDetail;
 }
 
 export type Severity = 'critical' | 'high' | 'medium' | 'low' | 'info';

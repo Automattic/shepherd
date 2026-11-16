@@ -9,6 +9,7 @@
     "start": "bun src/server.ts",
     "dev": "bun --watch src/server.ts",
     "typecheck": "tsc --noEmit",
+    "build:client": "bun src/build-client.ts",
     "check": "tsc --noEmit && bun build web/app.ts --target=browser --outdir=.check-build >/dev/null && rm -rf .check-build"
   },
   "engines": {

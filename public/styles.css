@@ -224,6 +224,8 @@
 .shepherd .repos, .shepherd .toggles { display: flex; flex-wrap: wrap; gap: 6px; }
 /* Divide the chip groups: repos | approval filters | drafts and dormant. */
 .shepherd #approvals, .shepherd .toggles { padding-left: 10px; border-left: 1px solid var(--line); }
+/* Not taller than the search box, so the sort control does not make the filter row taller. */
+.shepherd #sort button { padding-top: 3px; padding-bottom: 3px; }
 .shepherd .chip-btn {
 	display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; border-radius: 8px; cursor: pointer;
 	border: 1px solid var(--line); background: var(--surface); color: var(--text-2); font-size: 12.5px;
@@ -563,8 +565,8 @@
 	.shepherd .filters-btn { display: inline-flex; order: 1; }
 	.shepherd .people { order: 2; flex-basis: 100%; padding-top: 4px; }
 	.shepherd #repos { order: 3; flex-basis: 100%; }
-	.shepherd #approvals, .shepherd .toggles { order: 4; padding-left: 0; border-left: 0; }
-	.shepherd .filters:not(.open) .people, .shepherd .filters:not(.open) .repos, .shepherd .filters:not(.open) .toggles { display: none; }
+	.shepherd #approvals, .shepherd .toggles, .shepherd #sort { order: 4; padding-left: 0; border-left: 0; }
+	.shepherd .filters:not(.open) .people, .shepherd .filters:not(.open) .repos, .shepherd .filters:not(.open) .toggles, .shepherd .filters:not(.open) #sort { display: none; }
 }
 
 @media (max-width: 640px) {
