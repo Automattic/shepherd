@@ -24,6 +24,7 @@ The client reads the object one time, when it starts. Changes to the object afte
 | `apiBase` | Replaces the `/api` prefix of every API call. For example, `/api/prs?reviewers=…` goes to `/my-app/api/shepherd/prs?reviewers=…`. Use a path on the same origin (it starts with one `/`) or a URL that starts with `http://` or `https://`. A URL on a different origin needs CORS on that server. The client removes a trailing `/`. |
 | `headers` | An object of header names and string values. The client adds them to every API call. |
 | `mount` | The element that gets the dashboard: a CSS selector or an element. The default is `#shepherd`. The client replaces the content of the element. When no element matches, the client stops with an error in the browser console. |
+| `apiTrailingSlash` | `true` adds a `/` to the end of the path of each call to `apiBase`, before the query. For example, `/api/prs?reviewers=…` goes to `/my-app/api/shepherd/prs/?reviewers=…`. Use it when the host redirects a path without the slash: each redirect costs one more request, and a browser changes a redirected `POST` to a `GET`. It has no effect without `apiBase`. The default is `false`. |
 | `header` | `false` removes the brand header (the logo, the name and the line below it). The controls (the rate budget, the refresh interval, **Refresh now** and the theme button) stay in a bar at the top of the dashboard. This bar does not stick to the top of the window. The default is `true`. |
 
 The host's API must give the same responses as the paths below on the local server:
@@ -77,6 +78,7 @@ The client ignores a value that is not valid, and uses the default for it:
 - The client ignores each header that has a value that is not a string, or a name or value that the browser does not accept.
 - When `mount` is not a string or an element, or is an empty string, the client uses `#shepherd`.
 - When `header` is not `true` or `false`, the client shows the header.
+- When `apiTrailingSlash` is not `true` or `false`, the client adds no slash.
 
 ## Headers and the token
 

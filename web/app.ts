@@ -268,7 +268,7 @@ const ROOT = mountShell(EMBED);
 // Every API call goes through here. `apiHeaders()` gives the order of the headers.
 const api = (path: string, init: RequestInit = {}): Promise<Response> => {
 	const headers = apiHeaders(EMBED.headers, init.headers, token);
-	return fetch(apiUrl(path, EMBED.apiBase), { ...init, headers });
+	return fetch(apiUrl(path, EMBED.apiBase, EMBED.apiTrailingSlash), { ...init, headers });
 };
 
 // ---------------------------------------------------------------------------
