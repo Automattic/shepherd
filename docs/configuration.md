@@ -14,9 +14,35 @@
 | `herdr` | Optional. See [herdr terminal panes](herdr.md). `enabled` (default `true`; used only when herdr is installed and running) and `transcriptTailKb` (how much of each agent transcript to search, default 192). |
 | `refresh` | Optional. `"rows"` (the default) or `"list"`. Sets when the page loads a row again. See [Refresh rules](#refresh-rules). |
 | `features` | Optional. Turns dashboard features off: `shipped`, `followups` and `herdr`, each `true` or `false`. A missing key means on. See [Turn features off](#turn-features-off). |
+| `limits` | Optional. Cost limits that the server enforces: `maxPeople`, `maxRepos`, `maxBells` and `requestBudget`. See [Cost limits](#cost-limits). |
 | `ignoreParticipants` | Logins to leave out of Participants. Use it for bots and service accounts that appear as ordinary users. Logins ending in `[bot]` or `-bot` are always left out. |
 
 The server binds to `127.0.0.1` only. The MCP endpoint refuses browser requests from other origins.
+
+## Settings in the dashboard
+
+The gear button opens the settings panel. It edits `config.json` through `GET` and `PUT /api/settings`, so you can change the team and the repos without opening the file. The settings come in two groups:
+
+| Group | Settings | Who changes them |
+| --- | --- | --- |
+| Personal | `team` and each person's `logins`, `repos` (with `allAuthors`, `maxBaseAgeHours`, `pushPolicy` and `pushPolicyByAuthor`), the review teams (`hosts.<key>.reviewTeams`), `linear` and `features` | You, in the panel or in `config.json` |
+| Deployment | `hosts` (hostname, label, bot, `concurrency`, `proxychains`, `rowRefreshFloorMs`, `rowRefreshLowBudgetMs`), `port`, `herdr`, `refresh`, `aiReviewLabel`, `ignoreParticipants`, `limits`, and the token | The person who runs the server, in `config.json` |
+
+Each field in the settings has an `editable` flag. The panel shows a field that is not editable read-only, with the reason. On this server, `me` and every deployment setting are not editable in the panel, and `features.herdr` is not editable when `"herdr": { "enabled": false }`. A `PUT /api/settings` that changes a field that is not editable is refused, also when it is sent on purpose.
+
+Push policies are the exception in the personal group. Everyone can see them, but only that person can change their own:
+
+- In `team`, you can change only your own `pushPolicy`.
+- In a repo's `pushPolicyByAuthor`, you can change only the entry for your team id or your login on that repo's host.
+- A repo's own `pushPolicy` (its default) is a personal setting, and you can change it.
+
+A save writes a new `config.json` (a temp file, then a rename), so the old file stays when a write fails. It keeps the keys that the panel does not show, such as `proxychains` and `port`, but it writes the file again with two-space indents. The server applies a save at once, without a restart.
+
+The server also reads `config.json` again when it changes on disk, at most once a second, on the next API or MCP request. A change to a personal setting applies without a restart. A change to a deployment setting applies only after a restart; until then, the panel says so. When the file on disk has a problem, the server keeps the last good settings and the panel lists the problems. At startup, a file with a problem still stops the server.
+
+When two tabs, or a tab and an edit on disk, change the settings at the same time, the second save is refused, and the panel offers to load the current settings. Each settings response has a `version`, and a `PUT` sends the `version` that it started from.
+
+Bells, the filters, the sort order, the refresh interval and the theme are not in `config.json`. They stay in the browser's storage (`shepherd.settings`), one copy for each browser.
 
 ## PRs from outside the team
 
@@ -65,7 +91,24 @@ Set a feature to `false` to remove it from the dashboard:
 
 When a feature is off, the page sends no request for it and shows no error for it. The server answers 404 on the endpoint of that feature (`/api/merged`, `/api/followups`, or `/api/herdr/*`). The page keeps your saved choices for a feature that is off, such as the range or the **Needs follow-up** chip, and uses them again when the feature is on. The MCP tools do not change.
 
-`GET /api/config` sends the result as `features`, with all three keys. A different server that has only the open-PR endpoints can send the same object with `false` values. When a server sends no `features` object, or leaves a key out, the page treats that feature as on.
+`GET /api/config` sends the result as `features`, with all three keys, plus `settings: true` (this server has the settings API). A different server that has only the open-PR endpoints can send the same object with `false` values. When a server sends no `features` object, or leaves a key out, the page treats that feature as on. `settings` is the exception: the page uses the settings API only when the server sends `"settings": true`.
+
+## Cost limits
+
+`limits` caps what one person's settings can cost the server's GitHub logins:
+
+```json
+"limits": { "maxPeople": 12, "maxRepos": 20, "maxBells": 6, "requestBudget": { "requests": 600, "perSeconds": 3600 } }
+```
+
+| Key | What the server does |
+| --- | --- |
+| `maxPeople` | Refuses a settings save with more people in `team`. |
+| `maxRepos` | Refuses a settings save with more `repos`. |
+| `maxBells` | Uses only this many bells in one list request. |
+| `requestBudget` | The most API requests one viewer can make in `perSeconds` seconds. This server has one user and does not enforce it; a host with many viewers does. |
+
+Each value is a whole number, 1 or more. A missing key means no limit. The settings panel shows the limits. Only the server enforces them.
 
 ## Token (optional)
 

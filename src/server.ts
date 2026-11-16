@@ -10,15 +10,29 @@ import { createHerdr } from './herdr.ts';
 import { createMcpHandler } from './mcp.ts';
 import { FOLLOWUPS_MAX_PRS } from './followups.ts';
 import { createPrService, NotFoundError, parsePrKey } from './prs.ts';
+import { createSettingsHandler } from './settings-api.ts';
+import { createConfigStore } from './settings-store.ts';
 import type { DetailResponse, ErrorResponse, FollowUpsResponse, HerdrLinksResponse, LightPr, ListResponse, MergedPr, MergedResponse, PaneMatchPr } from './types.ts';
 
-const config = await loadConfig();
+const loaded = await loadConfig();
+// One object for the life of the server: a reload changes its keys in place, so `gh` and herdr keep reading it.
+const config = loaded.config;
+const store = createConfigStore(loaded.file, loaded.text, config);
 const port = Number(process.env.PORT || config.port || DEFAULT_PORT);
 const gh = createGh(config);
-const prs = createPrService(config, gh);
 const herdr = createHerdr(config);
-const handleMcp = createMcpHandler(config, prs, herdr);
-const features = configFeatures(config);
+// The PR service and the MCP handler keep the team and repos from when they were made, so a reload makes them again.
+let prs = createPrService(config, gh);
+let handleMcp = createMcpHandler(config, prs, herdr);
+let features = configFeatures(config);
+store.onChange((next) => {
+	for (const key of Object.keys(config)) if (!(key in next)) delete (config as unknown as Record<string, unknown>)[key];
+	Object.assign(config, next);
+	prs = createPrService(config, gh);
+	handleMcp = createMcpHandler(config, prs, herdr);
+	features = configFeatures(config);
+	console.log('Reloaded the settings from config.json');
+});
 
 // Optional bearer token for /mcp and /api/*. It comes from the environment, not config.json,
 // because config files are often readable by other users on the same machine.
@@ -48,7 +62,9 @@ async function listPrs(url: URL): Promise<Response> {
 	const reviewerIds = (url.searchParams.get('reviewers') ?? '')
 		.split(',')
 		.filter((id) => teamIds.has(id))
-		.sort();
+		.sort()
+		// The cost limit on bells: each one adds a search term.
+		.slice(0, config.limits?.maxBells ?? Infinity);
 	const settled = await Promise.allSettled(prs.hostKeys.map((h) => prs.listHost(h, reviewerIds)));
 	const list: LightPr[] = [];
 	const errors: Record<string, string> = {};
@@ -151,6 +167,8 @@ async function herdrFocus(req: Request): Promise<Response> {
 	}
 }
 
+const handleSettings = createSettingsHandler(store, { sameOrigin });
+
 async function serveStatic(pathname: string): Promise<Response> {
 	if (pathname === '/app.js') {
 		return new Response(clientBundle, { headers: { 'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'no-cache' } });
@@ -173,6 +191,8 @@ const server = Bun.serve({
 			if ((url.pathname === '/mcp' || url.pathname.startsWith('/api/')) && !authorized(req)) {
 				return json<ErrorResponse>(401, { error: 'unauthorized: open the #token= link the server printed at startup' });
 			}
+			// Pick up a config.json that changed on disk, so a hand edit applies without a restart.
+			if (url.pathname === '/mcp' || url.pathname.startsWith('/api/')) await store.refresh();
 			if (url.pathname === '/mcp') return await handleMcp(req);
 			if (url.pathname === '/api/config') return json(200, publicConfig(config));
 			if (url.pathname === '/api/prs') return await listPrs(url);
@@ -182,6 +202,7 @@ const server = Bun.serve({
 			if (url.pathname === '/api/followups' && features.followups) return await getFollowUps(url);
 			if (url.pathname === '/api/herdr/links' && features.herdr) return await herdrLinks(req);
 			if (url.pathname === '/api/herdr/focus' && features.herdr) return await herdrFocus(req);
+			if (url.pathname === '/api/settings' && features.settings) return await handleSettings(req);
 			if (url.pathname.startsWith('/api/')) return json<ErrorResponse>(404, { error: 'not found' });
 			return await serveStatic(url.pathname);
 		} catch (e) {

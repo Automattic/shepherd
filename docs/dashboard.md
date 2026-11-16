@@ -88,6 +88,7 @@ A PR counts as approved when GitHub's review decision is approved, or when at le
 - **Refresh interval.** 5s, 30s, 1m (default), 5m or 15m. The thin bar under the header shows the time until the next check.
 - **Refresh now.** The button in the header, or press `R`. It reloads every row.
 - **Theme.** Light or dark. It follows your system until you choose.
+- **Settings.** The gear button opens the settings panel: the team, repos, review teams, Linear and features. See [Settings in the dashboard](configuration.md#settings-in-the-dashboard). A server without a settings API has no gear. In a team or member view, the bar says whose dashboard it is instead, with a link to your own.
 - **Summary tiles.** Click one to filter: Waiting on you, Approved, Changes requested, AI review open. **Open PRs** clears the filter.
 - **People.** Each person has three buttons:
   - **Name** (with their PR count): show only PRs they wrote.

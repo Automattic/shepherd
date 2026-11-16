@@ -5,21 +5,26 @@ import type { Config } from './types.ts';
 
 describe('resolveFeatures', () => {
 	test('a missing object turns every feature on', () => {
-		expect(resolveFeatures(undefined)).toEqual({ shipped: true, followups: true, herdr: true });
-		expect(resolveFeatures(null)).toEqual({ shipped: true, followups: true, herdr: true });
+		expect(resolveFeatures(undefined)).toEqual({ shipped: true, followups: true, herdr: true, settings: false });
+		expect(resolveFeatures(null)).toEqual({ shipped: true, followups: true, herdr: true, settings: false });
 	});
 
 	test('a missing key turns that feature on', () => {
-		expect(resolveFeatures({ herdr: false })).toEqual({ shipped: true, followups: true, herdr: false });
-		expect(resolveFeatures({ followups: false })).toEqual({ shipped: true, followups: false, herdr: true });
+		expect(resolveFeatures({ herdr: false, settings: false })).toEqual({ shipped: true, followups: true, herdr: false, settings: false });
+		expect(resolveFeatures({ followups: false })).toEqual({ shipped: true, followups: false, herdr: true, settings: false });
 	});
 
 	test('only false turns a feature off', () => {
-		expect(resolveFeatures({ shipped: 0, followups: 'no', herdr: null })).toEqual({ shipped: true, followups: true, herdr: true });
+		expect(resolveFeatures({ shipped: 0, followups: 'no', herdr: null })).toEqual({ shipped: true, followups: true, herdr: true, settings: false });
+	});
+
+	test('settings is on only when the server sends true', () => {
+		expect(resolveFeatures({ settings: true }).settings).toBe(true);
+		for (const v of [undefined, false, 1, 'yes']) expect(resolveFeatures({ settings: v }).settings).toBe(false);
 	});
 
 	test('follow-ups are off when Shipped is off', () => {
-		expect(resolveFeatures({ shipped: false, followups: true })).toEqual({ shipped: false, followups: false, herdr: true });
+		expect(resolveFeatures({ shipped: false, followups: true })).toEqual({ shipped: false, followups: false, herdr: true, settings: false });
 	});
 });
 
@@ -53,11 +58,11 @@ describe('features in config.json', () => {
 	});
 
 	test('the public config sends every feature, on by default', () => {
-		expect(publicConfig(base).features).toEqual({ shipped: true, followups: true, herdr: true });
+		expect(publicConfig(base).features).toEqual({ shipped: true, followups: true, herdr: true, settings: true });
 	});
 
 	test('the public config sends the features that config.json turns off', () => {
-		expect(publicConfig({ ...base, features: { shipped: false } }).features).toEqual({ shipped: false, followups: false, herdr: true });
+		expect(publicConfig({ ...base, features: { shipped: false } }).features).toEqual({ shipped: false, followups: false, herdr: true, settings: true });
 	});
 
 	test('herdr is off when herdr.enabled is false', () => {

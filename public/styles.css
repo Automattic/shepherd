@@ -593,3 +593,71 @@
 @media (hover: none) {
 	.shepherd .row-refresh { opacity: .6; }
 }
+
+/* Team and member views: whose dashboard this is. */
+.shepherd .view-note {
+	display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text-2);
+	padding: 6px 10px; border-radius: 10px; background: var(--accent-soft); border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
+}
+.shepherd .view-note[hidden] { display: none; }
+.shepherd .view-note a { color: var(--accent); font-weight: 500; }
+.shepherd .icon-btn[hidden] { display: none; }
+
+/* The settings panel (web/settings.ts). A <dialog> in the top layer, so a host's transform does not move it. */
+.shepherd dialog.settings {
+	width: min(880px, calc(100vw - 32px)); max-height: calc(100vh - 48px); padding: 0; overflow: hidden;
+	border: 1px solid var(--line-strong); border-radius: var(--radius); background: var(--surface); color: var(--text);
+	box-shadow: var(--shadow); font-family: var(--font); font-size: 13px;
+}
+.shepherd dialog.settings[open] { display: flex; flex-direction: column; }
+.shepherd dialog.settings::backdrop { background: rgba(0, 0, 0, .35); }
+.shepherd .s-form { display: flex; flex-direction: column; min-height: 0; max-height: calc(100vh - 48px); margin: 0; }
+.shepherd .s-head, .shepherd .s-foot {
+	display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 18px;
+	border-bottom: 1px solid var(--line); background: var(--surface);
+}
+.shepherd .s-foot { justify-content: flex-end; border-top: 1px solid var(--line); border-bottom: 0; }
+.shepherd .s-head h2 { margin: 0; font-size: 16px; font-weight: 650; }
+.shepherd .s-body { padding: 4px 18px 18px; overflow-y: auto; min-height: 0; }
+.shepherd .s-section { padding: 14px 0 6px; border-bottom: 1px solid var(--line); }
+.shepherd .s-section:last-child { border-bottom: 0; }
+.shepherd .s-section h3 { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-3); }
+.shepherd .s-lock { font-size: 11px; text-transform: none; letter-spacing: 0; color: var(--text-3); }
+.shepherd .s-note { margin: 0 0 10px; color: var(--text-2); }
+.shepherd .s-note code, .shepherd .s-table code { font-family: var(--mono); font-size: 11.5px; }
+.shepherd .s-item { margin: 0 0 10px; padding: 8px 12px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2); }
+.shepherd .s-item legend { padding: 0 6px; font-weight: 600; }
+.shepherd .s-you { font-size: 11px; font-weight: 500; color: var(--you); background: var(--you-soft); border-radius: 6px; padding: 1px 6px; }
+.shepherd .s-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px 12px; }
+.shepherd .s-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.shepherd .s-field > span:first-child { font-size: 11.5px; color: var(--text-3); }
+.shepherd .s-field input[type="text"], .shepherd .s-field input[type="number"], .shepherd .s-field select {
+	height: 32px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--surface); color: var(--text);
+	font: inherit; font-size: 13px; min-width: 0;
+}
+.shepherd .s-field input:focus, .shepherd .s-field select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.shepherd .s-field :disabled { opacity: .6; cursor: not-allowed; }
+.shepherd .s-field input[readonly] { background: var(--surface-2); }
+.shepherd .s-check { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px; margin: 4px 0; }
+.shepherd .s-check > span:first-of-type { font-size: 13px; color: var(--text); }
+.shepherd .s-why { flex-basis: 100%; font-style: normal; font-size: 11.5px; color: var(--text-3); padding-left: 24px; }
+.shepherd .s-readonly .s-value { height: 32px; display: flex; align-items: center; color: var(--text-2); }
+.shepherd .s-err { display: flex; gap: 6px; align-items: baseline; margin: 2px 0 0; font-size: 12px; color: var(--bad); flex-basis: 100%; }
+.shepherd .s-add, .shepherd .s-remove {
+	display: inline-flex; align-items: center; gap: 6px; margin-top: 4px; padding: 5px 10px; border-radius: 8px; cursor: pointer;
+	border: 1px dashed var(--line-strong); background: transparent; color: var(--text-2); font: inherit; font-size: 12.5px;
+}
+.shepherd .s-remove { border-style: solid; margin-top: 8px; }
+.shepherd .s-add:hover, .shepherd .s-remove:hover { color: var(--text); border-color: var(--text-3); }
+.shepherd .s-notice { margin: 12px 0 4px; padding: 10px 12px; border-radius: 10px; font-size: 13px; }
+.shepherd .s-notice ul { margin: 6px 0 0; padding-left: 18px; }
+.shepherd .s-notice.error { background: var(--bad-soft); color: var(--bad); border: 1px solid color-mix(in srgb, var(--bad) 30%, transparent); }
+.shepherd .s-notice.ok { background: var(--ok-soft); color: var(--ok); border: 1px solid color-mix(in srgb, var(--ok) 30%, transparent); }
+.shepherd .s-table { width: 100%; border-collapse: collapse; margin-bottom: 10px; font-size: 12.5px; }
+.shepherd .s-table th, .shepherd .s-table td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+.shepherd .s-table th { font-weight: 500; color: var(--text-3); }
+@media (max-width: 640px) {
+	.shepherd .s-grid { grid-template-columns: 1fr; }
+	.shepherd .s-table { display: block; overflow-x: auto; }
+	.shepherd .view-note { font-size: 11.5px; padding: 4px 8px; }
+}

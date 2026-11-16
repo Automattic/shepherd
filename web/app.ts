@@ -28,6 +28,7 @@ import { FOLLOWUPS_MAX_PRS, liveFollowUps, needingFollowUp } from '../src/follow
 import { countByAuthor, isMergedRange, MERGED_RANGE_LABELS, MERGED_RANGES, mergedInRange, type MergedRange } from '../src/merged.ts';
 import { apiHeaders, apiUrl, pageToken, readEmbedOptions, sendsToken } from '../src/embed.ts';
 import { PUSH_POLICY_LABELS, resolvePushPolicy } from '../src/push-policy.ts';
+import { createSettingsPanel } from './settings.ts';
 import { parseRepoKey, repoChipLabels, repoKey, unknownSelectedRepos } from '../src/repo-chips.ts';
 import { rowMaxAge } from '../src/row-refresh.ts';
 import { mountShell } from './shell.ts';
@@ -151,7 +152,8 @@ function isPublicConfig(v: unknown): v is PublicConfig {
 		Array.isArray(v.repos) &&
 		isRecord(v.hosts) &&
 		(v.linear === null || isRecord(v.linear)) &&
-		typeof v.aiReviewLabel === 'string'
+		typeof v.aiReviewLabel === 'string' &&
+		(v.mode === 'personal' || v.mode === 'team' || v.mode === 'member')
 	);
 }
 
@@ -235,13 +237,43 @@ function loadSettings(): Settings {
 
 const S: Settings = loadSettings();
 
+/**
+ * The settings that a team or member view keeps from the viewer's own dashboard. The others (bells and
+ * filters) name people and repos of the viewer's own settings, so such a view starts them from the defaults.
+ */
+const DISPLAY_KEYS = ['interval', 'theme', 'sort', 'drafts', 'dormant', 'mergedRange', 'shippedOpen'] as const;
+/** True in a team or member view: save only DISPLAY_KEYS, so the view does not change the viewer's filters. */
+let saveDisplayOnly = false;
+
 const save = (): void => {
 	try {
-		localStorage.setItem(SETTINGS_KEY, JSON.stringify(S));
+		let out: unknown = S;
+		if (saveDisplayOnly) {
+			const stored: unknown = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
+			out = { ...(isRecord(stored) ? stored : {}), ...Object.fromEntries(DISPLAY_KEYS.map((k) => [k, S[k]])) };
+		}
+		localStorage.setItem(SETTINGS_KEY, JSON.stringify(out));
 	} catch {
 		/* storage unavailable */
 	}
 };
+
+/** In a team or member view: the filters start from the defaults. */
+function resetFilters(): void {
+	const defaults: Pick<Settings, 'reviewers' | 'people' | 'waitingOn' | 'repos' | 'onlyApproved' | 'onlyPartial' | 'tile' | 'q' | 'shippedNeedsFollowUp'> = {
+		reviewers: null,
+		people: [],
+		waitingOn: [],
+		repos: [],
+		onlyApproved: false,
+		onlyPartial: false,
+		tile: null,
+		q: '',
+		shippedNeedsFollowUp: false,
+	};
+	Object.assign(S, defaults);
+	$<HTMLInputElement>('#q').value = '';
+}
 
 const reviewers = (): string[] => S.reviewers ?? [];
 
@@ -280,7 +312,7 @@ const api = (path: string, init: RequestInit = {}): Promise<Response> => {
 // Assigned in boot() before anything reads it.
 let cfg: PublicConfig;
 /** What the server supports. Until /api/config answers, every feature waits, so the page asks for none of them. */
-let features: Features = { shipped: false, followups: false, herdr: false };
+let features: Features = { shipped: false, followups: false, herdr: false, settings: false };
 // True after boot() sets cfg. While it is false (a banner stopped boot), nothing may load or render data.
 let booted = false;
 const memberByLogin = new Map<string, TeamMember>(); // lowercased login (either host) -> member
@@ -1915,6 +1947,32 @@ setInterval(() => {
 // Boot
 
 /** Shows why the dashboard did not start. `html` must be escaped already. */
+let settingsPanel: { open(): Promise<void> } | undefined;
+
+/**
+ * Whose dashboard this is. A team or member view says so, links to the viewer's own dashboard, and has no
+ * settings button: the viewer's personal settings do not apply there.
+ */
+function renderView(): void {
+	const personal = cfg.mode === 'personal';
+	const note = $('#view-note');
+	note.hidden = personal;
+	if (!personal) {
+		saveDisplayOnly = true;
+		resetFilters();
+		const whose = cfg.viewLabel || (cfg.mode === 'team' ? 'a team' : 'one person');
+		const back = cfg.personalUrl ? ` <a href="${esc(cfg.personalUrl)}">Your dashboard</a>` : '';
+		note.innerHTML = `<i class="fa-solid fa-${cfg.mode === 'team' ? 'users' : 'user'}"></i> Viewing ${esc(whose)}'s dashboard.${back}`;
+		note.title = 'Your own settings do not apply here.';
+	}
+	const button = $('#settings-btn');
+	button.hidden = !(personal && features.settings);
+	if (!button.hidden && !settingsPanel) {
+		settingsPanel = createSettingsPanel({ root: ROOT, api, onSaved: () => setTimeout(() => location.reload(), 600) });
+		button.addEventListener('click', () => void settingsPanel!.open());
+	}
+}
+
 function bootBanner(icon: string, html: string): void {
 	const banner = $('#banner');
 	banner.hidden = false;
@@ -1969,6 +2027,7 @@ void (async function boot(): Promise<void> {
 			for (const login of Object.values(m.logins)) memberByLogin.set(login.toLowerCase(), m);
 		}
 		$('#ai-review-label').textContent = cfg.aiReviewLabel;
+		renderView();
 		if (!Array.isArray(S.reviewers)) S.reviewers = [cfg.me];
 		if (!INTERVALS.some((i) => i.ms === S.interval)) S.interval = 60_000;
 		renderIntervals();

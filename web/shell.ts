@@ -17,10 +17,12 @@ function shellHtml(header: boolean): string {
 	return `
 	<header class="topbar">${header ? BRAND : ''}
 		<div class="controls">
+			<div class="view-note" id="view-note" hidden></div>
 			<div class="rate" id="rate" title="github.com GraphQL budget"></div>
 			<div class="seg" id="interval" role="radiogroup" aria-label="Refresh interval"></div>
 			<button class="icon-btn" id="refresh" title="Refresh now (R)" aria-label="Refresh now"><i class="fa-solid fa-rotate"></i></button>
 			<button class="icon-btn" id="theme" title="Toggle light and dark" aria-label="Toggle theme"><i class="fa-solid fa-moon"></i></button>
+			<button class="icon-btn" id="settings-btn" title="Settings" aria-label="Settings" hidden><i class="fa-solid fa-gear"></i></button>
 		</div>
 		<div class="tickbar"><span id="tick"></span></div>
 	</header>
