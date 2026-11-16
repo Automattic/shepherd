@@ -328,6 +328,46 @@ describe('getFollowUps', () => {
 	});
 });
 
+test('follow-ups leave out an actor typed Bot', async () => {
+	// A GitHub App has no `[bot]` suffix, but GitHub types it `Bot`. As for participants, a login typed `Bot` anywhere in the PR is a bot everywhere in it.
+	const queries: string[] = [];
+	const gh: GhRunner = {
+		rate: {},
+		get: () => Promise.reject(new Error('not used')),
+		async query<T>(_host: string, query: string) {
+			queries.push(query);
+			const pr = raw(1, {
+				author: { login: 'release-app', __typename: 'Bot' },
+				body: 'TODO: a chore from the description of an app',
+				reviews: { nodes: [] },
+				comments: {
+					nodes: [
+						{ author: { login: 'github-actions', __typename: 'Bot' }, body: 'TODO: a typed bot chore', url: 'a', createdAt: '2026-11-10T10:31:00Z' },
+						{ author: { login: 'carol', __typename: 'User' }, body: 'TODO: a chore from a person', url: 'b', createdAt: '2026-11-10T10:32:00Z' },
+					],
+				},
+				reviewThreads: {
+					nodes: [
+						{
+							isResolved: false, isOutdated: false, path: 'a.ts', line: 1,
+							comments: { nodes: [{ author: { login: 'github-actions', __typename: 'Bot' }, body: 'TODO: a chore in a thread', url: 'c', createdAt: '2026-11-10T10:33:00Z' }] },
+						},
+					],
+				},
+			});
+			return { repository: { p0: pr } } as T;
+		},
+	};
+	const out = await createPrService(config, gh).getFollowUps([target(1)]);
+	expect(out.followUps['github:example-org/app#1']!.map((f) => [f.author, f.text])).toEqual([['carol', 'TODO: a chore from a person']]);
+	// The query asks GitHub for the type of every author that the shaping reads.
+	const q = queries[0]!;
+	expect(q).toMatch(/createdAt author \{ login __typename \} headRefOid/);
+	expect(q).toMatch(/reviews\(last:50\) \{ nodes \{ author \{ login __typename \}/);
+	expect(q).toMatch(/comments\(last:100\) \{ nodes \{ author \{ login __typename \}/);
+	expect(q).toMatch(/comments\(first:10\) \{ nodes \{ author \{ login __typename \}/);
+});
+
 describe('merged_prs over MCP', () => {
 	test('each PR carries a follow-up count (0 when nothing matched), and the items on request', async () => {
 		const now = new Date().toISOString();

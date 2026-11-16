@@ -82,9 +82,9 @@ The `when` of a `perPr` entry is `always`, `head` or `parentBase`. The `when` of
    - `stacks`: at least one PR had a `head` or `parentBase` entry that held. A fragment that no alias uses is a GraphQL error, so this condition must be exact.
 5. Replace `<vars>`, `<aliases>` and `<fragments>` in `query` with V, A and F. Each placeholder appears exactly once. The substitution is literal and single-pass, and the inserted text is not scanned again. TypeScript: `split` and `join`, or a function replacer, never a string replacer (`$&` and `$'` in a replacement string are patterns). PHP: one `strtr($query, [...])` call (chained `str_replace` calls scan the inserted text again).
 6. `variables` holds `owner` and `name`, then the entries of step 3. Compare variables as JSON objects: the order of the keys does not matter, and the order of the declarations in the query text does.
-7. The response has `repository.pr<i>` for the PR, `repository.dn<i>` for the PRs that are stacked on it (the `nodes`), `repository.up<i>.nodes[0]` for the PR that it is stacked on, and `repository.defaultBranchRef` and `rateLimit`. A PR with no `up<i>` has no parent lookup. If an alias prefix or the meaning of a `when` value changes, `format` goes up.
+7. The response has `repository.pr<i>` for the PR, `repository.dn<i>` for the PRs that are stacked on it (the `nodes`), `repository.up<i>.nodes[0]` for the PR that it is stacked on, and `repository.defaultBranchRef` and `rateLimit`. A PR with no `up<i>` has no parent lookup. A `pr<i>` that is `null`, or a `repository` that is `null`, means that the PR is not found (GitHub also answers `null` for a PR that it could not read), and the other PRs of the batch are not affected. A `dn<i>` or `up<i>` that is absent or `null` means that the PR has no stack links: no PRs stacked on it, or no parent. If an alias prefix or the meaning of a `when` value changes, `format` goes up.
 8. A host checks the file when it loads it, and refuses the file when any of these is false:
-   - every `when` value belongs to the closed set above;
+   - every `when` value belongs to the closed set above, and every `value` is one of `number`, `head` and `base`;
    - `query` contains each placeholder exactly once;
    - every `name`, `decl` and `alias` contains `<i>`;
    - no field set contains `<`;

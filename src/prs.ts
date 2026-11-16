@@ -3,7 +3,7 @@
 import { extractFollowUps, type FollowUpText } from './followups.ts';
 import type { GhRunner } from './gh.ts';
 import { mergedSearchSince } from './merged.ts';
-import { buildDetailBatch, MERGED_SEARCH_QUERY, SEARCH_QUERY } from './queries.ts';
+import { BATCH_MAX, buildDetailBatch, MERGED_SEARCH_QUERY, SEARCH_QUERY } from './queries.ts';
 import {
 	SEVERITIES,
 	type BaseAge,
@@ -31,7 +31,10 @@ const DETAIL_TTL_MS = 3_000;
 const FORCED_DETAIL_TTL_MS = 1_000;
 const LOW_BUDGET_LIST = 300; // below this, reuse the last list for up to 5 minutes
 const MERGED_TTL_MS = 60_000; // merges are history; once a minute is plenty
-const LOW_BUDGET_DETAIL = 150; // below this, serve cached details
+const LOW_BUDGET_DETAIL = 150; // below this, serve cached details, and the list sends no detail batch
+const DETAIL_HOLD_MS = 60_000; // the list leaves a PR alone this long after its detail batch failed
+/** A PR idle for longer than this is dormant: the page hides it, and the list does not fetch its details unless a review is requested. */
+export const DORMANT_MS = 60 * 24 * 3600 * 1000;
 const BASE_AGE_TTL_MS = 10 * 60_000; // the merge base only moves with the head; this refreshes behindBy
 const BASE_AGE_RETRY_MS = 60_000; // a failed compare call is retried after this
 const BASE_AGE_CACHE_MAX = 1_000;
@@ -159,7 +162,7 @@ interface CompareData {
 }
 
 interface RawText {
-	author: { login: string } | null;
+	author: { login: string; __typename?: string } | null;
 	body: string | null;
 	url: string;
 }
@@ -168,7 +171,7 @@ interface RawFollowUpPr {
 	url: string;
 	body: string | null;
 	createdAt: string;
-	author: { login: string } | null;
+	author: { login: string; __typename?: string } | null;
 	headRefOid: string;
 	/** Only the last commit, for when the code last changed. */
 	commits: { nodes: { commit: { committedDate: string } }[] };
@@ -196,12 +199,13 @@ const forkOwner = (pr: { isCrossRepository: boolean; headRepositoryOwner: { logi
 
 // The list, merged and detail queries are in queries.ts, so a host that ports this data layer can ask for the same fields.
 
+// Every author has `__typename`, because a GitHub App is typed `Bot` whatever its login is.
 const FOLLOWUP_FIELDS = `
-	url body createdAt author { login } headRefOid
+	url body createdAt author { login __typename } headRefOid
 	commits(last:1) { nodes { commit { committedDate } } }
-	reviews(last:50) { nodes { author { login } body url submittedAt commit { oid } } }
-	comments(last:100) { nodes { author { login } body url createdAt } }
-	reviewThreads(first:100) { nodes { isResolved isOutdated path line comments(first:10) { nodes { author { login } body url createdAt } } } }`;
+	reviews(last:50) { nodes { author { login __typename } body url submittedAt commit { oid } } }
+	comments(last:100) { nodes { author { login __typename } body url createdAt } }
+	reviewThreads(first:100) { nodes { isResolved isOutdated path line comments(first:10) { nodes { author { login __typename } body url createdAt } } } }`;
 
 /** Several PRs of one repo in one query, aliased p0, p1, ... The numbers are integers, so they are safe to inline. */
 const followUpsQuery = (numbers: number[]) => `query($owner:String!, $name:String!) {
@@ -316,7 +320,30 @@ export interface PrService {
 	listHost(hostKey: string, reviewerIds: string[]): Promise<{ prs: LightPr[]; throttled: boolean }>;
 	/** The team's PRs merged in the last MERGED_FETCH_DAYS days; callers filter to a range. */
 	listMerged(hostKey: string): Promise<MergedList>;
+	/**
+	 * The details of one PR, as a batch of one. A cached detail that is fresh enough, or a call in flight for the same PR
+	 * (from another caller or from `prefetchDetails`), answers without a query. At a low budget the cached detail answers
+	 * whatever its age. Rejects with NotFoundError when the PR does not exist.
+	 */
 	getDetail(req: DetailRequest): Promise<PrDetail>;
+	/**
+	 * `getDetail` for several PRs, one promise per request in the same order. The PRs that need a query are grouped by
+	 * host and repository and sent BATCH_MAX to a query, so one request costs one `gh` process for up to 10 PRs. A PR that
+	 * the answer lacks, or a query that fails, rejects only the promises of its own PRs. A failure is never held back:
+	 * a later call sends a query again.
+	 */
+	getDetails(reqs: DetailRequest[]): Promise<PrDetail>[];
+	/**
+	 * Starts fetching, in the background, the details that `/api/prs` does not have: the PRs that are not dormant, plus
+	 * those that have a review request, grouped like `getDetails`. It sends nothing for a PR that has a detail for this
+	 * `updatedAt`, one that is already being fetched, or one whose last batch failed less than a minute ago; nothing at all
+	 * for a host with a low budget (under 150 points) or a host in `throttled`; and in `"list"` mode, nothing for a PR with a
+	 * detail under 10 seconds old. Every PR is registered as in flight before this returns, so a `getDetail` call for it
+	 * waits for the batch and sends no query. The returned promise settles when every batch has, never rejects, and callers
+	 * need not wait for it. A failed batch is logged to the console and nowhere else: the PRs just have no detail, and the
+	 * page asks for them one by one.
+	 */
+	prefetchDetails(prs: LightPr[], throttled?: Record<string, boolean>): Promise<void>;
 	/** The cached details of a PR, only when they are for this `updatedAt`. Never calls GitHub. */
 	cachedDetail(key: string, updatedAt: string): PrDetail | null;
 	/** Follow-ups per PR key, cached; uncached PRs of one repo are fetched FOLLOWUPS_BATCH per query. */
@@ -520,7 +547,10 @@ export function createPrService(config: Config, gh: GhRunner): PrService {
 	// ---- detail ----
 
 	const detailCache = new Map<string, { at: number; value: PrDetail }>();
+	// A PR that is being fetched, by key. Every fetch registers its PRs here, so a caller for the same PR waits for it.
 	const inflight = new Map<string, Promise<PrDetail>>();
+	// PRs whose detail batch failed, and when. Only `prefetchDetails` reads it: a call for one PR (the page's fallback, MCP) still tries.
+	const prefetchHeld = new Map<string, number>();
 
 	function shapeBot(hostKey: string, pr: RawDetailPr): BotSummary | null {
 		const bot = config.hosts[hostKey]?.bot;
@@ -714,41 +744,169 @@ export function createPrService(config: Config, gh: GhRunner): PrService {
 		};
 	}
 
-	async function getDetail(req: DetailRequest): Promise<PrDetail> {
-		const { host, owner, repo } = req;
-		const number = Number(req.number);
-		const key = prKey(host, owner, repo, number);
-		const cached = detailCache.get(key);
+	const lowBudget = (host: string): boolean => {
 		const r = gh.rate[host];
-		if (cached && r && r.remaining < LOW_BUDGET_DETAIL) return { ...cached.value, throttled: true };
+		return Boolean(r && r.remaining < LOW_BUDGET_DETAIL);
+	};
+
+	/** What a call for one PR may answer without a query: the cached detail (at a low budget, whatever its age), or the fetch in flight. */
+	function reusable(req: DetailRequest, key: string): PrDetail | Promise<PrDetail> | null {
+		const cached = detailCache.get(key);
+		if (cached && lowBudget(req.host)) return { ...cached.value, throttled: true };
 		const ttl = Math.max(req.maxAgeMs ?? (req.force ? FORCED_DETAIL_TTL_MS : DETAIL_TTL_MS), config.refresh === 'list' ? LIST_MODE_TTL_MS : 0);
 		if (cached && Date.now() - cached.at < ttl) return cached.value;
-		const pending = inflight.get(key);
-		if (pending) return pending;
+		return inflight.get(key) ?? null;
+	}
 
-		const p = (async () => {
-			// Callers that only know the number (e.g. MCP agents) get the branches looked up first,
-			// so the stacked-parent lookup still works.
-			let head = req.head || cached?.value.headRefName;
-			let base = req.base || cached?.value.baseRefName;
-			if (!head || !base) {
-				const refs = await gh.query<RefsData>(host, REFS_QUERY, { owner, name: repo, n: number });
-				const pr = refs.repository?.pullRequest;
-				if (!pr) throw new NotFoundError('Pull request not found');
-				head = pr.headRefName;
-				base = pr.baseRefName;
-			}
-			// A batch of one: the PR is `pr0`, the PRs stacked on it are `dn0`, and its parent is `up0` (only when its base is not a default branch).
-			const { query, variables } = buildDetailBatch({ owner, name: repo, prs: [{ number, head, base }] });
-			const data = detailAt(await gh.query<BatchData>(host, query, variables), 0);
+	/** Registers a fetch as the one in flight for `key`, until it settles. The caller owns the returned promise and must handle its failure. */
+	function track(key: string, p: Promise<PrDetail>): Promise<PrDetail> {
+		const tracked: Promise<PrDetail> = p.finally(() => {
+			if (inflight.get(key) === tracked) inflight.delete(key);
+		});
+		inflight.set(key, tracked);
+		return tracked;
+	}
+
+	interface BatchItem {
+		key: string;
+		number: number;
+		head: string;
+		base: string;
+	}
+	interface RepoBatch {
+		host: string;
+		owner: string;
+		repo: string;
+		items: BatchItem[];
+	}
+
+	/**
+	 * One query for 1 to BATCH_MAX PRs of one repo; one promise per PR, in order. Each PR is shaped, given its base age and
+	 * cached on its own: a PR that the answer lacks (`pr<i>: null`) rejects with NotFoundError and the others still resolve,
+	 * and a query that fails rejects them all. The PR at index `i` is `pr<i>`, the PRs stacked on it are `dn<i>`, and its
+	 * parent is `up<i>` (only when its base is not a default branch).
+	 */
+	function fetchDetails(host: string, owner: string, repo: string, items: BatchItem[]): Promise<PrDetail>[] {
+		const answer = (async () => {
+			const { query, variables } = buildDetailBatch({ owner, name: repo, prs: items.map(({ number, head, base }) => ({ number, head, base })) });
+			return gh.query<BatchData>(host, query, variables);
+		})();
+		return items.map(async (item, i) => {
+			const data = detailAt(await answer, i);
 			const value = shapeDetail(host, owner, repo, data);
 			if (!value) throw new NotFoundError('Pull request not found');
 			value.baseAge = await baseAge(host, owner, repo, data);
-			detailCache.set(key, { at: Date.now(), value });
+			detailCache.set(item.key, { at: Date.now(), value });
 			return value;
-		})().finally(() => inflight.delete(key));
-		inflight.set(key, p);
-		return p;
+		});
+	}
+
+	/** Sends one query for each BATCH_MAX PRs of each repo, and registers every PR as in flight before the first await. */
+	function startBatches(batches: Iterable<RepoBatch>): Map<string, Promise<PrDetail>> {
+		const started = new Map<string, Promise<PrDetail>>();
+		for (const b of batches) {
+			for (let i = 0; i < b.items.length; i += BATCH_MAX) {
+				const chunk = b.items.slice(i, i + BATCH_MAX);
+				fetchDetails(b.host, b.owner, b.repo, chunk).forEach((p, j) => started.set(chunk[j]!.key, track(chunk[j]!.key, p)));
+			}
+		}
+		return started;
+	}
+
+	/** Adds a PR to the batch of its host and repo. The host is part of the id: two hosts can have a repo with the same name. */
+	function addToBatch(batches: Map<string, RepoBatch>, host: string, owner: string, repo: string, item: BatchItem): void {
+		const id = `${host}\0${owner}/${repo}`;
+		const batch = batches.get(id) ?? { host, owner, repo, items: [] };
+		batch.items.push(item);
+		batches.set(id, batch);
+	}
+
+	async function getDetail(req: DetailRequest): Promise<PrDetail> {
+		const { host, owner, repo } = req;
+		const number = Number(req.number);
+		if (!Number.isInteger(number) || number < 1) throw new NotFoundError('Pull request not found');
+		const key = prKey(host, owner, repo, number);
+		const reused = reusable(req, key);
+		if (reused) return reused;
+
+		return track(
+			key,
+			(async () => {
+				// Callers that only know the number (e.g. MCP agents) get the branches looked up first,
+				// so the stacked-parent lookup still works.
+				let head = req.head || detailCache.get(key)?.value.headRefName;
+				let base = req.base || detailCache.get(key)?.value.baseRefName;
+				if (!head || !base) {
+					const refs = await gh.query<RefsData>(host, REFS_QUERY, { owner, name: repo, n: number });
+					const pr = refs.repository?.pullRequest;
+					if (!pr) throw new NotFoundError('Pull request not found');
+					head = pr.headRefName;
+					base = pr.baseRefName;
+				}
+				return fetchDetails(host, owner, repo, [{ key, number, head, base }])[0]!;
+			})()
+		);
+	}
+
+	function getDetails(reqs: DetailRequest[]): Promise<PrDetail>[] {
+		const keys = reqs.map((r) => prKey(r.host, r.owner, r.repo, Number(r.number)));
+		const answers = new Map<string, Promise<PrDetail>>();
+		const queued = new Set<string>();
+		const batches = new Map<string, RepoBatch>();
+		reqs.forEach((req, i) => {
+			const key = keys[i]!;
+			if (answers.has(key) || queued.has(key)) return;
+			const number = Number(req.number);
+			const valid = Number.isInteger(number) && number >= 1;
+			const reused = valid ? reusable(req, key) : null;
+			if (reused) {
+				answers.set(key, Promise.resolve(reused));
+				return;
+			}
+			const head = req.head || detailCache.get(key)?.value.headRefName;
+			const base = req.base || detailCache.get(key)?.value.baseRefName;
+			if (!valid || !head || !base) {
+				// A number that is no PR number, or branches that are looked up first: `getDetail` handles it.
+				answers.set(key, getDetail(req));
+				return;
+			}
+			queued.add(key);
+			addToBatch(batches, req.host, req.owner, req.repo, { key, number, head, base });
+		});
+		for (const [key, p] of startBatches(batches.values())) answers.set(key, p);
+		return keys.map((k) => answers.get(k)!);
+	}
+
+	function prefetchDetails(list: LightPr[], throttled: Record<string, boolean> = {}): Promise<void> {
+		const now = Date.now();
+		for (const [key, at] of prefetchHeld) if (now - at >= DETAIL_HOLD_MS) prefetchHeld.delete(key);
+		const listMode = config.refresh === 'list';
+		const batches = new Map<string, RepoBatch>();
+		for (const pr of list) {
+			const dormant = now - new Date(pr.updatedAt).getTime() > DORMANT_MS;
+			if (dormant && !pr.requestedFor.length && !pr.teamRequested) continue;
+			if (throttled[pr.host] || lowBudget(pr.host)) continue;
+			if (inflight.has(pr.key) || prefetchHeld.has(pr.key)) continue;
+			const cached = detailCache.get(pr.key);
+			// A detail for this `updatedAt` is current. In "list" mode, one under 10 seconds old is kept even when the PR changed.
+			if (cached && (cached.value.updatedAt === pr.updatedAt || (listMode && now - cached.at < LIST_MODE_TTL_MS))) continue;
+			addToBatch(batches, pr.host, pr.owner, pr.repo, { key: pr.key, number: pr.number, head: pr.headRefName, base: pr.baseRefName });
+		}
+		const failed: string[] = [];
+		const settled = [...startBatches(batches.values())].map(([key, p]) =>
+			p.then(
+				() => void prefetchHeld.delete(key),
+				(e: unknown) => {
+					prefetchHeld.set(key, Date.now());
+					failed.push(`${key}: ${e instanceof Error ? e.message : String(e)}`);
+				}
+			)
+		);
+		return Promise.all(settled).then(() => {
+			if (failed.length) {
+				console.error(`Details of ${failed.length} PR${failed.length === 1 ? '' : 's'} could not be fetched; the list skips them for ${DETAIL_HOLD_MS / 1000} seconds. First: ${failed[0]!.slice(0, 300)}`);
+			}
+		});
 	}
 
 	function cachedDetail(key: string, updatedAt: string): PrDetail | null {
@@ -764,10 +922,20 @@ export function createPrService(config: Config, gh: GhRunner): PrService {
 	function shapeFollowUps(hostKey: string, pr: RawFollowUpPr): FollowUp[] {
 		const bot = config.hosts[hostKey]?.bot?.toLowerCase();
 		const texts: FollowUpText[] = [];
+		// A GitHub App such as github-actions has no `[bot]` suffix, but GitHub types it `Bot`. As in shapeParticipants,
+		// a login that is typed `Bot` anywhere in the PR is a bot everywhere in it.
+		const typedBots = new Set<string>();
+		const typed = (t: RawText) => {
+			if (t.author?.__typename === 'Bot') typedBots.add(t.author.login);
+		};
+		typed(pr);
+		for (const r of pr.reviews.nodes) typed(r);
+		for (const c of pr.comments.nodes) typed(c);
+		for (const t of pr.reviewThreads.nodes) for (const c of t.comments.nodes) typed(c);
 		const add = (t: RawText, source: FollowUpText['source'], at: string | null, stale: boolean, path?: string | null, line?: number | null) => {
 			const login = t.author?.login;
 			// The AI-review bot's findings already have their own column; other bots are noise here.
-			if (!login || isBot(login)) return;
+			if (!login || isBot(login) || typedBots.has(login)) return;
 			// A reply addressed to the bot ("@bot rejected: ...") answers a finding; it asks nothing of the author.
 			if (bot && t.body?.trimStart().toLowerCase().startsWith(`@${bot}`) && !/^[\w-]/.test(t.body.trimStart().slice(bot.length + 1))) return;
 			texts.push({ author: login, source, body: t.body, url: t.url, at, path, line, stale });
@@ -858,5 +1026,5 @@ export function createPrService(config: Config, gh: GhRunner): PrService {
 		return out;
 	}
 
-	return { hostKeys, listHost, listMerged, getDetail, cachedDetail, getFollowUps };
+	return { hostKeys, listHost, listMerged, getDetail, getDetails, prefetchDetails, cachedDetail, getFollowUps };
 }

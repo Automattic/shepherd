@@ -204,6 +204,12 @@ describe('MCP tools with review teams', () => {
 				if (opts.failing?.includes(Number(req.number))) throw new Error('proxy timeout');
 				return details[Number(req.number)]!;
 			},
+			getDetails: (reqs) =>
+				reqs.map(async (req) => {
+					if (opts.failing?.includes(Number(req.number))) throw new Error('proxy timeout');
+					return details[Number(req.number)]!;
+				}),
+			prefetchDetails: async () => {},
 			cachedDetail: () => null,
 			listMerged: async () => ({ prs: [], total: 0 }),
 			getFollowUps: async () => ({ followUps: {}, errors: {} }),
