@@ -56,6 +56,8 @@ interface RawLightPr {
 	createdAt: string;
 	headRefName: string;
 	baseRefName: string;
+	isCrossRepository: boolean;
+	headRepositoryOwner: { login: string } | null;
 	author: RawAuthor | null;
 	repository: { name: string; owner: { login: string } };
 }
@@ -96,6 +98,8 @@ interface RawDetailPr {
 	createdAt: string;
 	headRefName: string;
 	baseRefName: string;
+	isCrossRepository: boolean;
+	headRepositoryOwner: { login: string } | null;
 	headRefOid: string;
 	/** The base tip when the head last moved; `baseRef` has the current tip. */
 	baseRefOid: string;
@@ -179,9 +183,13 @@ interface RefsData {
 // ---------------------------------------------------------------------------
 // Queries
 
+/** The fork owner's login when the head branch is in another repo (`ghost` when the fork was deleted); null otherwise. */
+const forkOwner = (pr: { isCrossRepository: boolean; headRepositoryOwner: { login: string } | null }): string | null =>
+	pr.isCrossRepository ? (pr.headRepositoryOwner?.login ?? 'ghost') : null;
+
 const LIGHT_FIELDS = `
 	... on PullRequest {
-		number title url isDraft updatedAt createdAt headRefName baseRefName
+		number title url isDraft updatedAt createdAt headRefName baseRefName isCrossRepository headRepositoryOwner { login }
 		author { login ... on User { name } }
 		repository { name owner { login } }
 	}`;
@@ -205,7 +213,7 @@ const DETAIL_QUERY = `query($owner:String!, $name:String!, $n:Int!, $head:String
 		defaultBranchRef { name target { oid } }
 		pullRequest(number:$n) {
 			number title url state merged mergedAt isDraft updatedAt createdAt
-			headRefName baseRefName headRefOid baseRefOid baseRef { target { oid } } body mergeable reviewDecision additions deletions changedFiles
+			headRefName baseRefName isCrossRepository headRepositoryOwner { login } headRefOid baseRefOid baseRef { target { oid } } body mergeable reviewDecision additions deletions changedFiles
 			author { login ... on User { name } }
 			statusCheckRollup { state }
 			reviewRequests(first:30) { nodes { requestedReviewer {
@@ -416,6 +424,7 @@ export function createPrService(config: Config, gh: GhRunner): PrService {
 			createdAt: n.createdAt,
 			headRefName: n.headRefName,
 			baseRefName: n.baseRefName,
+			fork: forkOwner(n),
 			author: { login: n.author?.login ?? 'ghost', name: n.author?.name ?? null },
 			authoredByTeam: false,
 			inAllAuthorsRepo: false,
@@ -648,6 +657,7 @@ export function createPrService(config: Config, gh: GhRunner): PrService {
 			createdAt: pr.createdAt,
 			headRefName: pr.headRefName,
 			baseRefName: pr.baseRefName,
+			fork: forkOwner(pr),
 			author: { login: pr.author?.login ?? 'ghost', name: pr.author?.name ?? null },
 			mergeable: pr.mergeable,
 			reviewDecision: pr.reviewDecision,
