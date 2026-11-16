@@ -12,6 +12,8 @@
 | **Status** | Draft, checks, merge conflicts, a thumbs-up when the review decision is approved, how old the base is (see below), and lines added and removed. |
 | **Updated** | When the PR last changed. Hover the row for a refresh button that reloads just that row. |
 
+Hover a column header, tile, chip or pill to read what it shows or what a click does.
+
 If [herdr](herdr.md) is running, rows also show a chip for each terminal pane working on the PR. For how often rows reload, see [How refreshing works](refreshing.md).
 
 ## Order and approved work
@@ -91,7 +93,7 @@ A PR counts as approved when GitHub's review decision is approved, or when at le
 - **Summary tiles.** Click one to filter: Waiting on you, Approved, Changes requested, AI review open. **Open PRs** clears the filter.
 - **People.** Each person has three buttons:
   - **Name** (with their PR count): show only PRs they wrote.
-  - **Hourglass** (with a count): show only PRs waiting on their review.
+  - **Hourglass** (with a count): show only PRs waiting on them, for any reason in [What "waiting on" means](#what-waiting-on-means).
   - **Bell:** add PRs from anyone that request that person's review, and ring them in orange in **Waiting on**. Yours is on by default.
 
   Selecting several names shows PRs by any of them, and the same goes for hourglasses. Names and hourglasses combine, so Miguel's name plus your hourglass shows Miguel's PRs waiting on you. An hourglass only sees PRs already on the dashboard, so turn on that person's bell to include PRs from outside the team.
