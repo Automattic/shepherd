@@ -21,6 +21,7 @@ import type {
 	Severity,
 	TeamMember,
 } from '../src/types.ts';
+import { apiVersionProblem } from '../src/api-version.ts';
 import { baseAgeHours, baseTooOld } from '../src/base-age.ts';
 import { FOLLOWUPS_MAX_PRS, liveFollowUps, needingFollowUp } from '../src/followups.ts';
 import { countByAuthor, isMergedRange, MERGED_RANGE_LABELS, MERGED_RANGES, mergedInRange, type MergedRange } from '../src/merged.ts';
@@ -46,6 +47,8 @@ interface Row {
 	queued: boolean;
 	force: boolean;
 	lastFetch: number;
+	/** When the last `/api/pr` call for this row started, also a call that failed. */
+	lastTry: number;
 	/** List refreshes in a row that did not return this PR. */
 	missing: number;
 	error: string | null;
@@ -134,6 +137,7 @@ function responseError(body: unknown): string {
 function isPublicConfig(v: unknown): v is PublicConfig {
 	return (
 		isRecord(v) &&
+		typeof v.apiVersion === 'number' &&
 		typeof v.me === 'string' &&
 		Array.isArray(v.team) &&
 		Array.isArray(v.repos) &&
@@ -171,6 +175,8 @@ const INTERVALS: readonly { label: string; ms: number }[] = [
 	{ label: '5m', ms: 300_000 },
 	{ label: '15m', ms: 900_000 },
 ];
+/** In "list" mode, the page does not load a row from the list more often than this. */
+const LIST_ROW_RETRY_MS = 10_000;
 const DORMANT_MS = 60 * 24 * 3600 * 1000;
 const DEFAULT_BRANCHES: ReadonlySet<string> = new Set(['trunk', 'main', 'master', 'develop']);
 const MAX_PARALLEL = 5; // leaves one browser connection free for the list call
@@ -252,6 +258,8 @@ const api = (path: string, init: RequestInit = {}): Promise<Response> => {
 
 // Assigned in boot() before anything reads it.
 let cfg: PublicConfig;
+// True after boot() sets cfg. While it is false (a banner stopped boot), nothing may load or render data.
+let booted = false;
 const memberByLogin = new Map<string, TeamMember>(); // lowercased login (either host) -> member
 const rows = new Map<string, Row>(); // key -> row
 const groupEls = new Map<string, HTMLDivElement>(); // root key -> element
@@ -435,6 +443,7 @@ function createRow(light: LightPr): Row {
 		queued: false,
 		force: false,
 		lastFetch: 0,
+		lastTry: 0,
 		missing: 0,
 		error: null,
 		gone: false,
@@ -1050,6 +1059,7 @@ const listedRepoCount = (): number =>
 	).size;
 
 function renderChrome(): void {
+	if (!booted) return;
 	const scoped = [...rows.values()].filter((r) => matchesFilters(r, { ignoreTile: true }));
 	const count = (fn: (r: Row) => unknown): number => scoped.filter((r) => fn(r)).length;
 	const botOpen = scoped.reduce((n, r) => n + (r.detail?.bot?.open || 0), 0);
@@ -1167,11 +1177,12 @@ const queue: Row[] = [];
 let active = 0;
 
 function maxAge(row: Row): number {
-	// Hosts that report a GraphQL budget (github.com) get a slower floor than unmetered ones.
-	const floor = rate[row.light.host] || isDotcom(row.light.host) ? 120_000 : 20_000;
+	// The server can set these per host. Otherwise hosts that report a GraphQL budget (github.com) get a slower floor than unmetered ones.
+	const hostCfg = cfg.hosts[row.light.host];
+	const floor = hostCfg?.rowRefreshFloorMs ?? (rate[row.light.host] || isDotcom(row.light.host) ? 120_000 : 20_000);
 	const hostRate = rate[row.light.host];
 	const low = hostRate !== undefined && hostRate.remaining < 500;
-	return low ? 600_000 : Math.max(S.interval, floor);
+	return low ? (hostCfg?.rowRefreshLowBudgetMs ?? 600_000) : Math.max(S.interval, floor);
 }
 
 function enqueue(row: Row, { force = false, priority = false }: { force?: boolean; priority?: boolean } = {}): void {
@@ -1200,6 +1211,7 @@ function pump(): void {
 
 async function fetchDetail(row: Row): Promise<void> {
 	row.fetching = true;
+	row.lastTry = Date.now();
 	setCell(row, 'upd', cellUpdated(row), false);
 	const ctrl = new AbortController();
 	const timer = setTimeout(() => ctrl.abort(), 60_000);
@@ -1216,18 +1228,8 @@ async function fetchDetail(row: Row): Promise<void> {
 		}
 		if (!res.ok) throw new Error(responseError(body) || res.statusText);
 		if (!isDetailResponse(body)) throw new Error('Unexpected response from /api/pr');
-		const d = body.pr;
 		if (body.rate) rate[l.host] = body.rate;
-		const structural = !row.detail || row.detail.parent?.number !== d.parent?.number || l.baseRefName !== d.baseRefName || l.headRefName !== d.headRefName;
-		row.detail = d;
-		row.light = { ...l, title: d.title, isDraft: d.isDraft, updatedAt: d.updatedAt, headRefName: d.headRefName, baseRefName: d.baseRefName };
-		row.lastFetch = Date.now();
-		row.error = null;
-		if (d.state === 'MERGED') markMerged(row);
-		else if (d.state === 'CLOSED') removeRow(row);
-		else if (row.missing >= 2) removeRow(row); // open, but no longer matches any search
-		if (structural) scheduleLayout();
-		else scheduleChrome();
+		applyDetail(row, body.pr, Date.now());
 	} catch (e) {
 		row.error = errorName(e) === 'AbortError' ? 'timed out' : errorMessage(e);
 	} finally {
@@ -1235,6 +1237,36 @@ async function fetchDetail(row: Row): Promise<void> {
 		row.fetching = false;
 		if (rows.has(row.key)) renderRow(row);
 	}
+}
+
+/** Puts details on a row. `at` is when they were fetched, so an old copy from the list still gets refreshed. */
+function applyDetail(row: Row, d: PrDetail, at: number): void {
+	const l = row.light;
+	const structural = !row.detail || row.detail.parent?.number !== d.parent?.number || l.baseRefName !== d.baseRefName || l.headRefName !== d.headRefName;
+	row.detail = d;
+	row.light = { ...l, title: d.title, isDraft: d.isDraft, updatedAt: d.updatedAt, headRefName: d.headRefName, baseRefName: d.baseRefName };
+	row.lastFetch = at;
+	row.error = null;
+	if (d.state === 'MERGED') markMerged(row);
+	else if (d.state === 'CLOSED') removeRow(row);
+	else if (row.missing >= 2) removeRow(row); // open, but no longer matches any search
+	if (structural) scheduleLayout();
+	else scheduleChrome();
+}
+
+/**
+ * Uses the details that came with the list, when they match the row. Returns false when the row still needs /api/pr.
+ * `skew` is the browser clock minus the server clock; it moves the server's `fetchedAt` to the browser clock.
+ */
+function applyListedDetail(row: Row, detail: PrDetail | undefined, skew: number): boolean {
+	if (!detail || detail.updatedAt !== row.light.updatedAt) return false;
+	const at = Math.min(Date.parse(detail.fetchedAt) + skew, Date.now());
+	if (Number.isNaN(at)) return false;
+	// A row that loads at the same time already has newer details on the way.
+	if (row.fetching || (row.detail && row.lastFetch >= at)) return true;
+	applyDetail(row, detail, at);
+	renderRow(row);
+	return true;
 }
 
 let chromePending = false;
@@ -1280,9 +1312,11 @@ function removeRow(row: Row): void {
 }
 
 async function refreshList({ force = false }: { force?: boolean } = {}): Promise<void> {
-	if (listBusy) return;
+	if (listBusy || !booted) return;
 	listBusy = true;
 	$('#refresh').classList.add('busy');
+	// In "list" mode, Refresh now asks only for the list, not for each row.
+	const listOnly = cfg.refresh === 'list';
 	try {
 		const res = await api(`/api/prs?reviewers=${encodeURIComponent(reviewers().join(','))}`);
 		const body: unknown = await res.json();
@@ -1292,21 +1326,31 @@ async function refreshList({ force = false }: { force?: boolean } = {}): Promise
 		lastList = Date.now();
 		if (!list) throw new Error(responseError(body) || 'Unexpected response from /api/prs');
 		const seen = new Set<string>();
-		for (const pr of list.prs) {
+		// The server and the browser clocks can differ; listed details carry server times.
+		const skew = Date.now() - (Date.parse(list.fetchedAt) || Date.now());
+		for (const { detail, ...pr } of list.prs) {
 			seen.add(pr.key);
 			let row = rows.get(pr.key);
 			if (!row) {
 				row = createRow(pr);
 				rows.set(pr.key, row);
 				renderRow(row);
-				if (inScope(row)) enqueue(row, { priority: true });
+				// In "rows" mode, the age check below still refreshes listed details that are too old.
+				if (!applyListedDetail(row, detail, skew) && inScope(row)) enqueue(row, { priority: true });
 				continue;
 			}
 			if (row.gone) continue;
-			const changed = pr.updatedAt !== row.light.updatedAt;
+			// In "list" mode, the cached list can be older than details from the row refresh button, so only a newer time counts.
+			const changed = listOnly ? Date.parse(pr.updatedAt) > Date.parse(row.light.updatedAt) : pr.updatedAt !== row.light.updatedAt;
 			row.light = { ...row.light, ...pr, updatedAt: changed ? pr.updatedAt : row.light.updatedAt };
 			row.missing = 0;
-			if ((changed || force) && inScope(row)) enqueue(row, { force: true, priority: changed });
+			// "list" mode has no age check, so details that stay behind the list (a failed load, a row out of scope) count as changed.
+			const behind = listOnly && !!row.detail && row.detail.updatedAt !== row.light.updatedAt;
+			// "Refresh now" asks for every row again, except in "list" mode.
+			if ((!force || listOnly) && (changed || behind) && applyListedDetail(row, detail, skew)) continue;
+			// In "list" mode, a row loads at most once in LIST_ROW_RETRY_MS. A skipped row stays behind and loads on a later tick.
+			const due = !listOnly || Date.now() - row.lastTry >= LIST_ROW_RETRY_MS;
+			if (((due && (changed || behind)) || (force && !listOnly)) && inScope(row)) enqueue(row, { force: true, priority: changed });
 		}
 		for (const row of rows.values()) {
 			if (row.gone || seen.has(row.key) || hostErrors[row.light.host]) continue;
@@ -1322,7 +1366,9 @@ async function refreshList({ force = false }: { force?: boolean } = {}): Promise
 		}
 		const now = Date.now();
 		for (const row of rows.values()) {
-			if (!row.gone && inScope(row) && (!row.detail || now - row.lastFetch > maxAge(row))) enqueue(row);
+			// In "list" mode, a row with details loads again only when its updatedAt changes, and a failed first load waits LIST_ROW_RETRY_MS.
+			const due = !listOnly || now - row.lastTry >= LIST_ROW_RETRY_MS;
+			if (!row.gone && inScope(row) && ((!row.detail && due) || (!listOnly && now - row.lastFetch > maxAge(row)))) enqueue(row);
 		}
 	} catch (e) {
 		hostErrors = { server: errorMessage(e) };
@@ -1345,7 +1391,7 @@ let mergedBusy = false;
 let mergedFetchedAt = 0;
 
 async function refreshMerged({ force = false }: { force?: boolean } = {}): Promise<void> {
-	if (mergedBusy || (!force && Date.now() - mergedFetchedAt < MERGED_REFRESH_MS)) return;
+	if (!booted || mergedBusy || (!force && Date.now() - mergedFetchedAt < MERGED_REFRESH_MS)) return;
 	mergedBusy = true;
 	mergedFetchedAt = Date.now();
 	try {
@@ -1423,6 +1469,7 @@ function followUpsPill(p: MergedPr): string {
 }
 
 function renderShipped(): void {
+	if (!booted) return;
 	const logins = cfg.team.flatMap((m) => Object.values(m.logins));
 	const list = mergedInRange(merged, logins, S.mergedRange, new Date());
 	const label = MERGED_RANGE_LABELS[S.mergedRange].toLowerCase();
@@ -1807,9 +1854,27 @@ void (async function boot(): Promise<void> {
 		banner.textContent = 'This server needs a token. Open the dashboard link it printed at startup (the one ending in #token=…).';
 		return;
 	}
-	const config: unknown = await res.json();
+	const config: unknown = await res.json().catch(() => undefined);
+	// A failed request is not a version problem: show its status and error instead.
+	if (!res.ok || config === undefined) {
+		const detail = responseError(config) || (res.ok ? 'The response is not JSON.' : res.statusText || 'The request failed.');
+		const banner = $('#banner');
+		banner.hidden = false;
+		banner.innerHTML = `<i class="fa-solid fa-triangle-exclamation"></i><div><strong>The dashboard could not load /api/config</strong> (HTTP ${res.status}). ${esc(detail)}</div>`;
+		return;
+	}
+	// Stop before any row renders: a server with another API version can send shapes this client misreads.
+	const versionProblem = apiVersionProblem(config);
+	if (versionProblem) {
+		const banner = $('#banner');
+		banner.hidden = false;
+		banner.innerHTML = `<i class="fa-solid fa-code-compare"></i><div><strong>The dashboard cannot read this server.</strong> ${esc(versionProblem)}</div>`;
+		$('#brand-sub').textContent = 'API version mismatch';
+		return;
+	}
 	if (!isPublicConfig(config)) throw new Error('Unexpected response from /api/config');
 	cfg = config;
+	booted = true;
 	for (const m of cfg.team) {
 		for (const login of Object.values(m.logins)) memberByLogin.set(login.toLowerCase(), m);
 	}
