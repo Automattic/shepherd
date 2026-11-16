@@ -24,10 +24,9 @@ export interface RowAgeInput {
 /**
  * The age in milliseconds after which the page loads a row again. The client checks the server's
  * values again, so a bad value (a string, 0, a negative number) cannot stop the refresh or load a
- * row on every tick. A low budget never makes a row load sooner than the floor.
+ * row on every tick. A low budget never makes a row load sooner than the floor or the user's interval.
  */
 export function rowMaxAge({ floorMs, lowBudgetMs, metered, lowBudget, intervalMs }: RowAgeInput): number {
 	const floor = readMs(floorMs) ?? (metered ? 120_000 : 20_000);
-	if (lowBudget) return Math.max(readMs(lowBudgetMs) ?? 600_000, floor);
-	return Math.max(intervalMs, floor);
+	return Math.max(intervalMs, floor, lowBudget ? (readMs(lowBudgetMs) ?? 600_000) : 0);
 }

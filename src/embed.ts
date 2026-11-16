@@ -96,8 +96,10 @@ export function apiUrl(path: string, apiBase: string | undefined): string {
  * same host over another scheme or port) never gets it. That server needs its own `headers`.
  */
 export function sendsToken(apiBase: string | undefined, pageOrigin: string): boolean {
+	// readApiBase() keeps only paths on this origin. A page with an opaque origin ("null") still sends it to them.
+	if (apiBase === undefined || (apiBase.startsWith('/') && !apiBase.startsWith('//'))) return true;
 	try {
-		return new URL(apiBase ?? '/', pageOrigin).origin === pageOrigin;
+		return new URL(apiBase).origin === pageOrigin;
 	} catch {
 		return false;
 	}

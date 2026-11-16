@@ -28,7 +28,7 @@ import { FOLLOWUPS_MAX_PRS, liveFollowUps, needingFollowUp } from '../src/follow
 import { countByAuthor, isMergedRange, MERGED_RANGE_LABELS, MERGED_RANGES, mergedInRange, type MergedRange } from '../src/merged.ts';
 import { apiHeaders, apiUrl, readEmbedOptions, sendsToken } from '../src/embed.ts';
 import { PUSH_POLICY_LABELS, resolvePushPolicy } from '../src/push-policy.ts';
-import { parseRepoKey, repoChipLabels, repoKey } from '../src/repo-chips.ts';
+import { parseRepoKey, repoChipLabels, repoKey, unknownSelectedRepos } from '../src/repo-chips.ts';
 import { rowMaxAge } from '../src/row-refresh.ts';
 import { mountShell } from './shell.ts';
 import { changesRequestedPending, isTurnOf, WAIT_REASON_TEXT, waitReasons, type WaitReason } from '../src/waiting.ts';
@@ -247,7 +247,7 @@ const reviewers = (): string[] => S.reviewers ?? [];
 
 // A host page that embeds the client can set `window.SHEPHERD`; see docs/embedding.md.
 const RAW_EMBED: unknown = (globalThis as { SHEPHERD?: unknown }).SHEPHERD;
-const EMBEDDED = RAW_EMBED !== undefined;
+const EMBEDDED = isRecord(RAW_EMBED) && !Array.isArray(RAW_EMBED); // the values that readEmbedOptions() reads
 const EMBED = readEmbedOptions(RAW_EMBED);
 
 // The server prints a `#token=` link when SHEPHERD_TOKEN is set. Keep the token in this
@@ -1096,7 +1096,7 @@ function configRepoChips(inScopeRows: Row[]): { key: string; label: string; icon
 		icon: hostIcon(r.host),
 		n: inScopeRows.filter((x) => x.light.host === r.host && x.light.repo === r.name && x.light.owner === r.owner).length,
 	}));
-	const unknown = S.repos.filter((key) => !chips.some((c) => c.key === key));
+	const unknown = unknownSelectedRepos(S.repos, chips.map((c) => c.key));
 	return [...chips, ...unknown.map((key) => ({ key, label: key, icon: 'fa-solid fa-code-branch', n: 0 }))];
 }
 
@@ -1966,18 +1966,25 @@ void (async function boot(): Promise<void> {
 	}
 	cfg = config;
 	booted = true;
-	features = resolveFeatures(cfg.features);
-	$('#shipped').hidden = !features.shipped;
-	for (const m of cfg.team) {
-		for (const login of Object.values(m.logins)) memberByLogin.set(login.toLowerCase(), m);
+	// isPublicConfig() checks only the top level. A config that is wrong deeper down stops here, with the banner.
+	try {
+		features = resolveFeatures(cfg.features);
+		$('#shipped').hidden = !features.shipped;
+		for (const m of cfg.team) {
+			for (const login of Object.values(m.logins)) memberByLogin.set(login.toLowerCase(), m);
+		}
+		$('#ai-review-label').textContent = cfg.aiReviewLabel;
+		if (!Array.isArray(S.reviewers)) S.reviewers = [cfg.me];
+		if (!INTERVALS.some((i) => i.ms === S.interval)) S.interval = 60_000;
+		renderIntervals();
+		renderSort();
+		renderShipped();
+		layout();
+	} catch (e) {
+		booted = false;
+		bootBanner('fa-solid fa-triangle-exclamation', `<strong>The dashboard could not read /api/config.</strong> ${esc(errorMessage(e))}`);
+		return;
 	}
-	$('#ai-review-label').textContent = cfg.aiReviewLabel;
-	if (!Array.isArray(S.reviewers)) S.reviewers = [cfg.me];
-	if (!INTERVALS.some((i) => i.ms === S.interval)) S.interval = 60_000;
-	renderIntervals();
-	renderSort();
-	renderShipped();
-	layout();
 	schedule();
 	void refreshMerged();
 	await refreshList();

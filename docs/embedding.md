@@ -90,9 +90,9 @@ The client sets the headers of each API call in this order. A later header with 
 
 The token belongs to the origin of the page. The client sends it only when `apiBase` is missing, is a path, or is a URL on the same origin (the same scheme, host and port). A server on another origin does not get it, so give that server its own `Authorization` in `headers`.
 
-When `window.SHEPHERD` is set, the hash of the page belongs to the host page. The client does not read a `#token=` from it, does not remove it, and does not reload the page when it changes. A token that this browser saved before for the origin still works.
+When `window.SHEPHERD` is an object, the hash of the page belongs to the host page. The client does not read a `#token=` from it, does not remove it, and does not reload the page when it changes. A token that this browser saved before for the origin still works.
 
-When `/api/config` answers 401 and `window.SHEPHERD` is set, the page shows a general message. Only the local server prints a `#token=` link.
+When `/api/config` answers 401 and `window.SHEPHERD` is an object, the page shows a general message. Only the local server prints a `#token=` link.
 
 ## Without `window.SHEPHERD`
 

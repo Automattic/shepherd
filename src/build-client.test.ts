@@ -1,5 +1,6 @@
 import { afterEach, expect, test } from 'bun:test';
 import { tmpdir } from 'node:os';
+import { rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { buildClient, bundle } from './build-client.ts';
 
@@ -19,4 +20,11 @@ test('the minified build gives the same source paths from any folder', async () 
 
 test('a failed build throws with the build logs and does not exit the process', async () => {
 	await expect(bundle({ entrypoints: [join(tmpdir(), 'shepherd-no-such-entry.ts')], target: 'browser' })).rejects.toThrow(/Could not bundle/);
+	const broken = join(tmpdir(), `shepherd-broken-${process.pid}.ts`);
+	await writeFile(broken, 'const x = ;\n');
+	try {
+		await expect(bundle({ entrypoints: [broken], target: 'browser' })).rejects.toThrow(/shepherd-broken-\d+\.ts:1:\d+: /);
+	} finally {
+		await rm(broken, { force: true });
+	}
 });

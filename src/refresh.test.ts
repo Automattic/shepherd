@@ -79,9 +79,10 @@ describe('rowMaxAge (client)', () => {
 		}
 	});
 
-	test('a low budget never loads a row sooner than the floor', () => {
+	test('a low budget never loads a row sooner than the floor or the interval', () => {
 		expect(at({ lowBudget: true, floorMs: 300_000, lowBudgetMs: 60_000 })).toBe(300_000);
 		expect(at({ lowBudget: true, floorMs: 900_000 })).toBe(900_000);
+		expect(at({ lowBudget: true, intervalMs: 900_000 })).toBe(900_000);
 	});
 });
 

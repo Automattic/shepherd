@@ -88,6 +88,9 @@ test('sendsToken allows the default, a path and a URL on the page origin only', 
 	expect(sendsToken('/my-app/api', page)).toBe(true);
 	expect(sendsToken('https://app.example/shepherd', page)).toBe(true);
 	expect(sendsToken('HTTPS://APP.example:443/shepherd', page)).toBe(true);
+	expect(sendsToken(undefined, 'null')).toBe(true);
+	expect(sendsToken('/my-app/api', 'null')).toBe(true);
+	expect(sendsToken('https://app.example/api', 'null')).toBe(false);
 	for (const apiBase of ['https://other.example/api', 'http://app.example/api', 'https://app.example:8443/api', 'https://app.example.evil/api', '//other.example/api']) {
 		expect(sendsToken(apiBase, page)).toBe(false);
 	}

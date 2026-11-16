@@ -38,3 +38,11 @@ export function repoChipLabels(ids: RepoId[], hostLabel: (host: string) => strin
 		return `${full(r)} (${hostLabel(r.host)})`;
 	});
 }
+
+/**
+ * The selected repo filter values that no chip shows, for example a repo that a saved filter holds but that
+ * the config no longer lists. The page gives each one a chip with a count of 0, so that the user can clear it.
+ */
+export function unknownSelectedRepos(selected: string[], shown: string[]): string[] {
+	return selected.filter((key) => !shown.includes(key));
+}

@@ -27,7 +27,9 @@ export interface ClientBundle {
 export async function bundle(config: Parameters<typeof Bun.build>[0]): Promise<Bun.BuildArtifact[]> {
 	const result = await Bun.build({ ...config, throw: false });
 	if (!result.success || result.outputs.length === 0) {
-		throw new Error([`Could not bundle ${config.entrypoints.join(', ')}:`, ...result.logs.map(String)].join('\n'));
+		const where = (log: (typeof result.logs)[number]): string =>
+			log.position ? `${log.position.file}:${log.position.line}:${log.position.column}: ` : '';
+		throw new Error([`Could not bundle ${config.entrypoints.join(', ')}:`, ...result.logs.map((log) => where(log) + log.message)].join('\n'));
 	}
 	return result.outputs;
 }
@@ -74,7 +76,7 @@ if (import.meta.main) {
 	try {
 		await writeDist();
 	} catch (e) {
-		console.error(e instanceof Error ? e.message : e);
+		console.error(e);
 		process.exit(1);
 	}
 }
