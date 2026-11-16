@@ -26,6 +26,7 @@ import { baseAgeHours, baseTooOld } from '../src/base-age.ts';
 import { FOLLOWUPS_MAX_PRS, liveFollowUps, needingFollowUp } from '../src/followups.ts';
 import { countByAuthor, isMergedRange, MERGED_RANGE_LABELS, MERGED_RANGES, mergedInRange, type MergedRange } from '../src/merged.ts';
 import { PUSH_POLICY_LABELS, resolvePushPolicy } from '../src/push-policy.ts';
+import { parseRepoKey, repoChipLabels, repoKey } from '../src/repo-chips.ts';
 import { changesRequestedPending, isTurnOf, WAIT_REASON_TEXT, waitReasons, type WaitReason } from '../src/waiting.ts';
 
 // ---------------------------------------------------------------------------
@@ -285,8 +286,13 @@ const meMember = (): TeamMember | undefined => cfg.team.find((m) => m.id === cfg
 const isMe = (login: string | null | undefined, host: string): boolean =>
 	(login || '').toLowerCase() === (loginOn(meMember(), host) || '').toLowerCase();
 const member = (login: string | null | undefined): TeamMember | null => memberByLogin.get((login || '').toLowerCase()) || null;
+// With no repos in the config, the short name is the repo name.
 const repoShort = (host: string, owner: string, name: string): string =>
 	cfg.repos.find((r) => r.host === host && r.owner === owner && r.name === name)?.short || name;
+// The value that the repo filter (S.repos) holds for a repo: the short name from the config, or, with no repos
+// in the config, the full repo key, so that two repos with the same name get different chips.
+const repoFilterKey = (host: string, owner: string, name: string): string =>
+	cfg.repos.length ? repoShort(host, owner, name) : repoKey({ host, owner, name });
 const linearUrl = (key: string): string => `https://linear.app/${cfg.linear?.workspace ?? ''}/issue/${key}`;
 
 // ---------------------------------------------------------------------------
@@ -860,7 +866,7 @@ function inScope(row: Row): boolean {
 function matchesFilters(row: Row, { ignoreTile = false }: { ignoreTile?: boolean } = {}): boolean {
 	if (!inScope(row)) return false;
 	const l = row.light;
-	if (S.repos.length && !S.repos.includes(repoShort(l.host, l.owner, l.repo))) return false;
+	if (S.repos.length && !S.repos.includes(repoFilterKey(l.host, l.owner, l.repo))) return false;
 	// Names filter by owner; clocks by whose review is waiting. Each is "any of", and the two combine with AND.
 	if (S.people.length) {
 		const authorId = member(l.author.login)?.id;
@@ -1019,6 +1025,39 @@ function layout(): void {
 // ---------------------------------------------------------------------------
 // Header, tiles, filter chips
 
+/**
+ * The repo chips when the config has no repos, for a server that finds PRs another way (for example by author).
+ * One chip for each repo (host, owner and name) of the listed rows, plus a chip for each selected repo with no rows,
+ * so that a saved selection stays visible and the user can clear it. The label is the repo name, or `owner/name`
+ * when two chips have the same name. The chips are in label order.
+ */
+function listedRepoChips(inScopeRows: Row[]): { key: string; label: string; icon: string; n: number }[] {
+	const chips = new Map<string, { key: string; label: string; icon: string; n: number }>();
+	for (const r of rows.values()) {
+		if (r.gone) continue;
+		const key = repoKey({ host: r.light.host, owner: r.light.owner, name: r.light.repo });
+		if (!chips.has(key)) chips.set(key, { key, label: '', icon: hostIcon(r.light.host), n: 0 });
+	}
+	for (const key of S.repos) if (!chips.has(key)) chips.set(key, { key, label: '', icon: 'fa-solid fa-code-branch', n: 0 });
+	for (const r of inScopeRows) {
+		const chip = chips.get(repoKey({ host: r.light.host, owner: r.light.owner, name: r.light.repo }));
+		if (chip) chip.n++;
+	}
+	const list = [...chips.values()];
+	const labels = repoChipLabels(
+		list.map((c) => parseRepoKey(c.key)),
+		(host) => cfg.hosts[host]?.label || cfg.hosts[host]?.hostname || host,
+	);
+	list.forEach((c, i) => (c.label = labels[i]!));
+	return list.sort((a, b) => a.label.localeCompare(b.label));
+}
+
+/** The number of different repos of the listed rows: the same as the number of repo chips that have rows. */
+const listedRepoCount = (): number =>
+	new Set(
+		[...rows.values()].filter((r) => !r.gone).map((r) => repoKey({ host: r.light.host, owner: r.light.owner, name: r.light.repo })),
+	).size;
+
 function renderChrome(): void {
 	if (!booted) return;
 	const scoped = [...rows.values()].filter((r) => matchesFilters(r, { ignoreTile: true }));
@@ -1062,12 +1101,18 @@ function renderChrome(): void {
 	const peopleEl = $('#people');
 	if (peopleEl.innerHTML !== people) peopleEl.innerHTML = people;
 
-	const repos = cfg.repos
-		.map((r) => {
-			const n = inScopeRows.filter((x) => x.light.host === r.host && x.light.repo === r.name && x.light.owner === r.owner).length;
-			const on = S.repos.includes(r.short);
-			const icon = hostIcon(r.host);
-			return `<button class="chip-btn ${on ? 'on' : ''}" data-repo="${esc(r.short)}"><i class="${icon}"></i>${esc(r.short)} <span class="count">${n}</span></button>`;
+	const repoChips = cfg.repos.length
+		? cfg.repos.map((r) => ({
+				key: r.short,
+				label: r.short,
+				icon: hostIcon(r.host),
+				n: inScopeRows.filter((x) => x.light.host === r.host && x.light.repo === r.name && x.light.owner === r.owner).length,
+			}))
+		: listedRepoChips(inScopeRows);
+	const repos = repoChips
+		.map(({ key, label, icon, n }) => {
+			const on = S.repos.includes(key);
+			return `<button class="chip-btn ${on ? 'on' : ''}" data-repo="${esc(key)}"><i class="${icon}"></i>${esc(label)} <span class="count">${n}</span></button>`;
 		})
 		.join('');
 	const reposEl = $('#repos');
@@ -1110,7 +1155,7 @@ function renderChrome(): void {
 	}
 	const total = [...rows.values()].filter((r) => !r.gone).length;
 	$('#brand-sub').textContent = lastList
-		? `${total} open PRs across ${cfg.repos.length} repos · list checked ${new Date(lastList).toLocaleTimeString()}`
+		? `${total} open PRs across ${cfg.repos.length || listedRepoCount()} repos · list checked ${new Date(lastList).toLocaleTimeString()}`
 		: 'Loading…';
 
 	const errs = Object.entries(hostErrors);
