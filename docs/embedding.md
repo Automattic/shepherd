@@ -18,7 +18,7 @@ The client reads the object one time, when it starts. Changes to the object afte
 
 | Key | Purpose |
 | --- | --- |
-| `apiBase` | Replaces the `/api` prefix of every API call. For example, `/api/prs?reviewers=…` goes to `/my-app/api/shepherd/prs?reviewers=…`. Use a path on the same origin (it starts with one `/`) or an `http` or `https` URL. A URL on a different origin needs CORS on that server. The client removes a trailing `/`. |
+| `apiBase` | Replaces the `/api` prefix of every API call. For example, `/api/prs?reviewers=…` goes to `/my-app/api/shepherd/prs?reviewers=…`. Use a path on the same origin (it starts with one `/`) or a URL that starts with `http://` or `https://`. A URL on a different origin needs CORS on that server. The client removes a trailing `/`. |
 | `headers` | An object of header names and string values. The client adds them to every API call. |
 
 The host's API must give the same responses as the paths below on the local server:
@@ -35,7 +35,7 @@ The host's API must give the same responses as the paths below on the local serv
 The client ignores a value that is not valid, and uses the default for it:
 
 - When `window.SHEPHERD` is not an object, the client ignores it.
-- When `apiBase` is not a string, is empty, is a relative path such as `api`, starts with `//`, or is a URL that is not `http` or `https`, the client uses `/api`.
+- When `apiBase` is not a path that starts with one `/` and not a URL that starts with `http://` or `https://`, the client uses `/api`. For example, `''`, `api`, `//example.com` and `http:/example.com` are not valid.
 - When `apiBase` has a `\`, a space, a tab, a newline, a `?`, a `#`, or a user name or password, the client uses `/api`.
 - The client ignores each header that has a value that is not a string, or a name or value that the browser does not accept.
 

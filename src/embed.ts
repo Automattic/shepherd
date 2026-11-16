@@ -26,6 +26,8 @@ function readApiBase(v: unknown): string | undefined {
 	const raw = v.trim();
 	if (/[\\\s?#]/.test(raw)) return undefined;
 	const isPath = raw.startsWith('/');
+	// `fetch()` resolves "http:/x" against the page when the scheme is the same, so a URL must have "//".
+	if (!isPath && !/^https?:\/\//i.test(raw)) return undefined;
 	let url: URL;
 	try {
 		url = isPath ? new URL(raw, PATH_ORIGIN) : new URL(raw);

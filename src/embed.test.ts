@@ -23,6 +23,13 @@ test('readEmbedOptions ignores a path apiBase that the URL parser sends to anoth
 	}
 });
 
+test('readEmbedOptions ignores an http(s) apiBase without "//"', () => {
+	for (const apiBase of ['http:/evil.example', 'https:evil.example/s', 'https:/evil.example']) {
+		expect(readEmbedOptions({ apiBase })).toEqual({});
+	}
+	expect(readEmbedOptions({ apiBase: 'HTTPS://example.com/s' })).toEqual({ apiBase: 'HTTPS://example.com/s' });
+});
+
 test('readEmbedOptions ignores an apiBase with a query, a fragment or credentials', () => {
 	for (const apiBase of ['/x?a=1', '/x?', '/x#f', 'https://example.com/s?a=1', 'https://u:p@example.com/s', 'https://u@example.com/s']) {
 		expect(readEmbedOptions({ apiBase })).toEqual({});
