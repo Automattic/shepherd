@@ -72,10 +72,6 @@ export function problems(c: Partial<Config>): string[] {
 				out.push(`hosts.${key}.${field} must be a number of milliseconds (${MIN_ROW_REFRESH_MS} or more), or no such field`);
 			}
 		}
-		const { rowRefreshFloorMs: floor, rowRefreshLowBudgetMs: low } = h;
-		if (typeof floor === 'number' && typeof low === 'number' && low < floor) {
-			out.push(`hosts.${key}.rowRefreshLowBudgetMs must not be less than rowRefreshFloorMs: a low budget must not load rows sooner`);
-		}
 	}
 	for (const [i, r] of c.repos!.entries()) {
 		if (!c.hosts![r.host]) out.push(`repos[${i}] (${r.owner}/${r.name}) uses unknown host "${r.host}"`);
@@ -106,6 +102,13 @@ export function problems(c: Partial<Config>): string[] {
 /** Valid but likely unintended settings. They are printed at startup and don't stop the server. */
 export function warnings(c: Config): string[] {
 	const out: string[] = [];
+	for (const [key, h] of Object.entries(c.hosts)) {
+		// problems() already checked that each value is a number of MIN_ROW_REFRESH_MS or more.
+		const { rowRefreshFloorMs: floor, rowRefreshLowBudgetMs: low } = h;
+		if (floor !== undefined && low !== undefined && low < floor) {
+			out.push(`hosts.${key}.rowRefreshLowBudgetMs (${low}) is less than rowRefreshFloorMs (${floor}); when the budget is low, the page uses the floor`);
+		}
+	}
 	c.repos.forEach((r, i) => {
 		if (!r.pushPolicyByAuthor) return;
 		const where = `repos[${i}] (${r.owner}/${r.name}) pushPolicyByAuthor`;

@@ -1966,7 +1966,8 @@ void (async function boot(): Promise<void> {
 	}
 	cfg = config;
 	booted = true;
-	// isPublicConfig() checks only the top level. A config that is wrong deeper down stops here, with the banner.
+	// isPublicConfig() checks only the top level. A config that is wrong deeper down, or any other error
+	// in the first render, stops here with the banner.
 	try {
 		features = resolveFeatures(cfg.features);
 		$('#shipped').hidden = !features.shipped;
@@ -1982,7 +1983,7 @@ void (async function boot(): Promise<void> {
 		layout();
 	} catch (e) {
 		booted = false;
-		bootBanner('fa-solid fa-triangle-exclamation', `<strong>The dashboard could not read /api/config.</strong> ${esc(errorMessage(e))}`);
+		bootBanner('fa-solid fa-triangle-exclamation', `<strong>The dashboard could not start.</strong> ${esc(errorMessage(e))}`);
 		return;
 	}
 	schedule();

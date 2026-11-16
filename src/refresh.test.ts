@@ -1,7 +1,7 @@
 // Server refresh rules: the `refresh` and `rowRefresh*` config keys, and the list cache in "list" mode. Run with `bun test`.
 
 import { afterEach, describe, expect, setSystemTime, test } from 'bun:test';
-import { problems, publicConfig } from './config.ts';
+import { problems, publicConfig, warnings } from './config.ts';
 import type { GhRunner } from './gh.ts';
 import { createPrService } from './prs.ts';
 import { MIN_ROW_REFRESH_MS, rowMaxAge } from './row-refresh.ts';
@@ -46,11 +46,14 @@ describe('refresh config', () => {
 		}
 	});
 
-	test('a low-budget interval shorter than the floor is reported', () => {
-		expect(problems(withHost({ rowRefreshFloorMs: 300_000, rowRefreshLowBudgetMs: 60_000 }))).toEqual([
-			'hosts.github.rowRefreshLowBudgetMs must not be less than rowRefreshFloorMs: a low budget must not load rows sooner',
+	test('a low-budget interval shorter than the floor is a warning, not a problem', () => {
+		const low = withHost({ rowRefreshFloorMs: 300_000, rowRefreshLowBudgetMs: 60_000 });
+		expect(problems(low)).toEqual([]);
+		expect(warnings(low)).toEqual([
+			'hosts.github.rowRefreshLowBudgetMs (60000) is less than rowRefreshFloorMs (300000); when the budget is low, the page uses the floor',
 		]);
-		expect(problems(withHost({ rowRefreshFloorMs: 60_000, rowRefreshLowBudgetMs: 60_000 }))).toEqual([]);
+		expect(warnings(withHost({ rowRefreshFloorMs: 60_000, rowRefreshLowBudgetMs: 60_000 }))).toEqual([]);
+		expect(warnings(withHost({ rowRefreshLowBudgetMs: 60_000 }))).toEqual([]);
 	});
 });
 

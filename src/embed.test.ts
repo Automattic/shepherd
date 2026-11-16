@@ -104,6 +104,7 @@ test('sendsToken allows the default, a path and a URL on the page origin only', 
 	const page = 'https://app.example';
 	expect(sendsToken(undefined, page)).toBe(true);
 	expect(sendsToken('/my-app/api', page)).toBe(true);
+	expect(sendsToken(readEmbedOptions({ apiBase: '/' }).apiBase, page)).toBe(true);
 	expect(sendsToken('https://app.example/shepherd', page)).toBe(true);
 	expect(sendsToken('HTTPS://APP.example:443/shepherd', page)).toBe(true);
 	expect(sendsToken(undefined, 'null')).toBe(true);
