@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { apiUrl, readEmbedOptions } from './embed.ts';
+import { apiHeaders, apiUrl, readEmbedOptions } from './embed.ts';
 
 test('readEmbedOptions gives no options when window.SHEPHERD is not an object', () => {
 	for (const raw of [undefined, null, 'x', 42, true, ['/x']]) expect(readEmbedOptions(raw)).toEqual({});
@@ -45,4 +45,22 @@ test('apiUrl replaces only the /api prefix', () => {
 	expect(apiUrl('/api', '/x')).toBe('/x');
 	expect(apiUrl('/apis/x', '/x')).toBe('/apis/x');
 	expect(apiUrl('/app.js', '/x')).toBe('/app.js');
+});
+
+test('apiHeaders adds the host headers, then the call headers, then the token', () => {
+	const h = apiHeaders({ 'X-Nonce': 'n', 'Content-Type': 'text/plain' }, { 'content-type': 'application/json' }, 'tok');
+	expect(h.get('x-nonce')).toBe('n');
+	expect(h.get('content-type')).toBe('application/json');
+	expect(h.get('authorization')).toBe('Bearer tok');
+});
+
+test('apiHeaders keeps an Authorization header from the host or the call, in any case', () => {
+	expect(apiHeaders({ AUTHORIZATION: 'Basic abc' }, undefined, 'tok').get('authorization')).toBe('Basic abc');
+	expect(apiHeaders(undefined, [['Authorization', 'Basic call']], 'tok').get('authorization')).toBe('Basic call');
+});
+
+test('apiHeaders without options or a token gives only the call headers', () => {
+	const h = apiHeaders(undefined, { 'content-type': 'application/json' }, '');
+	expect([...h.keys()]).toEqual(['content-type']);
+	expect([...apiHeaders(undefined, undefined, '').keys()]).toEqual([]);
 });

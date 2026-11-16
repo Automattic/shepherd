@@ -70,3 +70,14 @@ export function apiUrl(path: string, apiBase: string | undefined): string {
 	if (path === '/api' || path.startsWith('/api/') || path.startsWith('/api?')) return apiBase + path.slice(4);
 	return path;
 }
+
+/**
+ * The headers of one API call, in this order: the host's headers, then the headers of the call,
+ * then the bearer token. The token is added only when no earlier header sets `Authorization`.
+ */
+export function apiHeaders(embedHeaders: Record<string, string> | undefined, callHeaders: HeadersInit | undefined, token: string): Headers {
+	const headers = new Headers(embedHeaders);
+	new Headers(callHeaders).forEach((value, name) => headers.set(name, value));
+	if (token && !headers.has('authorization')) headers.set('authorization', `Bearer ${token}`);
+	return headers;
+}
