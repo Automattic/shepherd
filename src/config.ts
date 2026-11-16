@@ -4,7 +4,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { FEATURES, isFeature, resolveFeatures, type Features } from './features.ts';
 import { isPushPolicy, PUSH_POLICIES } from './push-policy.ts';
-import type { Config, PublicConfig } from './types.ts';
+import { API_VERSION, type Config, type PublicConfig } from './types.ts';
 
 /** The project root (one level above src/). */
 export const ROOT = join(import.meta.dir, '..');
@@ -22,12 +22,16 @@ function fail(message: string): never {
 
 const POLICY_LIST = PUSH_POLICIES.map((p) => `"${p}"`).join(', ');
 
+/** The shortest allowed `rowRefreshFloorMs` and `rowRefreshLowBudgetMs`: the page must not load a row more often than every 10 seconds. */
+export const MIN_ROW_REFRESH_MS = 10_000;
+
 /** Checks the shape of a parsed config and returns a list of problems. */
 export function problems(c: Partial<Config>): string[] {
 	const out: string[] = [];
 	if (!Array.isArray(c.team) || !c.team.length) out.push('`team` must be a non-empty array');
 	if (!c.hosts || typeof c.hosts !== 'object') out.push('`hosts` must be an object');
 	if (!Array.isArray(c.repos) || !c.repos.length) out.push('`repos` must be a non-empty array');
+	if (c.refresh !== undefined && c.refresh !== 'rows' && c.refresh !== 'list') out.push('`refresh` must be "rows" or "list", or no such field');
 	if (c.linear && (!c.linear.workspace || !Array.isArray(c.linear.keys))) out.push('`linear` needs `workspace` and `keys` (or remove it)');
 	if (c.features !== undefined) {
 		if (typeof c.features !== 'object' || c.features === null || Array.isArray(c.features)) {
@@ -63,6 +67,12 @@ export function problems(c: Partial<Config>): string[] {
 		if (!h.hostname) out.push(`hosts.${key} needs a hostname`);
 		if (h.reviewTeams !== undefined && !(Array.isArray(h.reviewTeams) && h.reviewTeams.every((t) => typeof t === 'string' && /^[\w.-]+\/[\w.-]+$/.test(t)))) {
 			out.push(`hosts.${key}.reviewTeams must be a list of "org/team" names, or no such field`);
+		}
+		for (const field of ['rowRefreshFloorMs', 'rowRefreshLowBudgetMs'] as const) {
+			const v = h[field];
+			if (v !== undefined && !(typeof v === 'number' && Number.isFinite(v) && v >= MIN_ROW_REFRESH_MS)) {
+				out.push(`hosts.${key}.${field} must be a number of milliseconds (${MIN_ROW_REFRESH_MS} or more), or no such field`);
+			}
 		}
 	}
 	for (const [i, r] of c.repos!.entries()) {
@@ -145,14 +155,19 @@ export function configFeatures(config: Config): Features {
 
 export function publicConfig(config: Config): PublicConfig {
 	return {
+		apiVersion: API_VERSION,
 		me: config.me,
 		team: config.team,
 		repos: config.repos,
 		hosts: Object.fromEntries(
-			Object.entries(config.hosts).map(([k, h]) => [k, { hostname: h.hostname, label: h.label, bot: h.bot }])
+			Object.entries(config.hosts).map(([k, h]) => [
+				k,
+				{ hostname: h.hostname, label: h.label, bot: h.bot, rowRefreshFloorMs: h.rowRefreshFloorMs, rowRefreshLowBudgetMs: h.rowRefreshLowBudgetMs },
+			])
 		),
 		linear: config.linear ?? null,
 		aiReviewLabel: config.aiReviewLabel || 'AI review',
 		features: configFeatures(config),
+		refresh: config.refresh ?? 'rows',
 	};
 }
