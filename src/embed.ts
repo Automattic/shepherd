@@ -8,7 +8,14 @@ export interface ShepherdEmbedOptions {
 	apiBase?: string;
 	/** Added to each API request. */
 	headers?: Record<string, string>;
+	/** The element to render the dashboard into: a CSS selector or an element. Default: `#shepherd`. */
+	mount?: string | Element;
+	/** `false` hides the brand header. The controls stay. Default: `true`. */
+	header?: boolean;
 }
+
+/** The mount element of the standalone page (public/index.html). */
+export const DEFAULT_MOUNT = '#shepherd';
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
@@ -42,6 +49,13 @@ function readHeaders(v: unknown): Record<string, string> | undefined {
 	return Object.keys(out).length ? out : undefined;
 }
 
+/** A non-empty selector string or a DOM element. Other values give `undefined`. */
+function readMount(v: unknown): string | Element | undefined {
+	if (typeof v === 'string') return v.trim() || undefined;
+	if (typeof Element !== 'undefined' && v instanceof Element) return v;
+	return undefined;
+}
+
 /** Reads `window.SHEPHERD`. The client ignores a value that is not valid. */
 export function readEmbedOptions(raw: unknown): ShepherdEmbedOptions {
 	if (!isRecord(raw)) return {};
@@ -50,6 +64,9 @@ export function readEmbedOptions(raw: unknown): ShepherdEmbedOptions {
 	if (apiBase !== undefined) opts.apiBase = apiBase;
 	const headers = readHeaders(raw.headers);
 	if (headers) opts.headers = headers;
+	const mount = readMount(raw.mount);
+	if (mount !== undefined) opts.mount = mount;
+	if (typeof raw.header === 'boolean') opts.header = raw.header;
 	return opts;
 }
 

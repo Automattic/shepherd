@@ -27,7 +27,8 @@ Run `bun run check` and `bun test` before you open a pull request.
 | `src/herdr.ts` | Optional herdr integration: pane scan, PR matching and pane focus over herdr's socket |
 | `src/types.ts` | Types shared by the server, the MCP endpoint and the browser client |
 | `web/app.ts` | The dashboard client: no framework, bundled by Bun into `/app.js` |
-| `public/` | `index.html` and `styles.css` |
+| `web/shell.ts` | The markup of the dashboard, which the client renders into the mount element |
+| `public/` | `index.html` (only the mount element) and `styles.css` (scoped to `.shepherd`) |
 
 The page loads Font Awesome 6.5.2 from cdnjs and the Geist fonts from Google Fonts. Everything else is local.
 
