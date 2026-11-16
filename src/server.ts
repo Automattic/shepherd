@@ -37,7 +37,7 @@ function authorized(req: Request): boolean {
 }
 
 // Bundle the browser client once at startup; `bun run dev` restarts on change.
-const clientBundle = await buildClient();
+const clientBundle = (await buildClient()).js;
 
 const json = <T>(status: number, body: T) =>
 	Response.json(body, { status, headers: { 'cache-control': 'no-store' } });

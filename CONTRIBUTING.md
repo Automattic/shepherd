@@ -7,7 +7,7 @@ bun run dev         # restarts the server when a file changes
 bun run typecheck   # tsc --noEmit
 bun run check       # typecheck, plus a bundle of the browser client
 bun test            # unit tests (src/*.test.ts)
-bun run build:client  # writes app.js, styles.css and index.html to dist/
+bun run build:client  # writes a minified app.js, app.js.map, styles.css and index.html to dist/
 ```
 
 Run `bun run check` and `bun test` before you open a pull request.
@@ -36,7 +36,7 @@ The page loads Font Awesome 6.5.2 from cdnjs and the Geist fonts from Google Fon
 
 ## Build the client for another host
 
-A host that embeds the client can pin one Shepherd commit and run `bun run build:client`. The command writes `app.js`, `styles.css` and `index.html` to `dist/`, with the same build that the server uses at startup. The output is not minified and has an inline source map.
+A host that embeds the client can pin one Shepherd commit and run `bun run build:client`. The command writes `app.js`, `app.js.map`, `styles.css` and `index.html` to `dist/`. It uses the same `buildClient()` as the server, with the `minify` option. `app.js` and `styles.css` are minified, and `app.js` points to its source map in `app.js.map`. The server does not minify the client that it sends, and it puts the source map inline.
 
 `index.html` loads `app.js` and `styles.css` with relative paths, so a host can serve `dist/` from any folder. The client sends its requests to absolute paths on the same origin: `/api/config`, `/api/prs`, `/api/pr`, `/api/merged`, `/api/followups`, `/api/herdr/links` and `/api/herdr/focus`. When the page has a token, each request has an `Authorization: Bearer <token>` header.
 
