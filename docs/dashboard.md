@@ -23,6 +23,12 @@ Rows are sorted in four bands:
 3. **Waiting on you** (orange left bar).
 4. Everything else, most recently updated first.
 
+This is the **Review order**, the default. Choose **Newest first** in the sort control to sort by the last update instead:
+
+- A group sorts by the newest update of its PRs, so a stack stays together.
+- The bands do not change the order, but each group keeps its green, dark cyan or orange left border.
+- The page saves your choice.
+
 ## How old the base is
 
 Some hosts reject a push when the PR's base is older than a set number of hours. Shepherd shows a **base 26h old** pill so you see it before the push fails.
@@ -93,6 +99,7 @@ A PR counts as approved when GitHub's review decision is approved, or when at le
   - **Repos:** one chip per tracked repo.
   - **Approved** (approved PRs and fully approved stacks) and **Partially approved** (stacks where only some PRs are approved). They act on whole stacks, never splitting one, and each chip counts its groups. Select both to see all approved work.
 - **Drafts and Dormant 60d+.** Show or hide those PRs. Drafts are shown by default. Dormant PRs (no update for 60 days) are hidden by default, unless they wait on you.
+- **Sort.** **Review order** (default) or **Newest first**. See [Order and approved work](#order-and-approved-work). On narrow screens, it is under the **Filters** button.
 - **Search.** Matches title, branch, repo, number, author and ticket. Press `/` to focus it.
 
 Your choices are saved in the browser.

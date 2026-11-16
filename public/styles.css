@@ -553,8 +553,8 @@ main { padding: 22px 28px 60px; max-width: 1560px; margin: 0 auto; }
 	.filters-btn { display: inline-flex; order: 1; }
 	.people { order: 2; flex-basis: 100%; padding-top: 4px; }
 	#repos { order: 3; flex-basis: 100%; }
-	#approvals, .toggles { order: 4; padding-left: 0; border-left: 0; }
-	.filters:not(.open) .people, .filters:not(.open) .repos, .filters:not(.open) .toggles { display: none; }
+	#approvals, .toggles, #sort { order: 4; padding-left: 0; border-left: 0; }
+	.filters:not(.open) .people, .filters:not(.open) .repos, .filters:not(.open) .toggles, .filters:not(.open) #sort { display: none; }
 }
 
 @media (max-width: 640px) {

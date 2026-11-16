@@ -60,12 +60,13 @@
 				<div class="repos" id="repos"></div>
 				<div class="repos" id="approvals" aria-label="Approval filters"></div>
 				<div class="toggles" id="toggles"></div>
+				<div class="seg" id="sort" role="radiogroup" aria-label="Sort order"></div>
 				<label class="search">
 					<i class="fa-solid fa-magnifying-glass"></i>
 					<input id="q" type="search" placeholder="Filter by title, branch, ticket" autocomplete="off">
 				</label>
 				<!-- Narrow screens only: the chip groups above collapse behind this button. -->
-				<button class="filters-btn" id="filters-btn" type="button" aria-expanded="false" aria-controls="people repos approvals toggles">
+				<button class="filters-btn" id="filters-btn" type="button" aria-expanded="false" aria-controls="people repos approvals toggles sort">
 					<i class="fa-solid fa-sliders"></i>Filters<span class="count" id="filters-count" hidden></span>
 				</button>
 			</div>
