@@ -359,7 +359,7 @@ function avatar(login: string, host: string): string {
 }
 
 function initialsAvatar(login: string): string {
-	return `<span class="avatar" style="background:hsl(${hue(login)} 45% 48%)" title="${esc(member(login)?.name || login)}">${esc(initials(login))}</span>`;
+	return `<span class="avatar" style="--avatar-bg:hsl(${hue(login)} 45% 48%)" title="${esc(member(login)?.name || login)}">${esc(initials(login))}</span>`;
 }
 
 // Replace broken avatar images with initials.
