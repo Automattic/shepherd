@@ -24,6 +24,7 @@ import type {
 import { baseAgeHours, baseTooOld } from '../src/base-age.ts';
 import { FOLLOWUPS_MAX_PRS, liveFollowUps, needingFollowUp } from '../src/followups.ts';
 import { countByAuthor, isMergedRange, MERGED_RANGE_LABELS, MERGED_RANGES, mergedInRange, type MergedRange } from '../src/merged.ts';
+import { apiUrl, readEmbedOptions } from '../src/embed.ts';
 import { changesRequestedPending, isTurnOf, WAIT_REASON_TEXT, waitReasons, type WaitReason } from '../src/waiting.ts';
 
 // ---------------------------------------------------------------------------
@@ -239,10 +240,16 @@ addEventListener('hashchange', () => {
 	if (new URLSearchParams(location.hash.slice(1)).has('token')) location.reload();
 });
 
+// A host page that embeds the client can set `window.SHEPHERD`; see docs/embedding.md.
+const EMBED = readEmbedOptions((globalThis as { SHEPHERD?: unknown }).SHEPHERD);
+
+// Every API call goes through here. The order of the headers: the host's headers, then the
+// headers of the call, then the bearer token, unless one of them already set authorization.
 const api = (path: string, init: RequestInit = {}): Promise<Response> => {
-	const headers = new Headers(init.headers);
-	if (token) headers.set('authorization', `Bearer ${token}`);
-	return fetch(path, { ...init, headers });
+	const headers = new Headers(EMBED.headers);
+	new Headers(init.headers).forEach((value, name) => headers.set(name, value));
+	if (token && !headers.has('authorization')) headers.set('authorization', `Bearer ${token}`);
+	return fetch(apiUrl(path, EMBED.apiBase), { ...init, headers });
 };
 
 // ---------------------------------------------------------------------------

@@ -135,6 +135,7 @@ Every key, with defaults, is in [Configuration](docs/configuration.md).
 - [Configuration](docs/configuration.md): every `config.json` key, the token and AI-review bots
 - [Review teams](docs/review-teams.md): count a GitHub team review request as waiting on each member
 - [GitHub Enterprise and proxies](docs/github-enterprise.md)
+- [Embedding the client](docs/embedding.md): set the API path and extra request headers from a host page
 
 **Working on Shepherd**
 
