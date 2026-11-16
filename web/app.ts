@@ -21,6 +21,7 @@ import type {
 	Severity,
 	TeamMember,
 } from '../src/types.ts';
+import { apiVersionProblem } from '../src/api-version.ts';
 import { baseAgeHours, baseTooOld } from '../src/base-age.ts';
 import { FOLLOWUPS_MAX_PRS, liveFollowUps, needingFollowUp } from '../src/followups.ts';
 import { countByAuthor, isMergedRange, MERGED_RANGE_LABELS, MERGED_RANGES, mergedInRange, type MergedRange } from '../src/merged.ts';
@@ -135,6 +136,7 @@ function responseError(body: unknown): string {
 function isPublicConfig(v: unknown): v is PublicConfig {
 	return (
 		isRecord(v) &&
+		typeof v.apiVersion === 'number' &&
 		typeof v.me === 'string' &&
 		Array.isArray(v.team) &&
 		Array.isArray(v.repos) &&
@@ -255,6 +257,8 @@ const api = (path: string, init: RequestInit = {}): Promise<Response> => {
 
 // Assigned in boot() before anything reads it.
 let cfg: PublicConfig;
+// True after boot() sets cfg. While it is false (a banner stopped boot), nothing may load or render data.
+let booted = false;
 const memberByLogin = new Map<string, TeamMember>(); // lowercased login (either host) -> member
 const rows = new Map<string, Row>(); // key -> row
 const groupEls = new Map<string, HTMLDivElement>(); // root key -> element
@@ -1016,6 +1020,7 @@ function layout(): void {
 // Header, tiles, filter chips
 
 function renderChrome(): void {
+	if (!booted) return;
 	const scoped = [...rows.values()].filter((r) => matchesFilters(r, { ignoreTile: true }));
 	const count = (fn: (r: Row) => unknown): number => scoped.filter((r) => fn(r)).length;
 	const botOpen = scoped.reduce((n, r) => n + (r.detail?.bot?.open || 0), 0);
@@ -1262,7 +1267,7 @@ function removeRow(row: Row): void {
 }
 
 async function refreshList({ force = false }: { force?: boolean } = {}): Promise<void> {
-	if (listBusy) return;
+	if (listBusy || !booted) return;
 	listBusy = true;
 	$('#refresh').classList.add('busy');
 	// In "list" mode, Refresh now asks only for the list, not for each row.
@@ -1341,7 +1346,7 @@ let mergedBusy = false;
 let mergedFetchedAt = 0;
 
 async function refreshMerged({ force = false }: { force?: boolean } = {}): Promise<void> {
-	if (mergedBusy || (!force && Date.now() - mergedFetchedAt < MERGED_REFRESH_MS)) return;
+	if (!booted || mergedBusy || (!force && Date.now() - mergedFetchedAt < MERGED_REFRESH_MS)) return;
 	mergedBusy = true;
 	mergedFetchedAt = Date.now();
 	try {
@@ -1419,6 +1424,7 @@ function followUpsPill(p: MergedPr): string {
 }
 
 function renderShipped(): void {
+	if (!booted) return;
 	const logins = cfg.team.flatMap((m) => Object.values(m.logins));
 	const list = mergedInRange(merged, logins, S.mergedRange, new Date());
 	const label = MERGED_RANGE_LABELS[S.mergedRange].toLowerCase();
@@ -1803,9 +1809,27 @@ void (async function boot(): Promise<void> {
 		banner.textContent = 'This server needs a token. Open the dashboard link it printed at startup (the one ending in #token=…).';
 		return;
 	}
-	const config: unknown = await res.json();
+	const config: unknown = await res.json().catch(() => undefined);
+	// A failed request is not a version problem: show its status and error instead.
+	if (!res.ok || config === undefined) {
+		const detail = responseError(config) || (res.ok ? 'The response is not JSON.' : res.statusText || 'The request failed.');
+		const banner = $('#banner');
+		banner.hidden = false;
+		banner.innerHTML = `<i class="fa-solid fa-triangle-exclamation"></i><div><strong>The dashboard could not load /api/config</strong> (HTTP ${res.status}). ${esc(detail)}</div>`;
+		return;
+	}
+	// Stop before any row renders: a server with another API version can send shapes this client misreads.
+	const versionProblem = apiVersionProblem(config);
+	if (versionProblem) {
+		const banner = $('#banner');
+		banner.hidden = false;
+		banner.innerHTML = `<i class="fa-solid fa-code-compare"></i><div><strong>The dashboard cannot read this server.</strong> ${esc(versionProblem)}</div>`;
+		$('#brand-sub').textContent = 'API version mismatch';
+		return;
+	}
 	if (!isPublicConfig(config)) throw new Error('Unexpected response from /api/config');
 	cfg = config;
+	booted = true;
 	for (const m of cfg.team) {
 		for (const login of Object.values(m.logins)) memberByLogin.set(login.toLowerCase(), m);
 	}

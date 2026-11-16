@@ -87,8 +87,16 @@ export interface Config {
 
 export type RefreshMode = 'rows' | 'list';
 
+/**
+ * The version of the JSON shapes in this file that the server sends and the client reads.
+ * Increase it when a change here breaks an old client or an old server. See CONTRIBUTING.md.
+ */
+export const API_VERSION = 1;
+
 /** What GET /api/config returns: the config without local-only details. */
 export interface PublicConfig {
+	/** The `API_VERSION` of the server. The client stops when it is not the client's own `API_VERSION`. */
+	apiVersion: number;
 	me: string;
 	team: TeamMember[];
 	repos: RepoConfig[];

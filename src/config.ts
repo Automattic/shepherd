@@ -3,7 +3,7 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { isPushPolicy, PUSH_POLICIES } from './push-policy.ts';
-import type { Config, PublicConfig } from './types.ts';
+import { API_VERSION, type Config, type PublicConfig } from './types.ts';
 
 /** The project root (one level above src/). */
 export const ROOT = join(import.meta.dir, '..');
@@ -139,6 +139,7 @@ export async function loadConfig(): Promise<Config> {
 
 export function publicConfig(config: Config): PublicConfig {
 	return {
+		apiVersion: API_VERSION,
 		me: config.me,
 		team: config.team,
 		repos: config.repos,

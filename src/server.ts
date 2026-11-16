@@ -3,16 +3,14 @@
 
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { join, normalize } from 'node:path';
-import { DEFAULT_PORT, loadConfig, publicConfig, ROOT } from './config.ts';
+import { buildClient, PUBLIC_DIR } from './build-client.ts';
+import { DEFAULT_PORT, loadConfig, publicConfig } from './config.ts';
 import { createGh } from './gh.ts';
 import { createHerdr } from './herdr.ts';
 import { createMcpHandler } from './mcp.ts';
 import { FOLLOWUPS_MAX_PRS } from './followups.ts';
 import { createPrService, NotFoundError, parsePrKey } from './prs.ts';
 import type { DetailResponse, ErrorResponse, FollowUpsResponse, HerdrLinksResponse, LightPr, ListResponse, MergedPr, MergedResponse, PaneMatchPr } from './types.ts';
-
-const PUBLIC_DIR = join(ROOT, 'public');
-const CLIENT_ENTRY = join(ROOT, 'web', 'app.ts');
 
 const config = await loadConfig();
 const port = Number(process.env.PORT || config.port || DEFAULT_PORT);
@@ -39,16 +37,7 @@ function authorized(req: Request): boolean {
 }
 
 // Bundle the browser client once at startup; `bun run dev` restarts on change.
-const clientBundle = await (async () => {
-	const result = await Bun.build({ entrypoints: [CLIENT_ENTRY], target: 'browser', sourcemap: 'inline' });
-	const output = result.outputs[0];
-	if (!result.success || !output) {
-		console.error('Could not bundle the browser client:');
-		for (const log of result.logs) console.error(log);
-		process.exit(1);
-	}
-	return output.text();
-})();
+const clientBundle = (await buildClient()).js;
 
 const json = <T>(status: number, body: T) =>
 	Response.json(body, { status, headers: { 'cache-control': 'no-store' } });
