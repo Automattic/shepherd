@@ -147,6 +147,7 @@ Every key, with defaults, is in [Configuration](docs/configuration.md).
 | `No config found at …/config.json` on start | Run `cp config.example.json config.json` and fill it in. |
 | `config.json has problems:` on start | Fix each listed item. A team member with old `ghe`/`github` fields needs them moved into `logins`. |
 | Red banner: **\<host\> could not be reached** | `gh` is not signed in to that host, or its proxy is down. Run the `gh auth status` check for that host. |
+| Red banner: **The dashboard cannot read this server** | The client and the server come from different Shepherd commits, so their API versions differ. Build both from the same commit. See [API version](CONTRIBUTING.md#api-version). |
 | Red banner: **Dashboard server could not be reached** | The server stopped. Start it again with `bun run start`. |
 | A row shows a red triangle instead of the refresh icon | That row's last reload failed; hover it to read why. The row keeps its last data and tries again on the next tick. |
 | "Waiting on you" differs from GitHub's review count | Shepherd counts direct review requests, PRs where it's your turn, and your PRs with requested changes. Requests to a team count only when the team is in the host's `reviewTeams`; other teams show as grey chips. See [What "waiting on" means](docs/dashboard.md#what-waiting-on-means). |

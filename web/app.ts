@@ -21,6 +21,7 @@ import type {
 	Severity,
 	TeamMember,
 } from '../src/types.ts';
+import { apiVersionProblem } from '../src/api-version.ts';
 import { baseAgeHours, baseTooOld } from '../src/base-age.ts';
 import { FOLLOWUPS_MAX_PRS, liveFollowUps, needingFollowUp } from '../src/followups.ts';
 import { countByAuthor, isMergedRange, MERGED_RANGE_LABELS, MERGED_RANGES, mergedInRange, type MergedRange } from '../src/merged.ts';
@@ -132,6 +133,7 @@ function responseError(body: unknown): string {
 function isPublicConfig(v: unknown): v is PublicConfig {
 	return (
 		isRecord(v) &&
+		typeof v.apiVersion === 'number' &&
 		typeof v.me === 'string' &&
 		Array.isArray(v.team) &&
 		Array.isArray(v.repos) &&
@@ -1748,6 +1750,15 @@ void (async function boot(): Promise<void> {
 		return;
 	}
 	const config: unknown = await res.json();
+	// Stop before any row renders: a server with another API version can send shapes this client misreads.
+	const versionProblem = apiVersionProblem(config);
+	if (versionProblem) {
+		const banner = $('#banner');
+		banner.hidden = false;
+		banner.innerHTML = `<i class="fa-solid fa-code-compare"></i><div><strong>The dashboard cannot read this server.</strong> ${esc(versionProblem)}</div>`;
+		$('#brand-sub').textContent = 'API version mismatch';
+		return;
+	}
 	if (!isPublicConfig(config)) throw new Error('Unexpected response from /api/config');
 	cfg = config;
 	for (const m of cfg.team) {
