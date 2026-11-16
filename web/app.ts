@@ -1753,7 +1753,15 @@ void (async function boot(): Promise<void> {
 		banner.textContent = 'This server needs a token. Open the dashboard link it printed at startup (the one ending in #token=…).';
 		return;
 	}
-	const config: unknown = await res.json();
+	const config: unknown = await res.json().catch(() => undefined);
+	// A failed request is not a version problem: show its status and error instead.
+	if (!res.ok || config === undefined) {
+		const detail = responseError(config) || (res.ok ? 'The response is not JSON.' : res.statusText || 'The request failed.');
+		const banner = $('#banner');
+		banner.hidden = false;
+		banner.innerHTML = `<i class="fa-solid fa-triangle-exclamation"></i><div><strong>The dashboard could not load /api/config</strong> (HTTP ${res.status}). ${esc(detail)}</div>`;
+		return;
+	}
 	// Stop before any row renders: a server with another API version can send shapes this client misreads.
 	const versionProblem = apiVersionProblem(config);
 	if (versionProblem) {
