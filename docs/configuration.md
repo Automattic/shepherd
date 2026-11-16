@@ -35,7 +35,7 @@ The server sends these values to the page, so the person who runs the server con
 
 - `hosts.<key>.rowRefreshFloorMs`: the shortest time, in milliseconds, before the page loads a row on this host again. The default is 120000 (2 minutes) on github.com and on hosts that report a GraphQL budget, and 20000 (20 seconds) on other hosts. The page still waits at least the refresh interval that the user selects.
 - `hosts.<key>.rowRefreshLowBudgetMs`: the time, in milliseconds, between row loads on this host when fewer than 500 GraphQL points remain. The default is 600000 (10 minutes).
-- `refresh: "list"`: the page loads a row only when the list shows a new **updated** time for it, when the row has no details yet, when the user clicks the refresh button of the row, or when the PR leaves the list. **Refresh now** asks for a new list and does not ask for each row. The floors above then have no effect.
+- `refresh: "list"`: the page loads a row only when the list shows a new **updated** time for it, when the row has no details yet, when the user clicks the refresh button of the row, or when the PR leaves the list. If that load fails, or the row is hidden at that time, the page tries again on the next tick. **Refresh now** asks for a new list and does not ask for each row. The floors above then have no effect.
 
 ```json
 {
