@@ -158,6 +158,7 @@ describe('MCP tools with review teams', () => {
 		headRefName: `b${number}`,
 		baseRefName: 'main',
 		author: { login: author, name: null },
+		inAllAuthorsRepo: false,
 		requestedFor: [],
 		...flags,
 	});

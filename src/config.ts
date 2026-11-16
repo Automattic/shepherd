@@ -56,6 +56,9 @@ function problems(c: Partial<Config>): string[] {
 		if (r.maxBaseAgeHours !== undefined && !(typeof r.maxBaseAgeHours === 'number' && r.maxBaseAgeHours > 0)) {
 			out.push(`repos[${i}] (${r.owner}/${r.name}) needs "maxBaseAgeHours" to be a positive number, or no such field`);
 		}
+		if (r.allAuthors !== undefined && typeof r.allAuthors !== 'boolean') {
+			out.push(`repos[${i}] (${r.owner}/${r.name}) needs "allAuthors" to be true or false, or no such field`);
+		}
 	}
 	return out;
 }

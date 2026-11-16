@@ -285,7 +285,7 @@ export function createMcpHandler(config: Config, prs: PrService, herdr: HerdrSer
 			name: 'list_prs',
 			title: 'List open team pull requests',
 			description:
-				'List open pull requests written by the team in the tracked repos. Each result says whose review it waits on (and whether one of the configured review teams is requested), who approved, how many AI-review bot threads are unresolved, who has participated (most recently active first), any Linear tickets, and any stacked parent PR. Filter by author, repo, requested reviewer, or review-team request.',
+				'List open pull requests written by the team in the tracked repos, plus every open PR in repos set to include all authors. Each result says whose review it waits on (and whether one of the configured review teams is requested), who approved, how many AI-review bot threads are unresolved, who has participated (most recently active first), any Linear tickets, and any stacked parent PR. Filter by author, repo, requested reviewer, or review-team request.',
 			inputSchema: {
 				type: 'object',
 				properties: {
@@ -330,7 +330,7 @@ export function createMcpHandler(config: Config, prs: PrService, herdr: HerdrSer
 					if (reviewer && !p.requestedFor.includes(reviewer.id)) return false;
 					// The review-team search also finds PRs by people outside the team; keep those for this filter.
 					if (onlyTeam && !p.teamRequested) return false;
-					if (!reviewer && !p.authoredByTeam && !onlyTeam) return false;
+					if (!reviewer && !p.authoredByTeam && !p.inAllAuthorsRepo && !onlyTeam) return false;
 					if (author && author.logins[p.host] !== p.author.login) return false;
 					if (repo && !(p.host === repo.host && p.owner === repo.owner && p.repo === repo.name)) return false;
 					if (!includeDrafts && p.isDraft) return false;
