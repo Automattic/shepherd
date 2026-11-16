@@ -1275,7 +1275,8 @@ async function refreshList({ force = false }: { force?: boolean } = {}): Promise
 				continue;
 			}
 			if (row.gone) continue;
-			const changed = pr.updatedAt !== row.light.updatedAt;
+			// In "list" mode, the cached list can be older than details from the row refresh button, so only a newer time counts.
+			const changed = listOnly ? Date.parse(pr.updatedAt) > Date.parse(row.light.updatedAt) : pr.updatedAt !== row.light.updatedAt;
 			row.light = { ...row.light, ...pr, updatedAt: changed ? pr.updatedAt : row.light.updatedAt };
 			row.missing = 0;
 			// "list" mode has no age check, so details that stay behind the list (a failed load, a row out of scope) count as changed.
