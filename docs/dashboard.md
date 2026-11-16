@@ -23,6 +23,12 @@ Rows are sorted in four bands:
 3. **Waiting on you** (orange left bar).
 4. Everything else, most recently updated first.
 
+This is the **Review order**, the default. Choose **Newest first** in the sort control to sort by the last update instead:
+
+- A group sorts by the newest update of its PRs, so a stack stays together.
+- The bands have no effect on the position of a group. Each group keeps its green, dark cyan or orange left border.
+- The page saves your choice.
+
 ## How old the base is
 
 Some hosts reject a push when the PR's base is older than a set number of hours. Shepherd shows a **base 26h old** pill so you see it before the push fails.
@@ -93,6 +99,7 @@ A PR counts as approved when GitHub's review decision is approved, or when at le
   - **Repos:** one chip per tracked repo. When the server sends no repo list (`repos: []` in `/api/config`), the page makes one chip for each repo (host, owner and name) that has PRs in the list, and the header counts those repos. A chip shows the repo name, or `owner/name` when two repos have the same name, plus the host label when two hosts have the same `owner/name`. The chips are in label order. A selected repo with no PRs in the list keeps its chip, with a count of 0, so you can see why the list is empty and clear the filter.
   - **Approved** (approved PRs and fully approved stacks) and **Partially approved** (stacks where only some PRs are approved). They act on whole stacks, never splitting one, and each chip counts its groups. Select both to see all approved work.
 - **Drafts and Dormant 60d+.** Show or hide those PRs. Drafts are shown by default. Dormant PRs (no update for 60 days) are hidden by default, unless they wait on you.
+- **Sort.** **Review order** (default) or **Newest first**. See [Order and approved work](#order-and-approved-work). On narrow screens, it is under the **Filters** button. **Newest first** adds 1 to the count on that button, so you can see that the list is not in review order.
 - **Search.** Matches title, branch, repo, number, author and ticket. Press `/` to focus it.
 
 Your choices are saved in the browser.

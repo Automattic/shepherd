@@ -35,6 +35,8 @@ import { changesRequestedPending, isTurnOf, WAIT_REASON_TEXT, waitReasons, type 
 type CellName = 'pr' | 'wait' | 'appr' | 'bot' | 'ppl' | 'status' | 'upd';
 type TileId = 'me' | 'approved' | 'changes' | 'bot';
 type Theme = 'light' | 'dark';
+/** `review` is the band order; `newest` sorts groups by their newest update. */
+type SortOrder = 'review' | 'newest';
 
 interface Row {
 	key: string;
@@ -95,6 +97,7 @@ interface Settings {
 	shippedOpen: boolean;
 	/** Show only the merged PRs that left follow-ups. */
 	shippedNeedsFollowUp: boolean;
+	sort: SortOrder;
 }
 
 interface Tile {
@@ -168,6 +171,10 @@ const isTileId = (v: string): v is TileId => v === 'me' || v === 'approved' || v
 // ---------------------------------------------------------------------------
 // Constants
 
+const SORT_ORDERS: readonly { id: SortOrder; label: string; title: string }[] = [
+	{ id: 'review', label: 'Review order', title: 'Ready to ship, approved but blocked, waiting on you, then the rest' },
+	{ id: 'newest', label: 'Newest first', title: 'Most recently updated first; a stack stays together' },
+];
 const INTERVALS: readonly { label: string; ms: number }[] = [
 	{ label: '5s', ms: 5_000 },
 	{ label: '30s', ms: 30_000 },
@@ -204,6 +211,7 @@ function loadSettings(): Settings {
 		mergedRange: 'this-week',
 		shippedOpen: false,
 		shippedNeedsFollowUp: false,
+		sort: 'review',
 	};
 	let saved: unknown;
 	try {
@@ -216,6 +224,7 @@ function loadSettings(): Settings {
 	if (!isMergedRange(settings.mergedRange)) settings.mergedRange = 'this-week';
 	settings.shippedOpen = settings.shippedOpen === true;
 	settings.shippedNeedsFollowUp = settings.shippedNeedsFollowUp === true;
+	if (settings.sort !== 'newest') settings.sort = 'review';
 	return settings;
 }
 
@@ -947,10 +956,12 @@ function computeGroups(): Group[] {
 			updated: Math.max(...members.map((m) => new Date(m.light.updatedAt).getTime())),
 		});
 	}
-	// Ready to land first (approved, no conflicts, no failed checks), then approved but blocked,
+	// Review order: ready to land first (approved, no conflicts, no failed checks), then approved but blocked,
 	// then what waits on you, then most recently updated.
+	// "Newest first" uses only the newest update in each group. The band borders stay in both orders.
 	const band = (g: Group): number => (g.approved ? (g.blocked ? 1 : 2) : 0);
-	groups.sort((a, b) => band(b) - band(a) || Number(b.you) - Number(a.you) || b.updated - a.updated);
+	if (S.sort === 'newest') groups.sort((a, b) => b.updated - a.updated);
+	else groups.sort((a, b) => band(b) - band(a) || Number(b.you) - Number(a.you) || b.updated - a.updated);
 	return groups;
 }
 
@@ -1136,8 +1147,10 @@ function renderChrome(): void {
 	if (togglesEl.innerHTML !== toggles) togglesEl.innerHTML = toggles;
 
 	// The collapsed filter button counts chips that differ from their defaults, so a short list is explained.
+	// A sort other than Review order also counts, because the panel hides the sort control.
 	const activeFilters =
-		S.people.length + S.waitingOn.length + S.repos.length + Number(S.onlyApproved) + Number(S.onlyPartial) + Number(!S.drafts) + Number(S.dormant);
+		S.people.length + S.waitingOn.length + S.repos.length + Number(S.onlyApproved) + Number(S.onlyPartial) + Number(!S.drafts) + Number(S.dormant) +
+		Number(S.sort !== 'review');
 	const filtersCount = $('#filters-count');
 	filtersCount.hidden = !activeFilters;
 	filtersCount.textContent = String(activeFilters);
@@ -1821,6 +1834,22 @@ qInput.addEventListener('input', () => {
 	scheduleLayout();
 });
 
+function renderSort(): void {
+	$('#sort').innerHTML = SORT_ORDERS.map(
+		(o) => `<button role="radio" aria-checked="${S.sort === o.id}" data-sort="${o.id}" title="${esc(o.title)}">${esc(o.label)}</button>`
+	).join('');
+}
+$('#sort').addEventListener('click', (e) => {
+	const target = e.target;
+	if (!(target instanceof Element)) return;
+	const b = target.closest('[data-sort]');
+	if (!(b instanceof HTMLElement)) return;
+	S.sort = b.dataset.sort === 'newest' ? 'newest' : 'review';
+	save();
+	renderSort();
+	scheduleLayout();
+});
+
 function renderIntervals(): void {
 	$('#interval').innerHTML = INTERVALS.map(
 		(i) => `<button role="radio" aria-checked="${S.interval === i.ms}" data-interval="${i.ms}" title="Refresh every ${i.label}">${i.label}</button>`
@@ -1882,6 +1911,7 @@ void (async function boot(): Promise<void> {
 	if (!Array.isArray(S.reviewers)) S.reviewers = [cfg.me];
 	if (!INTERVALS.some((i) => i.ms === S.interval)) S.interval = 60_000;
 	renderIntervals();
+	renderSort();
 	renderShipped();
 	layout();
 	schedule();
