@@ -204,6 +204,7 @@ describe('MCP tools with review teams', () => {
 				if (opts.failing?.includes(Number(req.number))) throw new Error('proxy timeout');
 				return details[Number(req.number)]!;
 			},
+			cachedDetail: () => null,
 			listMerged: async () => ({ prs: [], total: 0 }),
 			getFollowUps: async () => ({ followUps: {}, errors: {} }),
 		};
@@ -323,6 +324,15 @@ describe('getDetail marks review teams', () => {
 			['Example-Org/reviewers', true],
 			['other-org/reviewers', false],
 		]);
+	});
+
+	test('cachedDetail gives a fetched detail only for the same updatedAt', async () => {
+		const prs = service();
+		const key = 'github:example-org/app#3';
+		expect(prs.cachedDetail(key, now)).toBeNull();
+		const d = await prs.getDetail({ host: 'github', owner: 'example-org', repo: 'app', number: 3, head: 'feature', base: 'main' });
+		expect(prs.cachedDetail(key, now)).toBe(d);
+		expect(prs.cachedDetail(key, '2000-01-01T00:00:00Z')).toBeNull();
 	});
 
 	test('marks nothing on a host without reviewTeams', async () => {

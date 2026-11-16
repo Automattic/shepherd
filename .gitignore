@@ -3,6 +3,7 @@ config.json
 
 # Dependencies and Bun/Node output
 node_modules/
+dist/
 *.log
 npm-debug.log*
 
