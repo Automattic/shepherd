@@ -26,7 +26,7 @@ import { baseAgeHours, baseTooOld } from '../src/base-age.ts';
 import { resolveFeatures, type Features } from '../src/features.ts';
 import { FOLLOWUPS_MAX_PRS, liveFollowUps, needingFollowUp } from '../src/followups.ts';
 import { countByAuthor, isMergedRange, MERGED_RANGE_LABELS, MERGED_RANGES, mergedInRange, type MergedRange } from '../src/merged.ts';
-import { apiHeaders, apiUrl, readEmbedOptions, sendsToken } from '../src/embed.ts';
+import { apiHeaders, apiUrl, pageToken, readEmbedOptions, sendsToken } from '../src/embed.ts';
 import { PUSH_POLICY_LABELS, resolvePushPolicy } from '../src/push-policy.ts';
 import { parseRepoKey, repoChipLabels, repoKey, unknownSelectedRepos } from '../src/repo-chips.ts';
 import { rowMaxAge } from '../src/row-refresh.ts';
@@ -252,16 +252,10 @@ const EMBED = readEmbedOptions(RAW_EMBED);
 
 // The server prints a `#token=` link when SHEPHERD_TOKEN is set. Keep the token in this
 // origin's storage (other ports on 127.0.0.1 can't read it) and send it as a header.
-// In a host page, the hash belongs to the host: the client does not read it, change it or reload on it.
-const TOKEN_KEY = 'shepherd.token';
-let token = EMBEDDED ? '' : (new URLSearchParams(location.hash.slice(1)).get('token') ?? '');
-if (token) history.replaceState(null, '', location.pathname + location.search);
-try {
-	if (token) localStorage.setItem(TOKEN_KEY, token);
-	else token = localStorage.getItem(TOKEN_KEY) ?? '';
-} catch {
-	/* storage unavailable: a token from the link still works for this page load */
-}
+// A host page has no token: the client does not read its hash or its storage, change them or reload on them.
+const hashToken = EMBEDDED ? '' : (new URLSearchParams(location.hash.slice(1)).get('token') ?? '');
+if (hashToken) history.replaceState(null, '', location.pathname + location.search);
+const token = pageToken(EMBEDDED, hashToken, () => localStorage);
 // Pasting the link into an open dashboard only changes the hash, so reload to pick it up.
 if (!EMBEDDED) {
 	addEventListener('hashchange', () => {

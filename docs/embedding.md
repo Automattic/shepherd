@@ -90,9 +90,9 @@ The client sets the headers of each API call in this order. A later header with 
 2. The headers of the call itself, for example `content-type` on a `POST`.
 3. `Authorization: Bearer <token>`, when the page has a token from a `#token=` link (see [Token](configuration.md#token-optional)). The client adds it only when the headers from steps 1 and 2 have no `Authorization` header.
 
-The token belongs to the origin of the page. The client sends it only when `apiBase` is missing, is a path, or is a URL on the same origin (the same scheme, host and port). A server on another origin does not get it, so give that server its own `Authorization` in `headers`.
+When `window.SHEPHERD` is an object, the page has no token. The hash and the browser storage of the page belong to the host page. The client does not read a `#token=` from the hash, does not remove it, and does not reload the page when it changes. It also does not read or write the token that the standalone dashboard saves in the browser storage. So a host that signs in with cookies or HTTP Basic authentication keeps working, also on an origin where the standalone dashboard ran before. Give the API its own authentication in `headers`. An API on the same origin also gets the cookies and the HTTP Basic credentials of the browser.
 
-When `window.SHEPHERD` is an object, the hash of the page belongs to the host page. The client does not read a `#token=` from it, does not remove it, and does not reload the page when it changes. A token that this browser saved before for the origin still works.
+The standalone page sends its token only to the default `/api`. As a second guard, the client never sends the token to an `apiBase` URL on another origin (another scheme, host or port).
 
 When `/api/config` answers 401 and `window.SHEPHERD` is an object, the page shows a general message. Only the local server prints a `#token=` link.
 

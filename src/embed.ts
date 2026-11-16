@@ -117,6 +117,32 @@ export function sendsToken(apiBase: string | undefined, pageOrigin: string): boo
 	}
 }
 
+/** The key of the saved token in the browser storage of the standalone page. */
+export const TOKEN_KEY = 'shepherd.token';
+
+/** The part of `localStorage` that the token uses. */
+export interface TokenStore {
+	getItem(key: string): string | null;
+	setItem(key: string, value: string): void;
+}
+
+/**
+ * The bearer token of the page. The standalone page gets it from a `#token=` link (`hashToken`) and keeps it
+ * in the storage of this origin for later loads. A host page (`window.SHEPHERD` is an object) has no token:
+ * the hash and the storage of the origin belong to the host, which sends its own authentication in `headers`.
+ * `store` is a function because reading `localStorage` can throw.
+ */
+export function pageToken(embedded: boolean, hashToken: string, store: () => TokenStore): string {
+	if (embedded) return '';
+	try {
+		if (hashToken) store().setItem(TOKEN_KEY, hashToken);
+		else return store().getItem(TOKEN_KEY) ?? '';
+	} catch {
+		/* storage unavailable: a token from the link still works for this page load */
+	}
+	return hashToken;
+}
+
 /**
  * The headers of one API call, in this order: the host's headers, then the headers of the call,
  * then the bearer token. The token is added only when no earlier header sets `Authorization`.

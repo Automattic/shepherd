@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { apiHeaders, apiUrl, readEmbedOptions, sendsToken } from './embed.ts';
+import { apiHeaders, apiUrl, pageToken, readEmbedOptions, sendsToken, TOKEN_KEY, type TokenStore } from './embed.ts';
 
 test('readEmbedOptions gives no options when window.SHEPHERD is not an object', () => {
 	for (const raw of [undefined, null, 'x', 42, true, ['/x']]) expect(readEmbedOptions(raw)).toEqual({});
@@ -113,4 +113,32 @@ test('sendsToken allows the default, a path and a URL on the page origin only', 
 	for (const apiBase of ['https://other.example/api', 'http://app.example/api', 'https://app.example:8443/api', 'https://app.example.evil/api', '//other.example/api']) {
 		expect(sendsToken(apiBase, page)).toBe(false);
 	}
+});
+
+function memoryStore(saved?: string): TokenStore & { data: Map<string, string> } {
+	const data = new Map<string, string>(saved === undefined ? [] : [[TOKEN_KEY, saved]]);
+	return { data, getItem: (k) => data.get(k) ?? null, setItem: (k, v) => void data.set(k, v) };
+}
+
+test('pageToken: the standalone page saves a token from the link and reads a saved one later', () => {
+	const store = memoryStore();
+	expect(pageToken(false, 'from-link', () => store)).toBe('from-link');
+	expect(store.data.get(TOKEN_KEY)).toBe('from-link');
+	expect(pageToken(false, '', () => store)).toBe('from-link');
+	expect(pageToken(false, '', () => memoryStore())).toBe('');
+});
+
+test('pageToken: a host page neither reads nor writes the saved token', () => {
+	const store = memoryStore('stale-token');
+	expect(pageToken(true, '', () => store)).toBe('');
+	expect(pageToken(true, 'from-link', () => store)).toBe('');
+	expect(store.data.get(TOKEN_KEY)).toBe('stale-token');
+});
+
+test('pageToken: without storage, a token from the link still works for this page load', () => {
+	const broken = (): TokenStore => {
+		throw new Error('SecurityError');
+	};
+	expect(pageToken(false, 'from-link', broken)).toBe('from-link');
+	expect(pageToken(false, '', broken)).toBe('');
 });
