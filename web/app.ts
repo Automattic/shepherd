@@ -1077,8 +1077,10 @@ function renderChrome(): void {
 	if (togglesEl.innerHTML !== toggles) togglesEl.innerHTML = toggles;
 
 	// The collapsed filter button counts chips that differ from their defaults, so a short list is explained.
+	// A sort other than Review order also counts, because the panel hides the sort control.
 	const activeFilters =
-		S.people.length + S.waitingOn.length + S.repos.length + Number(S.onlyApproved) + Number(S.onlyPartial) + Number(!S.drafts) + Number(S.dormant);
+		S.people.length + S.waitingOn.length + S.repos.length + Number(S.onlyApproved) + Number(S.onlyPartial) + Number(!S.drafts) + Number(S.dormant) +
+		Number(S.sort !== 'review');
 	const filtersCount = $('#filters-count');
 	filtersCount.hidden = !activeFilters;
 	filtersCount.textContent = String(activeFilters);

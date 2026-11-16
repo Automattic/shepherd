@@ -99,7 +99,7 @@ A PR counts as approved when GitHub's review decision is approved, or when at le
   - **Repos:** one chip per tracked repo.
   - **Approved** (approved PRs and fully approved stacks) and **Partially approved** (stacks where only some PRs are approved). They act on whole stacks, never splitting one, and each chip counts its groups. Select both to see all approved work.
 - **Drafts and Dormant 60d+.** Show or hide those PRs. Drafts are shown by default. Dormant PRs (no update for 60 days) are hidden by default, unless they wait on you.
-- **Sort.** **Review order** (default) or **Newest first**. See [Order and approved work](#order-and-approved-work). On narrow screens, it is under the **Filters** button.
+- **Sort.** **Review order** (default) or **Newest first**. See [Order and approved work](#order-and-approved-work). On narrow screens, it is under the **Filters** button. **Newest first** adds 1 to the count on that button, so you can see that the list is not in review order.
 - **Search.** Matches title, branch, repo, number, author and ticket. Press `/` to focus it.
 
 Your choices are saved in the browser.
