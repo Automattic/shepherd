@@ -46,7 +46,7 @@ describe('refresh config', () => {
 	});
 });
 
-function service(remaining?: number) {
+function service(remaining?: number, config: Config = { ...base, refresh: 'list' }) {
 	const queries: string[] = [];
 	const gh: GhRunner = {
 		rate: remaining === undefined ? {} : { github: { remaining, limit: 5000, resetAt: '', at: Date.now() } },
@@ -57,7 +57,7 @@ function service(remaining?: number) {
 			return { search: { issueCount: 0, pageInfo: { hasNextPage: false, endCursor: null }, nodes: [] } } as T;
 		},
 	};
-	return { prs: createPrService(base, gh), queries };
+	return { prs: createPrService(config, gh), queries };
 }
 
 describe('listHost with force', () => {
@@ -76,6 +76,14 @@ describe('listHost with force', () => {
 		await Bun.sleep(1_050);
 		await prs.listHost('github', [], { force: true });
 		expect(queries).toHaveLength(2);
+	});
+
+	test('a forced call uses the cache when the server is not in "list" mode', async () => {
+		const { prs, queries } = service(undefined, base);
+		await prs.listHost('github', []);
+		await Bun.sleep(1_050);
+		await prs.listHost('github', [], { force: true });
+		expect(queries).toHaveLength(1);
 	});
 
 	test('forced calls at the same time share one search', async () => {

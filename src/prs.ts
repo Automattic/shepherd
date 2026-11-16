@@ -347,7 +347,7 @@ export interface PrTarget {
 
 export interface PrService {
 	readonly hostKeys: string[];
-	/** `force` skips the short list cache. A low budget still reuses the last list, and calls at the same time share one search. */
+	/** `force` skips the short list cache, only when `refresh` is "list". A low budget still reuses the last list, and calls at the same time share one search. */
 	listHost(hostKey: string, reviewerIds: string[], opts?: { force?: boolean }): Promise<{ prs: LightPr[]; throttled: boolean }>;
 	/** The team's PRs merged in the last MERGED_FETCH_DAYS days; callers filter to a range. */
 	listMerged(hostKey: string): Promise<MergedList>;
@@ -435,7 +435,9 @@ export function createPrService(config: Config, gh: GhRunner): PrService {
 		return { repos, authors };
 	}
 
-	function listHost(hostKey: string, reviewerIds: string[], { force = false }: { force?: boolean } = {}) {
+	function listHost(hostKey: string, reviewerIds: string[], opts: { force?: boolean } = {}) {
+		// Only a page in "list" mode sends force, so other servers ignore it.
+		const force = opts.force === true && config.refresh === 'list';
 		const cacheKey = `${hostKey}|${reviewerIds.join(',')}`;
 		const cached = listCache.get(cacheKey);
 		const r = gh.rate[hostKey];
