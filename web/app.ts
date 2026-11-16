@@ -1171,18 +1171,8 @@ async function fetchDetail(row: Row): Promise<void> {
 		}
 		if (!res.ok) throw new Error(responseError(body) || res.statusText);
 		if (!isDetailResponse(body)) throw new Error('Unexpected response from /api/pr');
-		const d = body.pr;
 		if (body.rate) rate[l.host] = body.rate;
-		const structural = !row.detail || row.detail.parent?.number !== d.parent?.number || l.baseRefName !== d.baseRefName || l.headRefName !== d.headRefName;
-		row.detail = d;
-		row.light = { ...l, title: d.title, isDraft: d.isDraft, updatedAt: d.updatedAt, headRefName: d.headRefName, baseRefName: d.baseRefName };
-		row.lastFetch = Date.now();
-		row.error = null;
-		if (d.state === 'MERGED') markMerged(row);
-		else if (d.state === 'CLOSED') removeRow(row);
-		else if (row.missing >= 2) removeRow(row); // open, but no longer matches any search
-		if (structural) scheduleLayout();
-		else scheduleChrome();
+		applyDetail(row, body.pr, Date.now());
 	} catch (e) {
 		row.error = errorName(e) === 'AbortError' ? 'timed out' : errorMessage(e);
 	} finally {
@@ -1190,6 +1180,36 @@ async function fetchDetail(row: Row): Promise<void> {
 		row.fetching = false;
 		if (rows.has(row.key)) renderRow(row);
 	}
+}
+
+/** Puts details on a row. `at` is when they were fetched, so an old copy from the list still gets refreshed. */
+function applyDetail(row: Row, d: PrDetail, at: number): void {
+	const l = row.light;
+	const structural = !row.detail || row.detail.parent?.number !== d.parent?.number || l.baseRefName !== d.baseRefName || l.headRefName !== d.headRefName;
+	row.detail = d;
+	row.light = { ...l, title: d.title, isDraft: d.isDraft, updatedAt: d.updatedAt, headRefName: d.headRefName, baseRefName: d.baseRefName };
+	row.lastFetch = at;
+	row.error = null;
+	if (d.state === 'MERGED') markMerged(row);
+	else if (d.state === 'CLOSED') removeRow(row);
+	else if (row.missing >= 2) removeRow(row); // open, but no longer matches any search
+	if (structural) scheduleLayout();
+	else scheduleChrome();
+}
+
+/**
+ * Uses the details that came with the list, when they match the row. Returns false when the row still needs /api/pr.
+ * `skew` is the browser clock minus the server clock; it moves the server's `fetchedAt` to the browser clock.
+ */
+function applyListedDetail(row: Row, detail: PrDetail | undefined, skew: number): boolean {
+	if (!detail || detail.updatedAt !== row.light.updatedAt) return false;
+	const at = Math.min(Date.parse(detail.fetchedAt) + skew, Date.now());
+	if (Number.isNaN(at)) return false;
+	// A row that loads at the same time already has newer details on the way.
+	if (row.fetching || (row.detail && row.lastFetch >= at)) return true;
+	applyDetail(row, detail, at);
+	renderRow(row);
+	return true;
 }
 
 let chromePending = false;
@@ -1247,20 +1267,25 @@ async function refreshList({ force = false }: { force?: boolean } = {}): Promise
 		lastList = Date.now();
 		if (!list) throw new Error(responseError(body) || 'Unexpected response from /api/prs');
 		const seen = new Set<string>();
-		for (const pr of list.prs) {
+		// The server and the browser clocks can differ; listed details carry server times.
+		const skew = Date.now() - (Date.parse(list.fetchedAt) || Date.now());
+		for (const { detail, ...pr } of list.prs) {
 			seen.add(pr.key);
 			let row = rows.get(pr.key);
 			if (!row) {
 				row = createRow(pr);
 				rows.set(pr.key, row);
 				renderRow(row);
-				if (inScope(row)) enqueue(row, { priority: true });
+				// The age check below still refreshes listed details that are too old.
+				if (!applyListedDetail(row, detail, skew) && inScope(row)) enqueue(row, { priority: true });
 				continue;
 			}
 			if (row.gone) continue;
 			const changed = pr.updatedAt !== row.light.updatedAt;
 			row.light = { ...row.light, ...pr, updatedAt: changed ? pr.updatedAt : row.light.updatedAt };
 			row.missing = 0;
+			// "Refresh now" asks for every row again, as before.
+			if (!force && changed && applyListedDetail(row, detail, skew)) continue;
 			if ((changed || force) && inScope(row)) enqueue(row, { force: true, priority: changed });
 		}
 		for (const row of rows.values()) {
