@@ -24,6 +24,7 @@ The client reads the object one time, when it starts. Changes to the object afte
 | `apiBase` | Replaces the `/api` prefix of every API call. For example, `/api/prs?reviewers=…` goes to `/my-app/api/shepherd/prs?reviewers=…`. Use a path on the same origin (it starts with one `/`) or a URL that starts with `http://` or `https://`. A URL on a different origin needs CORS on that server. The client removes a trailing `/`. |
 | `headers` | An object of header names and string values. The client adds them to every API call. The browser does not send some headers that a page sets, for example `Cookie`, `Host`, `Origin`, `Referer` and the names that start with `Sec-` or `Proxy-`. Use other names. |
 | `mount` | The element that gets the dashboard: a CSS selector or an element. The default is `#shepherd`. The client replaces the content of the element. When no element matches, the client stops with an error in the browser console. |
+| `apiTrailingSlash` | `true` adds a `/` to the end of the path of each call to `apiBase`, before the query. For example, `/api/prs?reviewers=…` goes to `/my-app/api/shepherd/prs/?reviewers=…`. Use it when the host redirects a path without the slash: each redirect costs one more request, and a browser changes a redirected `POST` to a `GET`. It has no effect without `apiBase`. The default is `false`. |
 | `header` | `false` removes the brand header (the logo, the name and the line below it). The controls (the rate budget, the refresh interval, **Refresh now** and the theme button) stay in a bar at the top of the dashboard. This bar does not stick to the top of the window. The default is `true`. |
 
 The host's API must give the same responses as the paths below on the local server:
@@ -63,7 +64,7 @@ All the rules in `styles.css` start with `.shepherd`, the class that the client 
 - One dashboard on each page. The client keeps its state in the module, so a second mount element stays empty.
 - The client keeps the IDs of its elements, for example `#q`, `#groups` and `#popover`, because its code finds them by ID. It looks for them only inside the mount element, so an element with the same ID on the host page does not change the dashboard. But a page with two elements with the same ID is not valid HTML, and the host's CSS rules for these IDs also apply to the dashboard. Do not use these IDs on the host page.
 - The host's CSS rules for element names (for example `button` or `input`) also apply in the dashboard, when a rule of the client does not set the same property.
-- The host's CSS rules for class names also apply in the dashboard, when a rule of the client does not set the same property. The dashboard uses common class names, for example `.row`, `.popover`, `.badge`, `.tile`, `.empty`, `.search`, `.status` and `.avatar`. For example, a CSS framework rule `.row { margin-left: -15px; }` moves each row of the dashboard. Limit such rules to the host's own elements.
+- The host's CSS rules for class names also apply in the dashboard, when a rule of the client does not set the same property. The dashboard uses common class names, for example `.row`, `.popover`, `.badge`, `.tile`, `.empty`, `.search`, `.status` and `.avatar`. For example, a CSS framework rule `.row { margin-left: -15px; }` moves each row of the dashboard. Limit such rules to the host's own elements. The avatar background is an exception: it has `!important`, so a host `.avatar` rule with `!important` does not hide the colors of the initials avatars.
 - The layout changes at fixed widths of the window (`@media (max-width: …)`), not of the mount element. In a mount element that is much narrower than the window, the dashboard keeps the wide columns and overflows the element. Give the mount element the full width of the window, less a small margin.
 - The popover and the "Copied" tip use `position: fixed`. When an ancestor of the mount element has a `transform` or a `filter`, they show at the wrong position.
 - The client renders a `<main>` element. Do not put the mount element in another `<main>`.
@@ -79,6 +80,7 @@ The client ignores a value that is not valid, and uses the default for it:
 - The client ignores each header that has a value that is not a string, or a name or value that the browser does not accept.
 - When `mount` is not a string or an element, or is an empty string, the client uses `#shepherd`.
 - When `header` is not `true` or `false`, the client shows the header.
+- When `apiTrailingSlash` is not `true` or `false`, the client adds no slash.
 
 ## Headers and the token
 

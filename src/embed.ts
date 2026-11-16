@@ -12,6 +12,8 @@ export interface ShepherdEmbedOptions {
 	mount?: string | Element;
 	/** `false` hides the brand header. The controls stay. Default: `true`. */
 	header?: boolean;
+	/** `true` adds a `/` to the end of the path of each API call to `apiBase`, before the query. Default: `false`. */
+	apiTrailingSlash?: boolean;
 }
 
 /** The mount element of the standalone page (public/index.html). */
@@ -80,14 +82,23 @@ export function readEmbedOptions(raw: unknown): ShepherdEmbedOptions {
 	const mount = readMount(raw.mount);
 	if (mount !== undefined) opts.mount = mount;
 	if (typeof raw.header === 'boolean') opts.header = raw.header;
+	if (typeof raw.apiTrailingSlash === 'boolean') opts.apiTrailingSlash = raw.apiTrailingSlash;
 	return opts;
 }
 
-/** Replaces the `/api` prefix of `path` with `apiBase`. Other paths do not change. */
-export function apiUrl(path: string, apiBase: string | undefined): string {
+/**
+ * Replaces the `/api` prefix of `path` with `apiBase`. Other paths do not change.
+ * With `trailingSlash`, the path of the new URL ends with `/`, before the query. Some hosts
+ * redirect a path without the slash, and each redirect costs one more request.
+ */
+export function apiUrl(path: string, apiBase: string | undefined, trailingSlash = false): string {
 	if (apiBase === undefined) return path;
-	if (path === '/api' || path.startsWith('/api/') || path.startsWith('/api?')) return apiBase + path.slice(4);
-	return path;
+	if (path !== '/api' && !path.startsWith('/api/') && !path.startsWith('/api?')) return path;
+	const url = apiBase + path.slice(4);
+	if (!trailingSlash) return url;
+	const q = url.indexOf('?');
+	const [route, query] = q === -1 ? [url, ''] : [url.slice(0, q), url.slice(q)];
+	return (route.endsWith('/') ? route : route + '/') + query;
 }
 
 /**

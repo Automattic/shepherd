@@ -54,6 +54,24 @@ test('apiUrl replaces only the /api prefix', () => {
 	expect(apiUrl('/app.js', '/x')).toBe('/app.js');
 });
 
+test('apiUrl adds a trailing slash before the query only when asked', () => {
+	expect(apiUrl('/api/prs?reviewers=a', '/wp-json/x/v1', true)).toBe('/wp-json/x/v1/prs/?reviewers=a');
+	expect(apiUrl('/api/config', '/wp-json/x/v1', true)).toBe('/wp-json/x/v1/config/');
+	expect(apiUrl('/api', '/wp-json/x/v1', true)).toBe('/wp-json/x/v1/');
+	expect(apiUrl('/api?a=1', '/x', true)).toBe('/x/?a=1');
+	expect(apiUrl('/api/pr?u=https://e.com/a', 'https://example.com/s', true)).toBe('https://example.com/s/pr/?u=https://e.com/a');
+	// Without apiBase, the local server gets its own paths, without a slash.
+	expect(apiUrl('/api/prs?reviewers=a', undefined, true)).toBe('/api/prs?reviewers=a');
+	expect(apiUrl('/app.js', '/x', true)).toBe('/app.js');
+	expect(apiUrl('/api/prs?reviewers=a', '/x', false)).toBe('/x/prs?reviewers=a');
+});
+
+test('readEmbedOptions keeps a boolean apiTrailingSlash only', () => {
+	expect(readEmbedOptions({ apiTrailingSlash: true })).toEqual({ apiTrailingSlash: true });
+	expect(readEmbedOptions({ apiTrailingSlash: false })).toEqual({ apiTrailingSlash: false });
+	expect(readEmbedOptions({ apiTrailingSlash: 'yes' })).toEqual({});
+});
+
 test('apiHeaders adds the host headers, then the call headers, then the token', () => {
 	const h = apiHeaders({ 'X-Nonce': 'n', 'Content-Type': 'text/plain' }, { 'content-type': 'application/json' }, 'tok');
 	expect(h.get('x-nonce')).toBe('n');
