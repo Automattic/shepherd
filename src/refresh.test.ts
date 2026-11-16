@@ -1,7 +1,7 @@
 // Server refresh rules: the `refresh` and `rowRefresh*` config keys, and forced list calls. Run with `bun test`.
 
-import { describe, expect, test } from 'bun:test';
-import { problems, publicConfig } from './config.ts';
+import { afterEach, describe, expect, setSystemTime, test } from 'bun:test';
+import { MIN_ROW_REFRESH_MS, problems, publicConfig } from './config.ts';
 import type { GhRunner } from './gh.ts';
 import { createPrService } from './prs.ts';
 import type { Config } from './types.ts';
@@ -26,21 +26,21 @@ describe('refresh config', () => {
 	});
 
 	test('valid values pass and reach the public config', () => {
-		const c: Config = { ...withHost({ rowRefreshFloorMs: 300_000, rowRefreshLowBudgetMs: 0 }), refresh: 'list' };
+		const c: Config = { ...withHost({ rowRefreshFloorMs: 300_000, rowRefreshLowBudgetMs: MIN_ROW_REFRESH_MS }), refresh: 'list' };
 		expect(problems(c)).toEqual([]);
 		const pub = publicConfig(c);
 		expect(pub.refresh).toBe('list');
-		expect(pub.hosts.github).toMatchObject({ rowRefreshFloorMs: 300_000, rowRefreshLowBudgetMs: 0 });
+		expect(pub.hosts.github).toMatchObject({ rowRefreshFloorMs: 300_000, rowRefreshLowBudgetMs: 10_000 });
 	});
 
 	test('bad values are reported', () => {
 		expect(problems({ ...base, refresh: 'never' as never })).toEqual(['`refresh` must be "rows" or "list", or no such field']);
-		for (const v of [-1, '60000', Number.NaN, Infinity, null]) {
+		for (const v of [-1, 0, 1_000, 9_999, '60000', Number.NaN, Infinity, null]) {
 			expect(problems(withHost({ rowRefreshFloorMs: v }))).toEqual([
-				'hosts.github.rowRefreshFloorMs must be a number of milliseconds (0 or more), or no such field',
+				'hosts.github.rowRefreshFloorMs must be a number of milliseconds (10000 or more), or no such field',
 			]);
 			expect(problems(withHost({ rowRefreshLowBudgetMs: v }))).toEqual([
-				'hosts.github.rowRefreshLowBudgetMs must be a number of milliseconds (0 or more), or no such field',
+				'hosts.github.rowRefreshLowBudgetMs must be a number of milliseconds (10000 or more), or no such field',
 			]);
 		}
 	});
@@ -61,6 +61,8 @@ function service(remaining?: number, config: Config = { ...base, refresh: 'list'
 }
 
 describe('listHost with force', () => {
+	afterEach(() => setSystemTime());
+
 	test('a normal call reuses the short list cache', async () => {
 		const { prs, queries } = service();
 		await prs.listHost('github', []);
@@ -68,12 +70,14 @@ describe('listHost with force', () => {
 		expect(queries).toHaveLength(1);
 	});
 
-	test('a forced call skips the cache once the cached list is a second old', async () => {
+	test('a forced call reuses a list that is less than 10 seconds old', async () => {
 		const { prs, queries } = service();
+		const start = Date.now();
 		await prs.listHost('github', []);
-		await prs.listHost('github', [], { force: true }); // under a second: still cached
+		setSystemTime(new Date(start + 9_900)); // older than the normal 2-second cache, but under 10 seconds
+		await prs.listHost('github', [], { force: true });
 		expect(queries).toHaveLength(1);
-		await Bun.sleep(1_050);
+		setSystemTime(new Date(start + 10_100));
 		await prs.listHost('github', [], { force: true });
 		expect(queries).toHaveLength(2);
 	});
@@ -81,7 +85,7 @@ describe('listHost with force', () => {
 	test('a forced call uses the cache when the server is not in "list" mode', async () => {
 		const { prs, queries } = service(undefined, base);
 		await prs.listHost('github', []);
-		await Bun.sleep(1_050);
+		await Bun.sleep(1_050); // the normal 2-second cache still applies
 		await prs.listHost('github', [], { force: true });
 		expect(queries).toHaveLength(1);
 	});
@@ -95,8 +99,9 @@ describe('listHost with force', () => {
 
 	test('a forced call still reuses the last list when the budget is low', async () => {
 		const { prs, queries } = service(100);
+		const start = Date.now();
 		await prs.listHost('github', []);
-		await Bun.sleep(1_050);
+		setSystemTime(new Date(start + 10_100));
 		const r = await prs.listHost('github', [], { force: true });
 		expect(queries).toHaveLength(1);
 		expect(r.throttled).toBe(true);

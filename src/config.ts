@@ -18,6 +18,9 @@ function fail(message: string): never {
 	process.exit(1);
 }
 
+/** The shortest allowed `rowRefreshFloorMs` and `rowRefreshLowBudgetMs`: the page must not load a row more often than every 10 seconds. */
+export const MIN_ROW_REFRESH_MS = 10_000;
+
 /** Checks the shape of a parsed config and returns a list of problems. */
 export function problems(c: Partial<Config>): string[] {
 	const out: string[] = [];
@@ -52,8 +55,8 @@ export function problems(c: Partial<Config>): string[] {
 		}
 		for (const field of ['rowRefreshFloorMs', 'rowRefreshLowBudgetMs'] as const) {
 			const v = h[field];
-			if (v !== undefined && !(typeof v === 'number' && Number.isFinite(v) && v >= 0)) {
-				out.push(`hosts.${key}.${field} must be a number of milliseconds (0 or more), or no such field`);
+			if (v !== undefined && !(typeof v === 'number' && Number.isFinite(v) && v >= MIN_ROW_REFRESH_MS)) {
+				out.push(`hosts.${key}.${field} must be a number of milliseconds (${MIN_ROW_REFRESH_MS} or more), or no such field`);
 			}
 		}
 	}

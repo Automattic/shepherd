@@ -44,6 +44,8 @@ interface Row {
 	queued: boolean;
 	force: boolean;
 	lastFetch: number;
+	/** When the last `/api/pr` call for this row started, also a call that failed. */
+	lastTry: number;
 	/** List refreshes in a row that did not return this PR. */
 	missing: number;
 	error: string | null;
@@ -169,6 +171,8 @@ const INTERVALS: readonly { label: string; ms: number }[] = [
 	{ label: '5m', ms: 300_000 },
 	{ label: '15m', ms: 900_000 },
 ];
+/** In "list" mode, the page does not load a row from the list more often than this. */
+const LIST_ROW_RETRY_MS = 10_000;
 const DORMANT_MS = 60 * 24 * 3600 * 1000;
 const DEFAULT_BRANCHES: ReadonlySet<string> = new Set(['trunk', 'main', 'master', 'develop']);
 const MAX_PARALLEL = 5; // leaves one browser connection free for the list call
@@ -428,6 +432,7 @@ function createRow(light: LightPr): Row {
 		queued: false,
 		force: false,
 		lastFetch: 0,
+		lastTry: 0,
 		missing: 0,
 		error: null,
 		gone: false,
@@ -1141,6 +1146,7 @@ function pump(): void {
 
 async function fetchDetail(row: Row): Promise<void> {
 	row.fetching = true;
+	row.lastTry = Date.now();
 	setCell(row, 'upd', cellUpdated(row), false);
 	const ctrl = new AbortController();
 	const timer = setTimeout(() => ctrl.abort(), 60_000);
@@ -1276,7 +1282,9 @@ async function refreshList({ force = false }: { force?: boolean } = {}): Promise
 			const behind = listOnly && !!row.detail && row.detail.updatedAt !== row.light.updatedAt;
 			// "Refresh now" asks for every row again, except in "list" mode.
 			if ((!force || listOnly) && (changed || behind) && applyListedDetail(row, detail, skew)) continue;
-			if ((changed || behind || (force && !listOnly)) && inScope(row)) enqueue(row, { force: true, priority: changed });
+			// In "list" mode, a row loads at most once in LIST_ROW_RETRY_MS. A skipped row stays behind and loads on a later tick.
+			const due = !listOnly || Date.now() - row.lastTry >= LIST_ROW_RETRY_MS;
+			if (((due && (changed || behind)) || (force && !listOnly)) && inScope(row)) enqueue(row, { force: true, priority: changed });
 		}
 		for (const row of rows.values()) {
 			if (row.gone || seen.has(row.key) || hostErrors[row.light.host]) continue;
@@ -1292,8 +1300,9 @@ async function refreshList({ force = false }: { force?: boolean } = {}): Promise
 		}
 		const now = Date.now();
 		for (const row of rows.values()) {
-			// In "list" mode, a row with details loads again only when its updatedAt changes.
-			if (!row.gone && inScope(row) && (!row.detail || (!listOnly && now - row.lastFetch > maxAge(row)))) enqueue(row);
+			// In "list" mode, a row with details loads again only when its updatedAt changes, and a failed first load waits LIST_ROW_RETRY_MS.
+			const due = !listOnly || now - row.lastTry >= LIST_ROW_RETRY_MS;
+			if (!row.gone && inScope(row) && ((!row.detail && due) || (!listOnly && now - row.lastFetch > maxAge(row)))) enqueue(row);
 		}
 	} catch (e) {
 		hostErrors = { server: errorMessage(e) };

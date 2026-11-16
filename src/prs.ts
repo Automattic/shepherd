@@ -25,7 +25,9 @@ import {
 
 const DEFAULT_BRANCHES = new Set(['trunk', 'main', 'master', 'develop']);
 const LIST_TTL_MS = 2_000;
-const FORCED_LIST_TTL_MS = 1_000; // a forced list (Refresh now) still reuses a list this new
+// A forced list (Refresh now in "list" mode) still reuses a list this new, so no client starts a search more often.
+// It is longer than LIST_TTL_MS, so in "list" mode Refresh now can show a list that is up to 10 seconds old.
+const FORCED_LIST_TTL_MS = 10_000;
 const DETAIL_TTL_MS = 3_000;
 const FORCED_DETAIL_TTL_MS = 1_000;
 const LOW_BUDGET_LIST = 300; // below this, reuse the last list for up to 5 minutes
@@ -347,7 +349,7 @@ export interface PrTarget {
 
 export interface PrService {
 	readonly hostKeys: string[];
-	/** `force` skips the short list cache, only when `refresh` is "list". A low budget still reuses the last list, and calls at the same time share one search. */
+	/** `force` (only when `refresh` is "list") reuses a list for FORCED_LIST_TTL_MS instead of LIST_TTL_MS. A low budget still reuses the last list, and calls at the same time share one search. */
 	listHost(hostKey: string, reviewerIds: string[], opts?: { force?: boolean }): Promise<{ prs: LightPr[]; throttled: boolean }>;
 	/** The team's PRs merged in the last MERGED_FETCH_DAYS days; callers filter to a range. */
 	listMerged(hostKey: string): Promise<MergedList>;
