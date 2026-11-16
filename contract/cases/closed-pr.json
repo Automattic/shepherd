@@ -1,0 +1,87 @@
+{
+  "name": "closed-pr",
+  "host": "github",
+  "owner": "example-org",
+  "repo": "app",
+  "number": 108,
+  "head": "feature/closed",
+  "base": "trunk",
+  "data": {
+    "rateLimit": {
+      "remaining": 4990,
+      "limit": 5000,
+      "resetAt": "2026-11-10T15:00:00Z",
+      "cost": 1
+    },
+    "repository": {
+      "defaultBranchRef": {
+        "name": "trunk",
+        "target": {
+          "oid": "dddddddddddddddddddddddddddddddddddddddd"
+        }
+      },
+      "pullRequest": {
+        "number": 108,
+        "title": "Example change 108",
+        "url": "https://github.com/example-org/app/pull/108",
+        "state": "CLOSED",
+        "merged": false,
+        "mergedAt": null,
+        "isDraft": false,
+        "updatedAt": "2026-11-10T14:00:00Z",
+        "createdAt": "2026-11-08T09:00:00Z",
+        "headRefName": "feature/closed",
+        "baseRefName": "trunk",
+        "isCrossRepository": false,
+        "headRepositoryOwner": {
+          "login": "example-org"
+        },
+        "headRefOid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "baseRefOid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "baseRef": {
+          "target": {
+            "oid": "cccccccccccccccccccccccccccccccccccccccc"
+          }
+        },
+        "body": "Example change 108.",
+        "mergeable": "MERGEABLE",
+        "reviewDecision": null,
+        "additions": 12,
+        "deletions": 3,
+        "changedFiles": 2,
+        "author": {
+          "login": "alice",
+          "name": "Alice Example"
+        },
+        "statusCheckRollup": {
+          "state": "SUCCESS"
+        },
+        "reviewRequests": {
+          "nodes": []
+        },
+        "latestOpinionatedReviews": {
+          "nodes": []
+        },
+        "participants": {
+          "totalCount": 0,
+          "nodes": []
+        },
+        "comments": {
+          "nodes": []
+        },
+        "reviews": {
+          "nodes": []
+        },
+        "commits": {
+          "nodes": []
+        },
+        "reviewThreads": {
+          "nodes": []
+        }
+      },
+      "stackedOnThis": {
+        "nodes": []
+      }
+    }
+  }
+}

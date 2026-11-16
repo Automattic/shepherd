@@ -3,6 +3,7 @@
 import { extractFollowUps, type FollowUpText } from './followups.ts';
 import type { GhRunner } from './gh.ts';
 import { mergedSearchSince } from './merged.ts';
+import { DEFAULT_BRANCHES, DETAIL_QUERY, MERGED_SEARCH_QUERY, SEARCH_QUERY } from './queries.ts';
 import {
 	SEVERITIES,
 	type BaseAge,
@@ -23,7 +24,6 @@ import {
 	type TeamMember,
 } from './types.ts';
 
-const DEFAULT_BRANCHES = new Set(['trunk', 'main', 'master', 'develop']);
 const LIST_TTL_MS = 2_000;
 // In "list" mode, every list call reuses a list this new, a failed search waits this long, and a detail call (also a forced one) reuses details this new, so no client calls GitHub more often.
 const LIST_MODE_TTL_MS = 10_000;
@@ -187,58 +187,7 @@ interface RefsData {
 const forkOwner = (pr: { isCrossRepository: boolean; headRepositoryOwner: { login: string } | null }): string | null =>
 	pr.isCrossRepository ? (pr.headRepositoryOwner?.login ?? 'ghost') : null;
 
-const LIGHT_FIELDS = `
-	... on PullRequest {
-		number title url isDraft updatedAt createdAt headRefName baseRefName isCrossRepository headRepositoryOwner { login }
-		author { login ... on User { name } }
-		repository { name owner { login } }
-	}`;
-
-const searchQuery = (fields: string) => `query($q:String!, $after:String) {
-	rateLimit { remaining limit resetAt cost }
-	search(query:$q, type:ISSUE, first:100, after:$after) {
-		issueCount pageInfo { hasNextPage endCursor }
-		nodes { ${fields} }
-	}
-}`;
-
-const SEARCH_QUERY = searchQuery(LIGHT_FIELDS);
-const MERGED_SEARCH_QUERY = searchQuery(
-	'... on PullRequest { number title url mergedAt author { login } repository { name owner { login } } }'
-);
-
-const DETAIL_QUERY = `query($owner:String!, $name:String!, $n:Int!, $head:String!, $base:String!, $withParent:Boolean!) {
-	rateLimit { remaining limit resetAt cost }
-	repository(owner:$owner, name:$name) {
-		defaultBranchRef { name target { oid } }
-		pullRequest(number:$n) {
-			number title url state merged mergedAt isDraft updatedAt createdAt
-			headRefName baseRefName isCrossRepository headRepositoryOwner { login } headRefOid baseRefOid baseRef { target { oid } } body mergeable reviewDecision additions deletions changedFiles
-			author { login ... on User { name } }
-			statusCheckRollup { state }
-			reviewRequests(first:30) { nodes { requestedReviewer {
-				__typename
-				... on User { login name }
-				... on Team { slug combinedSlug name }
-			} } }
-			latestOpinionatedReviews(first:30) { nodes { state submittedAt author { login } } }
-			participants(first:50) { totalCount nodes { login name } }
-			comments(last:50) { nodes { author { login } createdAt } }
-			reviews(last:50) { nodes { author { login } submittedAt } }
-			commits(last:50) { nodes { commit { committedDate author { user { login } } } } }
-			reviewThreads(first:100) { nodes {
-				isResolved isOutdated path line
-				comments(first:1) { nodes { author { login } body url createdAt } }
-			} }
-		}
-		parent: pullRequests(headRefName:$base, first:1, states:[OPEN], orderBy:{field:UPDATED_AT, direction:DESC}) @include(if:$withParent) {
-			nodes { number title url author { login } }
-		}
-		stackedOnThis: pullRequests(baseRefName:$head, first:10, states:[OPEN]) {
-			nodes { number title url author { login } }
-		}
-	}
-}`;
+// The list, merged and detail queries are in queries.ts, so a host that ports this data layer can ask for the same fields.
 
 const FOLLOWUP_FIELDS = `
 	url body createdAt author { login } headRefOid

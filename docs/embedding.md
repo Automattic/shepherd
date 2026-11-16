@@ -38,6 +38,15 @@ The host's API must give the same responses as the paths below on the local serv
 
 The local server answers `POST /api/herdr/*` only for a page on `localhost`, `127.0.0.1` or `[::1]`, or for a request with no `Origin` header. A page on another origin that calls the local server directly gets an error for these two paths.
 
+## A host that ports the data layer
+
+A host that gives the client its own API usually builds the `/api/pr` and `/api/prs` data itself, from GitHub. `bun run build:client` writes two more files for it to `dist/`, so that its GraphQL and its shaping stay the same as this server's:
+
+- `queries.json` is `{ "apiVersion": <API_VERSION>, "fields": { "detailPr", "miniPr", "lightPr", "mergedPr" } }`. Each field is a GraphQL field set: the selection of `pullRequest(number:$n)` in the detail query, of the `parent` and `stackedOnThis` nodes, of a PR in the open list search, and of a PR in the merged search. Each one is a bare selection body, with no outer braces, no variables and no aliases. The host wraps it, for example in `fragment DetailFields on PullRequest { <detailPr> }` or `... on PullRequest { <lightPr> }`, and supplies its own variables, aliases and arguments around it. A host should check `apiVersion` and stop when it is not the version that the host was written for.
+- `contract/<case>.json` is `{ name, context, input, expected }`. `input` has the `data` of a detail query response for an invented PR, and the `host`, `owner`, `repo`, `number`, `head` and `base` of the request. `expected` is the `PrDetail` that this server's `getDetail()` shapes from it. A host can test its own shaping against these files: shape `input.data` with `context`, and compare the result with `expected`.
+
+The `context` is the same in every file: the hosts `ghe` (hostname `github.example.com`, AI-review bot `review-bot`) and `github` (hostname `github.com`, no bot), and Linear workspace `example` with no keys, without review teams or ignored participants. `fetchedAt` is the fixed time `2000-01-01T00:00:00.000Z`. `baseAge` needs a compare call that the fixtures do not have, so for an open PR it is the "unknown" object with `error: "compare not available in contract"`, and for a merged or closed PR it is null. The contract covers the detail shape only, not the list or the merged shapes. See [Contributing](../CONTRIBUTING.md#queriesjson-and-contract) for how the files are made.
+
 ## What the host page must include
 
 The client renders all its markup into the mount element. The host page must load these files:

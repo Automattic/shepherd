@@ -1,0 +1,87 @@
+{
+  "name": "links-and-refs",
+  "host": "ghe",
+  "owner": "example-org",
+  "repo": "app",
+  "number": 105,
+  "head": "feature/links",
+  "base": "trunk",
+  "data": {
+    "rateLimit": {
+      "remaining": 4990,
+      "limit": 5000,
+      "resetAt": "2026-11-10T15:00:00Z",
+      "cost": 1
+    },
+    "repository": {
+      "defaultBranchRef": {
+        "name": "trunk",
+        "target": {
+          "oid": "dddddddddddddddddddddddddddddddddddddddd"
+        }
+      },
+      "pullRequest": {
+        "number": 105,
+        "title": "Example change 105",
+        "url": "https://github.example.com/example-org/app/pull/105",
+        "state": "OPEN",
+        "merged": false,
+        "mergedAt": null,
+        "isDraft": false,
+        "updatedAt": "2026-11-10T14:00:00Z",
+        "createdAt": "2026-11-08T09:00:00Z",
+        "headRefName": "feature/links",
+        "baseRefName": "trunk",
+        "isCrossRepository": false,
+        "headRepositoryOwner": {
+          "login": "example-org"
+        },
+        "headRefOid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "baseRefOid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "baseRef": {
+          "target": {
+            "oid": "cccccccccccccccccccccccccccccccccccccccc"
+          }
+        },
+        "body": "Implements the sync fix, see https://github.example.com/example-org/lib/pull/12 and https://github.com/octocat/hello-world/pull/34.\nAlso related: https://git.example.net/example-org/lib/pull/99 (another host).\nThis is https://github.example.com/example-org/app/pull/105 itself.\nSame as the first: https://github.example.com/example-org/lib/pull/12\nFollow-ups: #123, (#45), and #123 again. Part of #105. Text like a#7 or abc#8 is not a reference.\nTracking: https://linear.app/example/issue/ENG-101/fix-sync",
+        "mergeable": "MERGEABLE",
+        "reviewDecision": null,
+        "additions": 12,
+        "deletions": 3,
+        "changedFiles": 2,
+        "author": {
+          "login": "alice",
+          "name": "Alice Example"
+        },
+        "statusCheckRollup": {
+          "state": "SUCCESS"
+        },
+        "reviewRequests": {
+          "nodes": []
+        },
+        "latestOpinionatedReviews": {
+          "nodes": []
+        },
+        "participants": {
+          "totalCount": 0,
+          "nodes": []
+        },
+        "comments": {
+          "nodes": []
+        },
+        "reviews": {
+          "nodes": []
+        },
+        "commits": {
+          "nodes": []
+        },
+        "reviewThreads": {
+          "nodes": []
+        }
+      },
+      "stackedOnThis": {
+        "nodes": []
+      }
+    }
+  }
+}
