@@ -59,10 +59,7 @@ async function listPrs(url: URL): Promise<Response> {
 		.split(',')
 		.filter((id) => teamIds.has(id))
 		.sort();
-	// force=1 (Refresh now in "list" mode) starts a new search only when the cached list is 10 seconds old or more. listHost
-	// ignores it in "rows" mode, shares searches that run at the same time and reuses the last list when the budget is low.
-	const force = url.searchParams.get('force') === '1';
-	const settled = await Promise.allSettled(prs.hostKeys.map((h) => prs.listHost(h, reviewerIds, { force })));
+	const settled = await Promise.allSettled(prs.hostKeys.map((h) => prs.listHost(h, reviewerIds)));
 	const list: LightPr[] = [];
 	const errors: Record<string, string> = {};
 	const throttled: Record<string, boolean> = {};

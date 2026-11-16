@@ -25,9 +25,8 @@ import {
 
 const DEFAULT_BRANCHES = new Set(['trunk', 'main', 'master', 'develop']);
 const LIST_TTL_MS = 2_000;
-// A forced list (Refresh now in "list" mode) still reuses a list this new, so no client starts a search more often.
-// It is longer than LIST_TTL_MS, so in "list" mode Refresh now can show a list that is up to 10 seconds old.
-const FORCED_LIST_TTL_MS = 10_000;
+// In "list" mode, every list call reuses a list this new, so no client starts a search more often.
+const LIST_MODE_TTL_MS = 10_000;
 const DETAIL_TTL_MS = 3_000;
 const FORCED_DETAIL_TTL_MS = 1_000;
 const LOW_BUDGET_LIST = 300; // below this, reuse the last list for up to 5 minutes
@@ -349,8 +348,8 @@ export interface PrTarget {
 
 export interface PrService {
 	readonly hostKeys: string[];
-	/** `force` (only when `refresh` is "list") reuses a list for FORCED_LIST_TTL_MS instead of LIST_TTL_MS. A low budget still reuses the last list, and calls at the same time share one search. */
-	listHost(hostKey: string, reviewerIds: string[], opts?: { force?: boolean }): Promise<{ prs: LightPr[]; throttled: boolean }>;
+	/** Reuses a list for LIST_TTL_MS, or LIST_MODE_TTL_MS when `refresh` is "list". A low budget still reuses the last list, and calls at the same time share one search. */
+	listHost(hostKey: string, reviewerIds: string[]): Promise<{ prs: LightPr[]; throttled: boolean }>;
 	/** The team's PRs merged in the last MERGED_FETCH_DAYS days; callers filter to a range. */
 	listMerged(hostKey: string): Promise<MergedList>;
 	getDetail(req: DetailRequest): Promise<PrDetail>;
@@ -437,17 +436,16 @@ export function createPrService(config: Config, gh: GhRunner): PrService {
 		return { repos, authors };
 	}
 
-	function listHost(hostKey: string, reviewerIds: string[], opts: { force?: boolean } = {}) {
-		// Only a page in "list" mode sends force, so other servers ignore it.
-		const force = opts.force === true && config.refresh === 'list';
+	function listHost(hostKey: string, reviewerIds: string[]) {
+		const listMode = config.refresh === 'list';
 		const cacheKey = `${hostKey}|${reviewerIds.join(',')}`;
 		const cached = listCache.get(cacheKey);
 		const r = gh.rate[hostKey];
 		if (cached && r && r.remaining < LOW_BUDGET_LIST && Date.now() - cached.at < 5 * 60_000) {
 			return Promise.resolve({ prs: cached.prs, throttled: true });
 		}
-		if (cached && Date.now() - cached.at < (force ? FORCED_LIST_TTL_MS : LIST_TTL_MS)) return Promise.resolve({ prs: cached.prs, throttled: false });
-		// Calls at the same time share one search, also forced ones from many pages.
+		if (cached && Date.now() - cached.at < (listMode ? LIST_MODE_TTL_MS : LIST_TTL_MS)) return Promise.resolve({ prs: cached.prs, throttled: false });
+		// Calls at the same time share one search, also from many pages.
 		const pending = listInflight.get(cacheKey);
 		if (pending) return pending;
 		const p = searchHost(hostKey, reviewerIds, cacheKey).finally(() => listInflight.delete(cacheKey));

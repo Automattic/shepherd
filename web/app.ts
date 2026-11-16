@@ -1250,10 +1250,10 @@ async function refreshList({ force = false }: { force?: boolean } = {}): Promise
 	if (listBusy) return;
 	listBusy = true;
 	$('#refresh').classList.add('busy');
-	// In "list" mode, Refresh now asks the server for a new list instead of asking for each row.
+	// In "list" mode, Refresh now asks only for the list, not for each row.
 	const listOnly = cfg.refresh === 'list';
 	try {
-		const res = await api(`/api/prs?reviewers=${encodeURIComponent(reviewers().join(','))}${listOnly && force ? '&force=1' : ''}`);
+		const res = await api(`/api/prs?reviewers=${encodeURIComponent(reviewers().join(','))}`);
 		const body: unknown = await res.json();
 		const list = isListResponse(body) ? body : null;
 		hostErrors = list?.errors || {};

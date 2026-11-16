@@ -1,4 +1,4 @@
-// Server refresh rules: the `refresh` and `rowRefresh*` config keys, and forced list calls. Run with `bun test`.
+// Server refresh rules: the `refresh` and `rowRefresh*` config keys, and the list cache in "list" mode. Run with `bun test`.
 
 import { afterEach, describe, expect, setSystemTime, test } from 'bun:test';
 import { MIN_ROW_REFRESH_MS, problems, publicConfig } from './config.ts';
@@ -60,49 +60,53 @@ function service(remaining?: number, config: Config = { ...base, refresh: 'list'
 	return { prs: createPrService(config, gh), queries };
 }
 
-describe('listHost with force', () => {
+describe('listHost', () => {
 	afterEach(() => setSystemTime());
 
-	test('a normal call reuses the short list cache', async () => {
+	test('a call reuses the list cache', async () => {
 		const { prs, queries } = service();
 		await prs.listHost('github', []);
 		await prs.listHost('github', []);
 		expect(queries).toHaveLength(1);
 	});
 
-	test('a forced call reuses a list that is less than 10 seconds old', async () => {
+	test('in "list" mode, every call reuses a list that is less than 10 seconds old', async () => {
 		const { prs, queries } = service();
 		const start = Date.now();
 		await prs.listHost('github', []);
-		setSystemTime(new Date(start + 9_900)); // older than the normal 2-second cache, but under 10 seconds
-		await prs.listHost('github', [], { force: true });
+		setSystemTime(new Date(start + 9_900)); // older than the 2-second cache of "rows" mode, but under 10 seconds
+		await prs.listHost('github', []);
 		expect(queries).toHaveLength(1);
 		setSystemTime(new Date(start + 10_100));
-		await prs.listHost('github', [], { force: true });
+		await prs.listHost('github', []);
 		expect(queries).toHaveLength(2);
 	});
 
-	test('a forced call uses the cache when the server is not in "list" mode', async () => {
+	test('in "rows" mode, the list cache stays at 2 seconds', async () => {
 		const { prs, queries } = service(undefined, base);
+		const start = Date.now();
 		await prs.listHost('github', []);
-		await Bun.sleep(1_050); // the normal 2-second cache still applies
-		await prs.listHost('github', [], { force: true });
+		setSystemTime(new Date(start + 1_900));
+		await prs.listHost('github', []);
 		expect(queries).toHaveLength(1);
+		setSystemTime(new Date(start + 2_100));
+		await prs.listHost('github', []);
+		expect(queries).toHaveLength(2);
 	});
 
-	test('forced calls at the same time share one search', async () => {
+	test('calls at the same time share one search', async () => {
 		const { prs, queries } = service();
-		const results = await Promise.all([1, 2, 3, 4, 5].map(() => prs.listHost('github', [], { force: true })));
+		const results = await Promise.all([1, 2, 3, 4, 5].map(() => prs.listHost('github', [])));
 		expect(queries).toHaveLength(1);
 		expect(new Set(results.map((r) => r.prs)).size).toBe(1);
 	});
 
-	test('a forced call still reuses the last list when the budget is low', async () => {
+	test('a call still reuses the last list when the budget is low', async () => {
 		const { prs, queries } = service(100);
 		const start = Date.now();
 		await prs.listHost('github', []);
 		setSystemTime(new Date(start + 10_100));
-		const r = await prs.listHost('github', [], { force: true });
+		const r = await prs.listHost('github', []);
 		expect(queries).toHaveLength(1);
 		expect(r.throttled).toBe(true);
 	});
