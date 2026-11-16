@@ -30,7 +30,7 @@ function shellHtml(header: boolean): string {
 
 		<section class="tiles" id="tiles" aria-label="Summary"></section>
 
-		<details class="shipped" id="shipped">
+		<details class="shipped" id="shipped" hidden>
 			<summary><i class="fa-solid fa-code-merge"></i> Shipped <span class="shipped-count" id="shipped-count"></span></summary>
 			<div class="shipped-body">
 				<div class="shipped-controls">

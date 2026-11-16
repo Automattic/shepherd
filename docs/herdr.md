@@ -1,6 +1,6 @@
 # herdr terminal panes
 
-If [herdr](https://herdr.dev) is installed and running on the same machine (macOS or Linux), PR rows show a chip for each herdr pane working on that PR. Click a chip to focus that pane in herdr. Without herdr, nothing changes. Set `"herdr": { "enabled": false }` in `config.json` to turn it off.
+If [herdr](https://herdr.dev) is installed and running on the same machine (macOS or Linux), PR rows show a chip for each herdr pane working on that PR. Click a chip to focus that pane in herdr. Without herdr, nothing changes. Set `"herdr": { "enabled": false }` or `"features": { "herdr": false }` in `config.json` to turn the chips off (see [Turn features off](configuration.md#turn-features-off)). With `enabled: false`, the MCP tools also stop the herdr scan.
 
 A pane is linked to a PR by any of these, strongest first:
 

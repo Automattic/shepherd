@@ -2,6 +2,7 @@
 
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { FEATURES, isFeature, resolveFeatures, type Features } from './features.ts';
 import { isPushPolicy, PUSH_POLICIES } from './push-policy.ts';
 import { API_VERSION, type Config, type PublicConfig } from './types.ts';
 
@@ -32,6 +33,16 @@ export function problems(c: Partial<Config>): string[] {
 	if (!Array.isArray(c.repos) || !c.repos.length) out.push('`repos` must be a non-empty array');
 	if (c.refresh !== undefined && c.refresh !== 'rows' && c.refresh !== 'list') out.push('`refresh` must be "rows" or "list", or no such field');
 	if (c.linear && (!c.linear.workspace || !Array.isArray(c.linear.keys))) out.push('`linear` needs `workspace` and `keys` (or remove it)');
+	if (c.features !== undefined) {
+		if (typeof c.features !== 'object' || c.features === null || Array.isArray(c.features)) {
+			out.push('`features` must be an object (or remove it)');
+		} else {
+			for (const [k, v] of Object.entries(c.features)) {
+				if (!isFeature(k)) out.push(`\`features.${k}\` is not a feature (use ${FEATURES.slice(0, -1).join(', ')} or ${FEATURES.at(-1)})`);
+				else if (typeof v !== 'boolean') out.push(`\`features.${k}\` must be true or false`);
+			}
+		}
+	}
 	if (out.length) return out;
 
 	const ids = new Set<string>();
@@ -137,6 +148,11 @@ export async function loadConfig(): Promise<Config> {
 	return parsed as Config;
 }
 
+/** The features that this server has. herdr.enabled: false turns the herdr chips off too, so the page does not ask for them. */
+export function configFeatures(config: Config): Features {
+	return resolveFeatures({ ...config.features, ...(config.herdr?.enabled === false ? { herdr: false } : {}) });
+}
+
 export function publicConfig(config: Config): PublicConfig {
 	return {
 		apiVersion: API_VERSION,
@@ -151,6 +167,7 @@ export function publicConfig(config: Config): PublicConfig {
 		),
 		linear: config.linear ?? null,
 		aiReviewLabel: config.aiReviewLabel || 'AI review',
+		features: configFeatures(config),
 		refresh: config.refresh ?? 'rows',
 	};
 }

@@ -23,6 +23,7 @@ import type {
 } from '../src/types.ts';
 import { apiVersionProblem } from '../src/api-version.ts';
 import { baseAgeHours, baseTooOld } from '../src/base-age.ts';
+import { resolveFeatures, type Features } from '../src/features.ts';
 import { FOLLOWUPS_MAX_PRS, liveFollowUps, needingFollowUp } from '../src/followups.ts';
 import { countByAuthor, isMergedRange, MERGED_RANGE_LABELS, MERGED_RANGES, mergedInRange, type MergedRange } from '../src/merged.ts';
 import { apiHeaders, apiUrl, readEmbedOptions } from '../src/embed.ts';
@@ -275,6 +276,8 @@ const api = (path: string, init: RequestInit = {}): Promise<Response> => {
 
 // Assigned in boot() before anything reads it.
 let cfg: PublicConfig;
+/** What the server supports. Until /api/config answers, every feature waits, so the page asks for none of them. */
+let features: Features = { shipped: false, followups: false, herdr: false };
 // True after boot() sets cfg. While it is false (a banner stopped boot), nothing may load or render data.
 let booted = false;
 const memberByLogin = new Map<string, TeamMember>(); // lowercased login (either host) -> member
@@ -1415,7 +1418,7 @@ let mergedBusy = false;
 let mergedFetchedAt = 0;
 
 async function refreshMerged({ force = false }: { force?: boolean } = {}): Promise<void> {
-	if (!booted || mergedBusy || (!force && Date.now() - mergedFetchedAt < MERGED_REFRESH_MS)) return;
+	if (!booted || !features.shipped || mergedBusy || (!force && Date.now() - mergedFetchedAt < MERGED_REFRESH_MS)) return;
 	mergedBusy = true;
 	mergedFetchedAt = Date.now();
 	try {
@@ -1468,7 +1471,7 @@ async function fetchFollowUps(keys: string[]): Promise<string[]> {
 }
 
 async function refreshFollowUps(list: MergedPr[]): Promise<void> {
-	if (!S.shippedOpen) return;
+	if (!features.followups || !S.shippedOpen) return;
 	const now = Date.now();
 	const due = list.filter((p) => now >= (followUpsNextAt.get(p.key) ?? 0)).map((p) => p.key);
 	if (!due.length) return;
@@ -1493,20 +1496,22 @@ function followUpsPill(p: MergedPr): string {
 }
 
 function renderShipped(): void {
-	if (!booted) return;
+	if (!booted || !features.shipped) return;
 	const logins = cfg.team.flatMap((m) => Object.values(m.logins));
 	const list = mergedInRange(merged, logins, S.mergedRange, new Date());
 	const label = MERGED_RANGE_LABELS[S.mergedRange].toLowerCase();
 	const needing = needingFollowUp(list, followUps, followUpsFailed);
+	// A saved "Needs follow-up" filter stays in storage, but does nothing while the server has no follow-ups.
+	const onlyNeeding = features.followups && S.shippedNeedsFollowUp;
 	const needN = `${needing.prs.length}${needing.loading ? '+' : ''}`;
 	// Follow-ups load once the section has been opened; until then the summary shows only the merged count.
-	const known = needing.prs.length > 0 || !needing.loading;
+	const known = features.followups && (needing.prs.length > 0 || !needing.loading);
 	$('#shipped-count').textContent = `${list.length} ${label}${known && list.length ? ` · ${needN} need${needN === '1' ? 's' : ''} follow-up` : ''}`;
 	$('#shipped-range').innerHTML = MERGED_RANGES.map(
 		(r) => `<button role="radio" aria-checked="${S.mergedRange === r}" data-merged-range="${r}">${esc(MERGED_RANGE_LABELS[r])}</button>`
 	).join('');
-	$('#shipped-filter').innerHTML = `<button class="chip-btn ${S.shippedNeedsFollowUp ? 'on' : ''}" data-shipped-followups title="Show only merged PRs that left follow-ups behind"><i class="fa-solid fa-list-check"></i>Needs follow-up <span class="count">${needN}</span></button>`;
-	const shown = S.shippedNeedsFollowUp ? needing.prs : list;
+	$('#shipped-filter').innerHTML = !features.followups ? '' : `<button class="chip-btn ${S.shippedNeedsFollowUp ? 'on' : ''}" data-shipped-followups title="Show only merged PRs that left follow-ups behind"><i class="fa-solid fa-list-check"></i>Needs follow-up <span class="count">${needN}</span></button>`;
+	const shown = onlyNeeding ? needing.prs : list;
 
 	const people = countByAuthor(shown, displayName).map(([n, c]) => `${esc(n)} <b>${c}</b>`).join(' · ');
 	const errorLine = [mergedError, followUpsError]
@@ -1514,7 +1519,7 @@ function renderShipped(): void {
 		.map((e) => `<span class="shipped-error"><i class="fa-solid fa-triangle-exclamation"></i> ${esc(e)}</span>`)
 		.join('');
 	let empty = `Nothing merged ${label}.`;
-	if (list.length && S.shippedNeedsFollowUp) empty = needing.loading ? 'Loading follow-ups…' : `Nothing merged ${label} needs a follow-up.`;
+	if (list.length && onlyNeeding) empty = needing.loading ? 'Loading follow-ups…' : `Nothing merged ${label} needs a follow-up.`;
 	$('#shipped-people').innerHTML = (shown.length ? people : empty) + errorLine;
 
 	const day: Intl.DateTimeFormatOptions = { weekday: 'short', day: 'numeric', month: 'short' };
@@ -1540,7 +1545,7 @@ let herdrLinks: Record<string, PaneLink[]> = {};
 let herdrBusy = false;
 
 async function refreshHerdr(): Promise<void> {
-	if (herdrBusy || !cfg) return;
+	if (!features.herdr || herdrBusy || !cfg) return;
 	herdrBusy = true;
 	try {
 		const prs: PaneMatchPr[] = [...rows.values()]
@@ -1922,6 +1927,8 @@ void (async function boot(): Promise<void> {
 	if (!isPublicConfig(config)) throw new Error('Unexpected response from /api/config');
 	cfg = config;
 	booted = true;
+	features = resolveFeatures(cfg.features);
+	$('#shipped').hidden = !features.shipped;
 	for (const m of cfg.team) {
 		for (const login of Object.values(m.logins)) memberByLogin.set(login.toLowerCase(), m);
 	}

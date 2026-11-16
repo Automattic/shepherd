@@ -13,6 +13,7 @@
 | `aiReviewLabel` | Optional. The name shown for the AI-review column and tile. Defaults to `AI review`. |
 | `herdr` | Optional. See [herdr terminal panes](herdr.md). `enabled` (default `true`; used only when herdr is installed and running) and `transcriptTailKb` (how much of each agent transcript to search, default 192). |
 | `refresh` | Optional. `"rows"` (the default) or `"list"`. Sets when the page loads a row again. See [Refresh rules](#refresh-rules). |
+| `features` | Optional. Turns dashboard features off: `shipped`, `followups` and `herdr`, each `true` or `false`. A missing key means on. See [Turn features off](#turn-features-off). |
 | `ignoreParticipants` | Logins to leave out of Participants. Use it for bots and service accounts that appear as ordinary users. Logins ending in `[bot]` or `-bot` are always left out. |
 
 The server binds to `127.0.0.1` only. The MCP endpoint refuses browser requests from other origins.
@@ -47,6 +48,24 @@ The server sends these values to the page, so the person who runs the server con
 ```
 
 Use `"list"` on a server that many people use. All pages share the server's `gh` logins, so the cost of a page load or a refresh must not grow with the number of rows. With `"list"`, a change that does not move a PR's **updated** time, for example a new check result, shows only after the user clicks the refresh button of the row.
+
+## Turn features off
+
+Set a feature to `false` to remove it from the dashboard:
+
+```json
+"features": { "shipped": false, "followups": false, "herdr": false }
+```
+
+| Key | What `false` removes |
+| --- | --- |
+| `shipped` | The [Shipped](dashboard.md#shipped) section and its controls. Follow-ups show only in Shipped, so this also turns `followups` off. |
+| `followups` | The [follow-up](dashboard.md#follow-ups) pills, the **Needs follow-up** chip and the follow-up count in the Shipped summary. Shipped stays. |
+| `herdr` | The [herdr](herdr.md) chips on PR rows. `"herdr": { "enabled": false }` also turns this off. |
+
+When a feature is off, the page sends no request for it and shows no error for it. The server answers 404 on the endpoint of that feature (`/api/merged`, `/api/followups`, or `/api/herdr/*`). The page keeps your saved choices for a feature that is off, such as the range or the **Needs follow-up** chip, and uses them again when the feature is on. The MCP tools do not change.
+
+`GET /api/config` sends the result as `features`, with all three keys. A different server that has only the open-PR endpoints can send the same object with `false` values. When a server sends no `features` object, or leaves a key out, the page treats that feature as on.
 
 ## Token (optional)
 

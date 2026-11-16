@@ -1,5 +1,7 @@
 // Shared types for the Shepherd server, its MCP endpoint and the browser client.
 
+import type { Features } from './features.ts';
+
 // ---------------------------------------------------------------------------
 // Config (config.json)
 
@@ -77,6 +79,8 @@ export interface Config {
 	/** Optional herdr integration; on by default whenever herdr is installed and running. */
 	herdr?: { enabled?: boolean; transcriptTailKb?: number };
 	ignoreParticipants?: string[];
+	/** Optional: dashboard features to turn off. A missing key means on. */
+	features?: Partial<Features>;
 	/**
 	 * Optional: when the page loads a row again. "rows" (the default) also loads rows that are older than
 	 * the refresh floor, and Refresh now loads every row. "list" loads a row only when the list shows a new
@@ -104,6 +108,11 @@ export interface PublicConfig {
 	hosts: Record<string, Pick<HostConfig, 'hostname' | 'label' | 'bot' | 'rowRefreshFloorMs' | 'rowRefreshLowBudgetMs'>>;
 	linear: LinearConfig | null;
 	aiReviewLabel: string;
+	/**
+	 * Dashboard features the server supports. A missing object or a missing key means on, so a
+	 * server that has only the open-PR endpoints sets the others to false.
+	 */
+	features?: Partial<Features>;
 	refresh: RefreshMode;
 }
 

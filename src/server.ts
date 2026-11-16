@@ -4,7 +4,7 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { join, normalize } from 'node:path';
 import { buildClient, PUBLIC_DIR } from './build-client.ts';
-import { DEFAULT_PORT, loadConfig, publicConfig } from './config.ts';
+import { configFeatures, DEFAULT_PORT, loadConfig, publicConfig } from './config.ts';
 import { createGh } from './gh.ts';
 import { createHerdr } from './herdr.ts';
 import { createMcpHandler } from './mcp.ts';
@@ -18,6 +18,7 @@ const gh = createGh(config);
 const prs = createPrService(config, gh);
 const herdr = createHerdr(config);
 const handleMcp = createMcpHandler(config, prs, herdr);
+const features = configFeatures(config);
 
 // Optional bearer token for /mcp and /api/*. It comes from the environment, not config.json,
 // because config files are often readable by other users on the same machine.
@@ -176,10 +177,11 @@ const server = Bun.serve({
 			if (url.pathname === '/api/config') return json(200, publicConfig(config));
 			if (url.pathname === '/api/prs') return await listPrs(url);
 			if (url.pathname === '/api/pr') return await getPr(url);
-			if (url.pathname === '/api/merged') return await listMerged();
-			if (url.pathname === '/api/followups') return await getFollowUps(url);
-			if (url.pathname === '/api/herdr/links') return await herdrLinks(req);
-			if (url.pathname === '/api/herdr/focus') return await herdrFocus(req);
+			// A feature that config.json turns off has no endpoint, as on a server that does not have it.
+			if (url.pathname === '/api/merged' && features.shipped) return await listMerged();
+			if (url.pathname === '/api/followups' && features.followups) return await getFollowUps(url);
+			if (url.pathname === '/api/herdr/links' && features.herdr) return await herdrLinks(req);
+			if (url.pathname === '/api/herdr/focus' && features.herdr) return await herdrFocus(req);
 			if (url.pathname.startsWith('/api/')) return json<ErrorResponse>(404, { error: 'not found' });
 			return await serveStatic(url.pathname);
 		} catch (e) {
