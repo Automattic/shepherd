@@ -38,6 +38,8 @@ The page loads Font Awesome 6.5.2 from cdnjs and the Geist fonts from Google Fon
 
 A host that embeds the client can pin one Shepherd commit and run `bun run build:client`. The command writes `app.js`, `styles.css` and `index.html` to `dist/`, with the same build that the server uses at startup. The output is not minified and has an inline source map.
 
+`index.html` loads `app.js` and `styles.css` with relative paths, so a host can serve `dist/` from any folder. The client sends its requests to absolute paths on the same origin: `/api/config`, `/api/prs`, `/api/pr`, `/api/merged`, `/api/followups`, `/api/herdr/links` and `/api/herdr/focus`. When the page has a token, each request has an `Authorization: Bearer <token>` header.
+
 The host's API must send the same JSON shapes as `src/types.ts`, and `/api/config` must send the `apiVersion` of that commit. When `apiVersion` is missing or different, the page shows an error and no rows.
 
 ## API version
