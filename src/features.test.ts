@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { configProblems, publicConfig } from './config.ts';
+import { problems, publicConfig } from './config.ts';
 import { resolveFeatures } from './features.ts';
 import type { Config } from './types.ts';
 
@@ -33,20 +33,20 @@ const base: Config = {
 
 describe('features in config.json', () => {
 	test('a config with no features block is valid', () => {
-		expect(configProblems(base)).toEqual([]);
+		expect(problems(base)).toEqual([]);
 	});
 
 	test('accepts true and false for known keys', () => {
-		expect(configProblems({ ...base, features: { shipped: false, followups: true, herdr: false } })).toEqual([]);
+		expect(problems({ ...base, features: { shipped: false, followups: true, herdr: false } })).toEqual([]);
 	});
 
 	test('rejects a value that is not an object', () => {
-		expect(configProblems({ ...base, features: [] as never })).toEqual(['`features` must be an object (or remove it)']);
-		expect(configProblems({ ...base, features: 'off' as never })).toEqual(['`features` must be an object (or remove it)']);
+		expect(problems({ ...base, features: [] as never })).toEqual(['`features` must be an object (or remove it)']);
+		expect(problems({ ...base, features: 'off' as never })).toEqual(['`features` must be an object (or remove it)']);
 	});
 
 	test('rejects unknown keys and values that are not true or false', () => {
-		expect(configProblems({ ...base, features: { shiped: false, herdr: 'no' } as never })).toEqual([
+		expect(problems({ ...base, features: { shiped: false, herdr: 'no' } as never })).toEqual([
 			'`features.shiped` is not a feature (use shipped, followups or herdr)',
 			'`features.herdr` must be true or false',
 		]);
