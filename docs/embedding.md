@@ -66,17 +66,17 @@ A host can give each viewer their own settings: the team, repos, review teams, L
 The `code` of each error:
 
 - `invalid`: the value breaks the settings schema.
-- `not_editable`: the field is not editable for this viewer, or the change is to another person's push policy.
+- `not_editable`: the field is not editable for this viewer.
 - `limit`: the value is over a cost limit, for example too many repos.
 - `refused`: the host refuses a value with the right shape. For example, the viewer may not watch that repo. Use it for any check that the schema cannot make.
 
 `fields` maps JSON pointers to `{ "editable": boolean, "reason"?: string }`. A `*` segment matches any item, and the longest matching pointer wins. A pointer with no match is editable under `/personal` and not editable under `/deployment`. Send `{ "editable": false }` for the whole of `/deployment` when the viewer cannot change it, and for each feature that the host does not have (for example `/personal/features/herdr`). The panel shows these fields read-only, with the `reason`. The host must also refuse a change to them in `PUT`, because a request can send it anyway.
 
-Push policies follow one more rule, whatever `fields` says: a viewer can change only their own. In `personal.team`, only the `pushPolicy` of the member whose `id` is `personal.me` can change. In a repo's `pushPolicyByAuthor`, only the entry whose key is that member's id or their login on the repo's host can change. A new member with a `pushPolicy` is a change too.
+Push policies are personal settings like the others: a viewer can set the `pushPolicy` of anyone in their `team` and the `pushPolicyByAuthor` entries of their repos. A host that keeps each person's policy in one place, set only by that person, sends `{ "editable": false }` for `/personal/team/*/pushPolicy` and `/personal/repos/*/pushPolicyByAuthor`, and refuses a change to them.
 
 ### The settings schema
 
-`bun run build:client` writes `dist/settings.schema.json`. It is a JSON Schema (draft-07) of a `SettingsDocument`, `{ "personal": …, "deployment": … }`, and it is the same set of rules that this server uses for `config.json` and for `PUT /api/settings`. To check a `PUT`, validate `{ "personal": <the request's personal>, "deployment": <your deployment settings> }` and send each failure as an `invalid` error at its pointer. Then check the rules that the schema cannot have: `fields`, the push policy owners, the limits and your own refusals.
+`bun run build:client` writes `dist/settings.schema.json`. It is a JSON Schema (draft-07) of a `SettingsDocument`, `{ "personal": …, "deployment": … }`, and it is the same set of rules that this server uses for `config.json` and for `PUT /api/settings`. To check a `PUT`, validate `{ "personal": <the request's personal>, "deployment": <your deployment settings> }` and send each failure as an `invalid` error at its pointer. Then check the rules that the schema cannot have: `fields`, the limits and your own refusals.
 
 The schema uses only these keywords: `$ref` (to `#/definitions/…`), `type` (one or a list), `enum`, `minLength`, `pattern`, `minimum`, `exclusiveMinimum` (a number), `minItems`, `minProperties`, `required`, `properties`, `additionalProperties`, `propertyNames` and `items`. A number must also be finite. It adds these Shepherd keywords:
 

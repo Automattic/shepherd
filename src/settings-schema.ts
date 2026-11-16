@@ -51,6 +51,7 @@ const repo: SchemaNode = {
 		pushPolicyByAuthor: {
 			type: 'object',
 			'x-message': '{item} needs "pushPolicyByAuthor" to be an object of team id or login to policy, or no such field',
+			propertyNames: { minLength: 1, 'x-message': '{item} pushPolicyByAuthor needs a team id or login for each policy' },
 			additionalProperties: pushPolicy(`{item} pushPolicyByAuthor."{key}" must be one of ${POLICY_LIST}`),
 		},
 	},

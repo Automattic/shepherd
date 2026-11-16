@@ -6,7 +6,7 @@
 import { FEATURES, type Feature } from '../src/features.ts';
 import { PUSH_POLICIES, PUSH_POLICY_LABELS } from '../src/push-policy.ts';
 import { fromPointer, toPointer } from '../src/schema.ts';
-import { fieldMeta, namesViewer } from '../src/settings.ts';
+import { fieldMeta } from '../src/settings.ts';
 import type { PersonalSettings, PushPolicy, SettingsErrorResponse, SettingsFieldError, SettingsResponse, TeamMember } from '../src/types.ts';
 
 export interface SettingsPanelDeps {
@@ -88,11 +88,9 @@ export function createSettingsPanel({ root, api, onSaved }: SettingsPanelDeps): 
 	function memberRow(m: TeamMember, i: number): string {
 		const base = toPointer(['personal', 'team', i]);
 		const isViewer = m.id === draft!.personal.me;
-		// Push policies and bells follow the id, so only a person added in this edit gets a new one.
+		// Bells and per-author push policies follow the id, so only a person added in this edit gets a new one.
 		const saved = loaded!.personal.team.some((x) => x.id === m.id);
-		const policy = isViewer
-			? policySelect(`${base}/pushPolicy`, m.pushPolicy, 'Your push policy', 'Not set')
-			: `<div class="s-field s-readonly" data-field="${base}/pushPolicy"><span>Push policy</span><span class="s-value" title="Only ${esc(m.name || m.id)} can change it">${esc(m.pushPolicy ? PUSH_POLICY_LABELS[m.pushPolicy] : 'Not set')}</span>${fieldErrors(`${base}/pushPolicy`)}</div>`;
+		const policy = policySelect(`${base}/pushPolicy`, m.pushPolicy, isViewer ? 'Your push policy' : 'Push policy', 'Not set');
 		return `<fieldset class="s-item" data-field="${base}">
 			<legend>${esc(m.name || m.id || 'New person')}${isViewer ? ' <span class="s-you">you</span>' : ''}</legend>
 			<div class="s-grid">
@@ -109,10 +107,8 @@ export function createSettingsPanel({ root, api, onSaved }: SettingsPanelDeps): 
 
 	function repoRow(r: PersonalSettings['repos'][number], i: number): string {
 		const base = toPointer(['personal', 'repos', i]);
-		const me = viewer();
 		const byAuthor = r.pushPolicyByAuthor ?? {};
-		const ownKey = Object.keys(byAuthor).find((k) => namesViewer(k, me, r.host)) ?? me?.id ?? '';
-		const others = Object.entries(byAuthor).filter(([k]) => k !== ownKey);
+		const editable = meta(`${base}/pushPolicyByAuthor`).editable;
 		return `<fieldset class="s-item" data-field="${base}">
 			<legend>${esc(r.owner && r.name ? `${r.owner}/${r.name}` : 'New repo')}</legend>
 			<div class="s-grid">
@@ -124,11 +120,25 @@ export function createSettingsPanel({ root, api, onSaved }: SettingsPanelDeps): 
 				${text(`${base}/short`, r.short, 'Label')}
 				<label class="s-field" data-field="${base}/maxBaseAgeHours"><span>Flag a base older than (hours)</span><input type="number" min="1" step="1" data-path="${base}/maxBaseAgeHours" data-kind="number" value="${esc(r.maxBaseAgeHours ?? '')}"${disabled(`${base}/maxBaseAgeHours`)}>${fieldErrors(`${base}/maxBaseAgeHours`)}</label>
 				${policySelect(`${base}/pushPolicy`, r.pushPolicy, 'Repo push policy', 'No default')}
-				${me ? policySelect(toPointer(['personal', 'repos', i, 'pushPolicyByAuthor', ownKey]), byAuthor[ownKey], 'Your policy in this repo', 'Not set') : ''}
 				<label class="s-field s-check" data-field="${base}/allAuthors"><input type="checkbox" data-path="${base}/allAuthors" data-kind="flag" ${r.allAuthors ? 'checked' : ''}${disabled(`${base}/allAuthors`)}><span>List PRs by everyone, not only the team</span>${fieldErrors(`${base}/allAuthors`)}</label>
 			</div>
-			${others.length ? `<p class="s-note">Set by other authors: ${others.map(([k, p]) => `${esc(k)} (${esc(PUSH_POLICY_LABELS[p] ?? p)})`).join(', ')}. Only they can change these.</p>` : ''}
-			${others.map(([k]) => fieldErrors(toPointer(['personal', 'repos', i, 'pushPolicyByAuthor', k]))).join('')}
+			<div class="s-authors" data-field="${base}/pushPolicyByAuthor">
+				<span class="s-label">Per-author policies in this repo: they win over the person's and the repo's policy</span>
+				${Object.entries(byAuthor)
+					.map(([key, p]) => {
+						const ptr = toPointer(['personal', 'repos', i, 'pushPolicyByAuthor', key]);
+						return `<div class="s-author" data-field="${ptr}">
+							<input type="text" list="s-author-ids" aria-label="Team id or login" placeholder="Team id or login" value="${esc(key)}" data-s-author-key="${esc(key)}" data-repo="${i}"${editable ? '' : ' disabled'}>
+							<select aria-label="Push policy for ${esc(key)}" data-path="${ptr}" data-kind="string"${editable ? '' : ' disabled'}>
+								${PUSH_POLICIES.map((x) => `<option value="${x}" ${p === x ? 'selected' : ''}>${esc(PUSH_POLICY_LABELS[x])}</option>`).join('')}
+							</select>
+							${editable ? `<button type="button" class="s-icon" aria-label="Remove ${esc(key)}" data-s-author-remove="${esc(key)}" data-repo="${i}"><i class="fa-solid fa-xmark"></i></button>` : ''}
+							${fieldErrors(ptr)}
+						</div>`;
+					})
+					.join('')}
+				${editable ? `<button type="button" class="s-add" data-s-author-add="${i}"><i class="fa-solid fa-plus"></i> Add an author</button>` : ''}
+			</div>
 			${fieldErrors(base)}${fieldErrors(`${base}/pushPolicyByAuthor`)}
 			${meta('/personal/repos').editable ? `<button type="button" class="s-remove" data-s-remove="${base}"><i class="fa-solid fa-xmark"></i> Remove</button>` : ''}
 		</fieldset>`;
@@ -233,6 +243,7 @@ export function createSettingsPanel({ root, api, onSaved }: SettingsPanelDeps): 
 					<button type="button" class="icon-btn" data-s-close aria-label="Close"><i class="fa-solid fa-xmark"></i></button>
 				</div>
 				<div class="s-body">
+					<datalist id="s-author-ids">${p.team.map((m) => `<option value="${esc(m.id)}">${esc(m.name)}</option>`).join('')}</datalist>
 					${loose.length ? `<div class="s-notice error"><ul>${loose.map((e) => `<li><code>${esc(e.path)}</code> ${esc(e.message)}</li>`).join('')}</ul></div>` : ''}
 					${body}
 				</div>
@@ -345,6 +356,17 @@ export function createSettingsPanel({ root, api, onSaved }: SettingsPanelDeps): 
 			render();
 		}
 	});
+	// Renaming a per-author entry moves its policy to the new key, in the same place.
+	dialog.addEventListener('change', (e) => {
+		const el = e.target;
+		if (!draft || !(el instanceof HTMLInputElement) || el.dataset.sAuthorKey === undefined) return;
+		const repo = draft.personal.repos[Number(el.dataset.repo)];
+		const from = el.dataset.sAuthorKey;
+		const to = el.value.trim();
+		if (!repo?.pushPolicyByAuthor || to === from) return;
+		repo.pushPolicyByAuthor = Object.fromEntries(Object.entries(repo.pushPolicyByAuthor).map(([k, v]) => [k === from ? to : k, v]));
+		render();
+	});
 	// The viewer's own policy fields follow the `me` choice.
 	dialog.addEventListener('change', (e) => {
 		if (e.target instanceof HTMLSelectElement && e.target.dataset.path === '/personal/me') render();
@@ -370,6 +392,22 @@ export function createSettingsPanel({ root, api, onSaved }: SettingsPanelDeps): 
 			if (kind === 'team') draft.personal.team.splice(Number(index), 1);
 			if (kind === 'repos') draft.personal.repos.splice(Number(index), 1);
 			// Errors point at indexes that moved.
+			errors = [];
+			render();
+		} else if (ds.sAuthorAdd !== undefined) {
+			const repo = draft.personal.repos[Number(ds.sAuthorAdd)];
+			if (!repo) return;
+			const map = (repo.pushPolicyByAuthor ??= {});
+			// Start with the first person who has no entry yet; the key can be changed to any login.
+			const key = draft.personal.team.map((m) => m.id).find((id) => !(id in map)) ?? '';
+			map[key] = 'review-only';
+			render();
+		} else if (ds.sAuthorRemove !== undefined) {
+			const repo = draft.personal.repos[Number(ds.repo)];
+			if (repo?.pushPolicyByAuthor) {
+				delete repo.pushPolicyByAuthor[ds.sAuthorRemove];
+				if (!Object.keys(repo.pushPolicyByAuthor).length) delete repo.pushPolicyByAuthor;
+			}
 			errors = [];
 			render();
 		} else if ('sReload' in ds && dialog.dataset.fresh) {

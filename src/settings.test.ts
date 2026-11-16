@@ -167,27 +167,27 @@ describe('PUT /api/settings checks', () => {
 		expect(put((p) => (p.features = { shipped: false }), noHerdr).ok).toBe(true);
 	});
 
-	test("another person's push policy is refused; your own is not", () => {
-		expect(errorsOf(put((p) => (p.team[1]!.pushPolicy = 'push')))).toEqual([{ path: '/personal/team/1/pushPolicy', code: 'not_editable' }]);
-		expect(errorsOf(put((p) => delete p.team[1]!.pushPolicy))).toEqual([{ path: '/personal/team/1/pushPolicy', code: 'not_editable' }]);
-		expect(put((p) => (p.team[0]!.pushPolicy = 'stacked-pr')).ok).toBe(true);
-		// A new member can't arrive with a policy that someone else chose for them.
-		expect(errorsOf(put((p) => p.team.push({ id: 'cy', name: 'Cy', short: 'Cy', logins: { github: 'cy' }, pushPolicy: 'push' })))).toEqual([
-			{ path: '/personal/team/2/pushPolicy', code: 'not_editable' },
-		]);
-		// Removing a member is not a policy change.
-		expect(put((p) => p.team.splice(1, 1)).ok).toBe(true);
+	test("you can set anyone's push policy, in the team and per repo", () => {
+		expect(put((p) => (p.team[1]!.pushPolicy = 'push')).ok).toBe(true);
+		expect(put((p) => delete p.team[1]!.pushPolicy).ok).toBe(true);
+		expect(put((p) => p.team.push({ id: 'cy', name: 'Cy', short: 'Cy', logins: { github: 'cy' }, pushPolicy: 'stacked-pr' })).ok).toBe(true);
+		expect(put((p) => (p.repos[0]!.pushPolicyByAuthor = { bob: 'review-only', 'outside-login': 'stacked-pr' })).ok).toBe(true);
+		expect(put((p) => delete p.repos[0]!.pushPolicyByAuthor).ok).toBe(true);
+		expect(put((p) => (p.repos[0]!.pushPolicy = 'review-only')).ok).toBe(true);
 	});
 
-	test('in a repo, only your own pushPolicyByAuthor entry can change; the repo default can', () => {
-		expect(errorsOf(put((p) => (p.repos[0]!.pushPolicyByAuthor = { bob: 'review-only' })))).toEqual([
-			{ path: '/personal/repos/0/pushPolicyByAuthor/bob', code: 'not_editable' },
-		]);
-		expect(errorsOf(put((p) => (p.repos[0]!.pushPolicyByAuthor = {})))).toEqual([{ path: '/personal/repos/0/pushPolicyByAuthor/bob', code: 'not_editable' }]);
-		// By team id or by login on the repo's host.
-		expect(put((p) => (p.repos[0]!.pushPolicyByAuthor = { bob: 'push', alice: 'stacked-pr' })).ok).toBe(true);
-		expect(put((p) => (p.repos[0]!.pushPolicyByAuthor = { bob: 'push', 'alice-gh': 'stacked-pr' })).ok).toBe(true);
-		expect(put((p) => (p.repos[0]!.pushPolicy = 'review-only')).ok).toBe(true);
+	test('a per-author entry needs a key and a known policy', () => {
+		expect(errorsOf(put((p) => (p.repos[0]!.pushPolicyByAuthor = { '': 'push' })))).toEqual([{ path: '/personal/repos/0/pushPolicyByAuthor/', code: 'invalid' }]);
+		expect(errorsOf(put((p) => (p.repos[0]!.pushPolicyByAuthor = { bob: 'force' as never })))).toEqual([{ path: '/personal/repos/0/pushPolicyByAuthor/bob', code: 'invalid' }]);
+	});
+
+	test('a host can lock push policies with fields', () => {
+		const locked = current(config(), {
+			fields: { ...current().fields, '/personal/team/*/pushPolicy': { editable: false, reason: 'Each person sets their own.' }, '/personal/repos/*/pushPolicyByAuthor': { editable: false } },
+		});
+		expect(errorsOf(put((p) => (p.team[1]!.pushPolicy = 'push'), locked))).toEqual([{ path: '/personal/team/*/pushPolicy', code: 'not_editable' }]);
+		expect(errorsOf(put((p) => (p.repos[0]!.pushPolicyByAuthor = {}), locked))).toEqual([{ path: '/personal/repos/*/pushPolicyByAuthor', code: 'not_editable' }]);
+		expect(put((p) => (p.team[0]!.name = 'Alice B.'), locked).ok).toBe(true);
 	});
 });
 

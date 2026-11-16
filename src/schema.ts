@@ -223,7 +223,7 @@ export function validate(root: SchemaNode, doc: unknown, options: ValidateOption
 					const before = errors.length;
 					walk(names, key, sub);
 					// A property name check reports at the property, with its name as the value.
-					for (const e of errors.slice(before)) if (e.keyword === 'x-keyOf' || e.keyword === 'enum' || e.keyword === 'pattern') e.keyword = 'propertyNames';
+					for (const e of errors.slice(before)) if (e.keyword === 'x-keyOf' || e.keyword === 'enum' || e.keyword === 'pattern' || e.keyword === 'minLength') e.keyword = 'propertyNames';
 					if (errors.length > before) continue;
 				}
 				const prop = node.properties?.[key];

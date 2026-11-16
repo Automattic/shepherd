@@ -12,6 +12,8 @@ With no policy set, comments and suggestions are fine, and you should ask the au
 
 ## Setting it
 
+Set policies in `config.json`, or in the dashboard's settings panel (the gear button), where each person and each repo has a push policy field.
+
 Set a person's policy on their team entry. It covers every PR they write:
 
 ```json

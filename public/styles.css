@@ -661,3 +661,17 @@
 	.shepherd .s-table { display: block; overflow-x: auto; }
 	.shepherd .view-note { font-size: 11.5px; padding: 4px 8px; }
 }
+.shepherd .s-authors { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+.shepherd .s-label { font-size: 11.5px; color: var(--text-3); }
+.shepherd .s-author { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.shepherd .s-author input, .shepherd .s-author select {
+	height: 32px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--surface); color: var(--text);
+	font: inherit; font-size: 13px; min-width: 0; flex: 0 1 200px;
+}
+.shepherd .s-author :disabled { opacity: .6; cursor: not-allowed; }
+.shepherd .s-icon {
+	display: grid; place-items: center; width: 28px; height: 28px; border-radius: 8px; cursor: pointer;
+	border: 1px solid var(--line); background: transparent; color: var(--text-2);
+}
+.shepherd .s-icon:hover { color: var(--bad); border-color: var(--line-strong); }
+.shepherd .s-authors .s-add { align-self: flex-start; }

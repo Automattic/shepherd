@@ -9,12 +9,10 @@ import type {
 	DeploymentSettings,
 	FieldMeta,
 	PersonalSettings,
-	RepoConfig,
 	SettingsDocument,
 	SettingsErrorResponse,
 	SettingsFieldError,
 	SettingsResponse,
-	TeamMember,
 } from './types.ts';
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -136,50 +134,6 @@ export function fieldMeta(fields: Record<string, FieldMeta>, pointer: string): F
 }
 
 // ---------------------------------------------------------------------------
-// Push policy owners
-
-const same = (a: string, b: string): boolean => a.toLowerCase() === b.toLowerCase();
-const repoId = (r: Pick<RepoConfig, 'host' | 'owner' | 'name'>): string => `${r.host}/${r.owner}/${r.name}`.toLowerCase();
-
-/** True when a `pushPolicyByAuthor` key names the viewer: their team id, or their login on the repo's host. */
-export function namesViewer(key: string, viewer: TeamMember | undefined, host: string): boolean {
-	if (!viewer) return false;
-	const login = viewer.logins[host];
-	return same(key, viewer.id) || (login !== undefined && same(key, login));
-}
-
-/** Changes to push policies that are not the viewer's own. A viewer never sets another person's policy. */
-function pushPolicyChanges(prev: PersonalSettings, next: PersonalSettings): SettingsFieldError[] {
-	const errors: SettingsFieldError[] = [];
-	const viewer = next.team.find((m) => m.id === next.me);
-	const prevById = new Map(prev.team.map((m) => [m.id, m]));
-	next.team.forEach((m, i) => {
-		if (m.id === next.me) return;
-		if ((m.pushPolicy ?? null) !== (prevById.get(m.id)?.pushPolicy ?? null)) {
-			errors.push({
-				path: toPointer(['personal', 'team', i, 'pushPolicy']),
-				code: 'not_editable',
-				message: `Only ${m.name || m.id} can change their push policy.`,
-			});
-		}
-	});
-	const prevRepos = new Map(prev.repos.map((r) => [repoId(r), r]));
-	next.repos.forEach((r, i) => {
-		const before = prevRepos.get(repoId(r))?.pushPolicyByAuthor ?? {};
-		const after = r.pushPolicyByAuthor ?? {};
-		for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {
-			if (before[key] === after[key] || namesViewer(key, viewer, r.host)) continue;
-			errors.push({
-				path: toPointer(['personal', 'repos', i, 'pushPolicyByAuthor', key]),
-				code: 'not_editable',
-				message: `Only ${key} can change their push policy in ${r.owner}/${r.name}.`,
-			});
-		}
-	});
-	return errors;
-}
-
-// ---------------------------------------------------------------------------
 // PUT /api/settings
 
 /** The rules of the local server that the shared schema does not have: it finds PRs only in the listed repos. */
@@ -249,7 +203,6 @@ export function checkSettingsPut(body: unknown, { current, refuse }: PutContext)
 	if (invalid.length) return refused(422, 'Some settings are not valid.', invalid);
 	const errors = [
 		...notEditableChanges(current, next, current.fields),
-		...pushPolicyChanges(current.personal, next.personal),
 		...limitErrors(next.personal, current),
 		...(refuse?.(next.personal, current) ?? []),
 	];

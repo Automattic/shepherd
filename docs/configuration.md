@@ -30,11 +30,7 @@ The gear button opens the settings panel. It edits `config.json` through `GET` a
 
 Each field in the settings has an `editable` flag. The panel shows a field that is not editable read-only, with the reason. On this server, `me` and every deployment setting are not editable in the panel, and `features.herdr` is not editable when `"herdr": { "enabled": false }`. A `PUT /api/settings` that changes a field that is not editable is refused, also when it is sent on purpose.
 
-Push policies are the exception in the personal group. Everyone can see them, but only that person can change their own:
-
-- In `team`, you can change only your own `pushPolicy`.
-- In a repo's `pushPolicyByAuthor`, you can change only the entry for your team id or your login on that repo's host.
-- A repo's own `pushPolicy` (its default) is a personal setting, and you can change it.
+Push policies are personal settings too. In the panel you can set the `pushPolicy` of anyone on your team, a repo's default `pushPolicy`, and a repo's `pushPolicyByAuthor` entries (add an author by team id or login). They record how each person wants to receive changes, so set them to what that person asked for.
 
 A save writes a new `config.json` (a temp file, then a rename), so the old file stays when a write fails. It keeps the keys that the panel does not show, such as `proxychains` and `port`, but it writes the file again with two-space indents. The server applies a save at once, without a restart.
 

@@ -190,8 +190,6 @@ export interface SettingsResponse extends SettingsDocument {
 	/**
 	 * Per-field metadata, keyed by JSON pointer into this document, for example `/personal/team` or
 	 * `/personal/features/herdr`. A pointer segment `*` matches any item. The longest matching pointer wins.
-	 * A `pushPolicy` of a team member, and a `pushPolicyByAuthor` entry, can be changed only for the viewer
-	 * (`me`), whatever this says.
 	 */
 	fields: Record<string, FieldMeta>;
 	/** Problems in the stored settings that the server found after it started. It keeps using the last good settings. */
@@ -208,7 +206,7 @@ export interface SettingsPutRequest {
 /**
  * Why a field was refused:
  * - `invalid`: the value breaks the settings schema.
- * - `not_editable`: the field is not editable for this viewer, or it is another person's push policy.
+ * - `not_editable`: the field is not editable for this viewer.
  * - `limit`: the value is over a cost limit.
  * - `refused`: the host refuses the value, for example a repo the viewer may not watch.
  */
