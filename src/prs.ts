@@ -3,7 +3,7 @@
 import { extractFollowUps, type FollowUpText } from './followups.ts';
 import type { GhRunner } from './gh.ts';
 import { mergedSearchSince } from './merged.ts';
-import { DEFAULT_BRANCHES, DETAIL_QUERY, MERGED_SEARCH_QUERY, SEARCH_QUERY } from './queries.ts';
+import { buildDetailBatch, MERGED_SEARCH_QUERY, SEARCH_QUERY } from './queries.ts';
 import {
 	SEVERITIES,
 	type BaseAge,
@@ -45,6 +45,8 @@ const FOLLOWUPS_CACHE_MAX = 1_000;
 interface RawAuthor {
 	login: string;
 	name?: string | null;
+	/** `Bot` for a GitHub App or a bot account, whatever its login is. */
+	__typename?: string;
 }
 
 interface RawLightPr {
@@ -144,6 +146,11 @@ interface DetailData {
 		parent?: { nodes: RawMiniPr[] };
 		stackedOnThis: { nodes: RawMiniPr[] };
 	} | null;
+}
+
+/** The response of a detail batch query: the PR at index `i` is `pr<i>`, with `dn<i>` and `up<i>` for its stack. */
+interface BatchData {
+	repository: ({ defaultBranchRef: { name: string; target: { oid: string } | null } | null } & Record<string, unknown>) | null;
 }
 
 interface CompareData {
@@ -547,11 +554,21 @@ export function createPrService(config: Config, gh: GhRunner): PrService {
 	function shapeParticipants(pr: RawDetailPr): { participants: Participant[]; lastActive: Map<string, string>; lastActivity: LastActivity | null } {
 		const lastActive = new Map<string, string>();
 		let lastActivity: LastActivity | null = null;
+		// A GitHub App such as github-actions has no `[bot]` suffix, but GitHub types it `Bot`. A login that is typed `Bot`
+		// anywhere in the PR is a bot everywhere in it, so the result does not depend on the order of the events.
+		const typedBots = new Set<string>();
+		const typed = (a: RawAuthor | null | undefined) => {
+			if (a?.__typename === 'Bot') typedBots.add(a.login);
+		};
+		for (const c of pr.comments.nodes) typed(c.author);
+		for (const r of pr.reviews.nodes) typed(r.author);
+		for (const t of pr.reviewThreads.nodes) typed(t.comments.nodes[0]?.author);
+		const isBotActor = (login: string) => typedBots.has(login) || isBot(login);
 		const touch = (login: string | undefined, at: string | null | undefined, kind: LastActivity['kind']) => {
 			if (!login || !at) return;
 			const prev = lastActive.get(login);
 			if (!prev || prev < at) lastActive.set(login, at);
-			if (!isBot(login) && (!lastActivity || lastActivity.at < at)) lastActivity = { login, at, kind };
+			if (!isBotActor(login) && (!lastActivity || lastActivity.at < at)) lastActivity = { login, at, kind };
 		};
 		for (const c of pr.comments.nodes) touch(c.author?.login, c.createdAt, 'comment');
 		for (const r of pr.reviews.nodes) touch(r.author?.login, r.submittedAt, 'review');
@@ -561,7 +578,7 @@ export function createPrService(config: Config, gh: GhRunner): PrService {
 		const authorLogin = pr.author?.login;
 		const nameByLogin = new Map(pr.participants.nodes.map((p) => [p.login, p.name]));
 		const participants = [...lastActive.entries()]
-			.filter(([login]) => login !== authorLogin && !isBot(login))
+			.filter(([login]) => login !== authorLogin && !isBotActor(login))
 			.map(([login, at]) => ({ login, name: nameByLogin.get(login) ?? null, lastActive: at }))
 			.sort((a, b) => b.lastActive.localeCompare(a.lastActive));
 		return { participants, lastActive, lastActivity };
@@ -683,6 +700,20 @@ export function createPrService(config: Config, gh: GhRunner): PrService {
 		return value;
 	}
 
+	/** The batch response for the PR at index `i`, in the per-PR shape that shapeDetail and baseAge read. */
+	function detailAt(data: BatchData, i: number): DetailData {
+		const repo = data.repository;
+		if (!repo) return { repository: null };
+		return {
+			repository: {
+				defaultBranchRef: repo.defaultBranchRef,
+				pullRequest: (repo[`pr${i}`] as RawDetailPr | null | undefined) ?? null,
+				parent: (repo[`up${i}`] as { nodes: RawMiniPr[] } | null | undefined) ?? undefined,
+				stackedOnThis: (repo[`dn${i}`] as { nodes: RawMiniPr[] } | null | undefined) ?? { nodes: [] },
+			},
+		};
+	}
+
 	async function getDetail(req: DetailRequest): Promise<PrDetail> {
 		const { host, owner, repo } = req;
 		const number = Number(req.number);
@@ -707,14 +738,9 @@ export function createPrService(config: Config, gh: GhRunner): PrService {
 				head = pr.headRefName;
 				base = pr.baseRefName;
 			}
-			const data = await gh.query<DetailData>(host, DETAIL_QUERY, {
-				owner,
-				name: repo,
-				n: number,
-				head,
-				base,
-				withParent: !DEFAULT_BRANCHES.has(base),
-			});
+			// A batch of one: the PR is `pr0`, the PRs stacked on it are `dn0`, and its parent is `up0` (only when its base is not a default branch).
+			const { query, variables } = buildDetailBatch({ owner, name: repo, prs: [{ number, head, base }] });
+			const data = detailAt(await gh.query<BatchData>(host, query, variables), 0);
 			const value = shapeDetail(host, owner, repo, data);
 			if (!value) throw new NotFoundError('Pull request not found');
 			value.baseAge = await baseAge(host, owner, repo, data);

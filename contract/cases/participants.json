@@ -3,9 +3,13 @@
   "host": "ghe",
   "owner": "example-org",
   "repo": "app",
-  "number": 104,
-  "head": "feature/participants",
-  "base": "trunk",
+  "prs": [
+    {
+      "number": 104,
+      "head": "feature/participants",
+      "base": "trunk"
+    }
+  ],
   "data": {
     "rateLimit": {
       "remaining": 4990,
@@ -20,7 +24,7 @@
           "oid": "dddddddddddddddddddddddddddddddddddddddd"
         }
       },
-      "pullRequest": {
+      "pr0": {
         "number": 104,
         "title": "Example change 104",
         "url": "https://github.example.com/example-org/app/pull/104",
@@ -50,7 +54,9 @@
         "deletions": 3,
         "changedFiles": 2,
         "author": {
+          "__typename": "User",
           "login": "alice",
+          "avatarUrl": "https://avatars.example.com/alice?size=64",
           "name": "Alice Example"
         },
         "statusCheckRollup": {
@@ -67,19 +73,23 @@
           "nodes": [
             {
               "login": "carol",
-              "name": "Carol Example"
+              "name": "Carol Example",
+              "avatarUrl": "https://avatars.example.com/carol?size=64"
             },
             {
               "login": "dana",
-              "name": "Dana Example"
+              "name": "Dana Example",
+              "avatarUrl": "https://avatars.example.com/dana?size=64"
             },
             {
               "login": "bob",
-              "name": "Bob Example"
+              "name": "Bob Example",
+              "avatarUrl": "https://avatars.example.com/bob?size=64"
             },
             {
               "login": "alice",
-              "name": "Alice Example"
+              "name": "Alice Example",
+              "avatarUrl": "https://avatars.example.com/alice?size=64"
             }
           ]
         },
@@ -87,6 +97,7 @@
           "nodes": [
             {
               "author": {
+                "__typename": "User",
                 "login": "bob"
               },
               "createdAt": "2026-11-10T09:00:00Z"
@@ -97,6 +108,7 @@
             },
             {
               "author": {
+                "__typename": "Bot",
                 "login": "dependabot[bot]"
               },
               "createdAt": "2026-11-10T12:00:00Z"
@@ -107,12 +119,14 @@
           "nodes": [
             {
               "author": {
+                "__typename": "User",
                 "login": "carol"
               },
               "submittedAt": "2026-11-10T11:00:00Z"
             },
             {
               "author": {
+                "__typename": "Bot",
                 "login": "deploy-bot"
               },
               "submittedAt": "2026-11-10T12:30:00Z"
@@ -168,6 +182,7 @@
                 "nodes": [
                   {
                     "author": {
+                      "__typename": "User",
                       "login": "dana"
                     },
                     "body": "Is this still needed?",
@@ -186,6 +201,7 @@
                 "nodes": [
                   {
                     "author": {
+                      "__typename": "Bot",
                       "login": "review-bot"
                     },
                     "body": "**Unused import** · fix here · low",
@@ -198,7 +214,7 @@
           ]
         }
       },
-      "stackedOnThis": {
+      "dn0": {
         "nodes": []
       }
     }

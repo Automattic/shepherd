@@ -3,9 +3,13 @@
   "host": "ghe",
   "owner": "example-org",
   "repo": "app",
-  "number": 101,
-  "head": "feature/bot-findings",
-  "base": "trunk",
+  "prs": [
+    {
+      "number": 101,
+      "head": "feature/bot-findings",
+      "base": "trunk"
+    }
+  ],
   "data": {
     "rateLimit": {
       "remaining": 4990,
@@ -20,7 +24,7 @@
           "oid": "dddddddddddddddddddddddddddddddddddddddd"
         }
       },
-      "pullRequest": {
+      "pr0": {
         "number": 101,
         "title": "Example change 101",
         "url": "https://github.example.com/example-org/app/pull/101",
@@ -50,7 +54,9 @@
         "deletions": 3,
         "changedFiles": 2,
         "author": {
+          "__typename": "User",
           "login": "alice",
+          "avatarUrl": "https://avatars.example.com/alice?size=64",
           "name": "Alice Example"
         },
         "statusCheckRollup": {
@@ -67,15 +73,18 @@
           "nodes": [
             {
               "login": "alice",
-              "name": "Alice Example"
+              "name": "Alice Example",
+              "avatarUrl": "https://avatars.example.com/alice?size=64"
             },
             {
               "login": "bob",
-              "name": "Bob Example"
+              "name": "Bob Example",
+              "avatarUrl": "https://avatars.example.com/bob?size=64"
             },
             {
               "login": "review-bot",
-              "name": "Review Bot"
+              "name": "Review Bot",
+              "avatarUrl": "https://avatars.example.com/review-bot?size=64"
             }
           ]
         },
@@ -99,6 +108,7 @@
                 "nodes": [
                   {
                     "author": {
+                      "__typename": "Bot",
                       "login": "review-bot"
                     },
                     "body": "**Missing null check** · fix here · critical\n\nThe value can be null here.\n\n<!-- ai-review:inline f-001 error_handling backend -->",
@@ -117,6 +127,7 @@
                 "nodes": [
                   {
                     "author": {
+                      "__typename": "Bot",
                       "login": "review-bot"
                     },
                     "body": "**Unbounded loop** · fix here · high",
@@ -135,6 +146,7 @@
                 "nodes": [
                   {
                     "author": {
+                      "__typename": "Bot",
                       "login": "review-bot"
                     },
                     "body": "**Unchecked input** · follow-up · medium",
@@ -153,6 +165,7 @@
                 "nodes": [
                   {
                     "author": {
+                      "__typename": "Bot",
                       "login": "review-bot"
                     },
                     "body": "**Long function** · fix here · low",
@@ -171,6 +184,7 @@
                 "nodes": [
                   {
                     "author": {
+                      "__typename": "Bot",
                       "login": "review-bot"
                     },
                     "body": "**Typo in comment**",
@@ -189,6 +203,7 @@
                 "nodes": [
                   {
                     "author": {
+                      "__typename": "Bot",
                       "login": "review-bot"
                     },
                     "body": "**Rename variable** · nit · low",
@@ -207,6 +222,7 @@
                 "nodes": [
                   {
                     "author": {
+                      "__typename": "Bot",
                       "login": "review-bot"
                     },
                     "body": "**Consider caching** · fix here · medium · below threshold",
@@ -225,6 +241,7 @@
                 "nodes": [
                   {
                     "author": {
+                      "__typename": "Bot",
                       "login": "review-bot"
                     },
                     "body": "**Stale check** · fix here · high",
@@ -243,6 +260,7 @@
                 "nodes": [
                   {
                     "author": {
+                      "__typename": "Bot",
                       "login": "review-bot"
                     },
                     "body": "**Already fixed** · fix here · critical",
@@ -261,6 +279,7 @@
                 "nodes": [
                   {
                     "author": {
+                      "__typename": "User",
                       "login": "bob"
                     },
                     "body": "Please rename this.",
@@ -273,7 +292,7 @@
           ]
         }
       },
-      "stackedOnThis": {
+      "dn0": {
         "nodes": []
       }
     }

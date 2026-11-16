@@ -3,9 +3,13 @@
   "host": "github",
   "owner": "example-org",
   "repo": "app",
-  "number": 103,
-  "head": "wip/draft",
-  "base": "trunk",
+  "prs": [
+    {
+      "number": 103,
+      "head": "wip/draft",
+      "base": "trunk"
+    }
+  ],
   "data": {
     "rateLimit": {
       "remaining": 4990,
@@ -20,7 +24,7 @@
           "oid": "dddddddddddddddddddddddddddddddddddddddd"
         }
       },
-      "pullRequest": {
+      "pr0": {
         "number": 103,
         "title": "Example change 103",
         "url": "https://github.com/example-org/app/pull/103",
@@ -70,7 +74,7 @@
           "nodes": []
         }
       },
-      "stackedOnThis": {
+      "dn0": {
         "nodes": []
       }
     }

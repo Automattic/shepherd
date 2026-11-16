@@ -42,10 +42,60 @@ The local server answers `POST /api/herdr/*` only for a page on `localhost`, `12
 
 A host that gives the client its own API usually builds the `/api/pr` and `/api/prs` data itself, from GitHub. `bun run build:client` writes two more files for it to `dist/`, so that its GraphQL and its shaping stay the same as this server's:
 
-- `queries.json` is `{ "apiVersion": <API_VERSION>, "fields": { "detailPr", "miniPr", "lightPr", "mergedPr" } }`. Each field is a GraphQL field set: the selection of `pullRequest(number:$n)` in the detail query, of the `parent` and `stackedOnThis` nodes, of a PR in the open list search, and of a PR in the merged search. Each one is a bare selection body, with no outer braces, no variables and no aliases. The host wraps it, for example in `fragment DetailFields on PullRequest { <detailPr> }` or `... on PullRequest { <lightPr> }`, and supplies its own variables, aliases and arguments around it. A host should check `apiVersion` and stop when it is not the version that the host was written for.
-- `contract/<case>.json` is `{ name, context, input, expected }`. `input` has the `data` of a detail query response for an invented PR, and the `host`, `owner`, `repo`, `number`, `head` and `base` of the request. `expected` is the `PrDetail` that this server's `getDetail()` shapes from it. A host can test its own shaping against these files: shape `input.data` with `context`, and compare the result with `expected`.
+- `queries.json` is `{ "format": 2, "apiVersion": <API_VERSION>, "fields": { "detailPr", "miniPr", "lightPr", "mergedPr" }, "queries": { "search", "merged", "batch", "examples" } }`. The `fields` are GraphQL field sets, and `queries` has the query texts and templates that this server sends. A host builds every query that it sends to GitHub from this file, and has no GraphQL text of its own. See [queries.json](#queriesjson) below.
+- `contract/<case>.json` is `{ name, context, input, expected }`. `input` has the `host`, `owner` and `repo`, the `prs` of the batch query (one PR: its `number`, `head` and `base`), and the `data` of the batch response for an invented PR: `data.repository.pr0`, `dn0`, `up0` and `defaultBranchRef`, and `data.rateLimit`. `expected` is the `PrDetail` that this server's `getDetail()` shapes from it. A host can test its own shaping against these files: shape `input.data` with `context`, and compare the result with `expected`.
 
 The `context` is the same in every file: the hosts `ghe` (hostname `github.example.com`, AI-review bot `review-bot`) and `github` (hostname `github.com`, no bot), and Linear workspace `example` with no keys, without review teams or ignored participants. `fetchedAt` is the fixed time `2000-01-01T00:00:00.000Z`. `baseAge` needs a compare call that the fixtures do not have, so for an open PR it is the "unknown" object with `error: "compare not available in contract"`, and for a merged or closed PR it is null. The contract covers the detail shape only, not the list or the merged shapes. See [Contributing](../CONTRIBUTING.md#queriesjson-and-contract) for how the files are made.
+
+An actor is a bot when its `__typename` is `Bot`, or when its login has the suffix `[bot]` or `-bot`, starts with `app/`, or is the host's AI-review bot or an ignored participant. A GitHub App such as `github-actions` has no suffix, so only its type says that it is a bot. The shaping leaves a bot out of `participants` and `lastActivity`. The case `bot-typed-actor` has such an actor.
+
+### queries.json
+
+- `format` is the version of the layout of `queries.json` and of the shape of the `contract/` files. This server writes `2`. A host reads `format` first, and refuses any other value (a file without `format` is format 1), before it sends a request. `format` goes up when a part is renamed or removed, when a joining rule changes, when the meaning of an alias or of a `when` value changes, or when the shape of a contract file changes. Adding a field to a field set does not raise it. `apiVersion` is the version of the API types, and a host stops when it is not the version that the host was written for.
+- `fields` are the GraphQL field sets. Each one is a bare selection body, with no outer braces, no variables and no aliases. `detailPr` is the selection of a PR in the batch detail query, `miniPr` is the selection of the PRs that are stacked on it and the PR that it is stacked on, `lightPr` is the selection of a PR in the open list search, and `mergedPr` is the selection of a PR in the merged search. A host that builds a query of its own around a field set puts it in a selection on `PullRequest`. `detailPr` has `avatarUrl(size: 64)` on the author, the requested users, the reviewers and the participants, and `__typename` on the people who comment, review and write the first comment of a thread, so a host needs no fields of its own.
+- `queries.search` and `queries.merged` are complete queries (variables `$q` and `$after`). A host sends them as they are.
+- `queries.batch` has the parts of the detail query for 1 to `max` PRs of one repository. A host joins them with the rules below.
+- `queries.examples` has fixed inputs of the batch query, with the exact `query` text and the `variables` that this server builds for each. A host tests its own expansion against them.
+
+#### The parts of `queries.batch`
+
+| Part | Content |
+| --- | --- |
+| `max` | The most PRs of one repository in one query (10). A host sends a longer list in several queries, and each query has PRs of one repository only. |
+| `defaultBranches` | The names of the branches that have no parent PR (`trunk`, `main`, `master`, `develop`). |
+| `query` | The outer query text, with the placeholders `<vars>`, `<aliases>` and `<fragments>`. Each one appears exactly once. |
+| `perPr` | A list of entries for each PR: `when`, `name`, `value`, `decl` and `alias`. The `decl` text is a variable declaration, and the `alias` text is a field of `repository`. `name`, `decl` and `alias` have `<i>` where the index of the PR goes. |
+| `fragments` | A list of entries, `when` and `text`. The `text` is a fragment definition. |
+
+The `when` of a `perPr` entry is `always`, `head` or `parentBase`. The `when` of a fragment is `always` or `stacks`. The `value` of a `perPr` entry is `number`, `head` or `base`.
+
+#### The joining rules
+
+1. Input: `owner`, `name` and `prs`, with 1 to `max` entries. Each entry is `{ number: integer ≥ 1, head: string, base: string }`. The PRs keep their input order. `i` is the 0-based index, written in decimal.
+2. For each PR `i`, then for each `perPr` entry in array order, check whether its `when` holds:
+   - `always`: always true.
+   - `head`: `head !== ""`.
+   - `parentBase`: `base !== ""`, and `base` is not in `defaultBranches`. The match is exact and case-sensitive.
+3. For each entry that holds, replace every `<i>` in `name`, `decl` and `alias` with `i`. Append `decl` to V and `alias` to A, and set `variables[name]` to the input field `value`. `number` is a JSON integer (PHP: cast to `(int)`), because GitHub rejects the string `"123"` for `Int!`. The order is by PR first, then by entry. V and A start empty, and the join adds no separator of its own: each `decl` starts with `, `, and each `alias` starts with a newline and two tabs.
+4. F is the concatenation, in array order, of the `text` of the `fragments` whose `when` holds. Each `text` ends with a newline, and the join adds no separator of its own.
+   - `always`: always true.
+   - `stacks`: at least one PR had a `head` or `parentBase` entry that held. A fragment that no alias uses is a GraphQL error, so this condition must be exact.
+5. Replace `<vars>`, `<aliases>` and `<fragments>` in `query` with V, A and F. Each placeholder appears exactly once. The substitution is literal and single-pass, and the inserted text is not scanned again. TypeScript: `split` and `join`, or a function replacer, never a string replacer (`$&` and `$'` in a replacement string are patterns). PHP: one `strtr($query, [...])` call (chained `str_replace` calls scan the inserted text again).
+6. `variables` holds `owner` and `name`, then the entries of step 3. Compare variables as JSON objects: the order of the keys does not matter, and the order of the declarations in the query text does.
+7. The response has `repository.pr<i>` for the PR, `repository.dn<i>` for the PRs that are stacked on it (the `nodes`), `repository.up<i>.nodes[0]` for the PR that it is stacked on, and `repository.defaultBranchRef` and `rateLimit`. A PR with no `up<i>` has no parent lookup. If an alias prefix or the meaning of a `when` value changes, `format` goes up.
+8. A host checks the file when it loads it, and refuses the file when any of these is false:
+   - every `when` value belongs to the closed set above;
+   - `query` contains each placeholder exactly once;
+   - every `name`, `decl` and `alias` contains `<i>`;
+   - no field set contains `<`;
+   - `max` is an integer ≥ 1;
+   - `defaultBranches` is a list of strings.
+
+Names, numbers and branches reach GitHub only as variables. They are never part of the query text, so the text depends only on the number of PRs, on which PRs have a head, and on which PRs have a base that is not a default branch.
+
+#### The examples
+
+Each entry of `queries.examples` is `{ name, input, query, variables }`. `input` is the input of step 1, and `query` and `variables` are the result of steps 2 to 6 for it. There are three: one PR into a default branch, one PR that is stacked on another PR (it has `dn` and `up`), and a batch of three PRs with a mix of default and other bases. A host expands each `input` with its own code, and checks that it gets the same `query` text byte for byte and the same `variables` (the numbers are JSON integers).
 
 ## What the host page must include
 

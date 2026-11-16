@@ -1,6 +1,6 @@
-// Contract fixtures for a host that ports the data layer. Each case in contract/cases/ is the `data` of a detail
-// query response for one invented PR. The build runs it through this server's own getDetail() and writes the
-// input and the shaped PrDetail to dist/contract/. A port that shapes the same input must give the same output.
+// Contract fixtures for a host that ports the data layer. Each case in contract/cases/ is the `data` of a batch detail
+// query response (`pr0`, `dn0` and `up0`) for one invented PR. The build runs it through this server's own getDetail()
+// and writes the input and the shaped PrDetail to dist/contract/. A port that shapes the same input must give the same output.
 // The functions throw on a bad case; only the build command exits the process.
 
 import { readdir, readFile } from 'node:fs/promises';
@@ -9,7 +9,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { ROOT } from './config.ts';
 import type { GhRunner } from './gh.ts';
 import { createPrService } from './prs.ts';
-import { DEFAULT_BRANCHES, DETAIL_QUERY } from './queries.ts';
+import { buildDetailBatch, DEFAULT_BRANCHES } from './queries.ts';
 import type { Config, PrDetail } from './types.ts';
 
 const CASES_DIR = join(ROOT, 'contract', 'cases');
@@ -43,10 +43,9 @@ export interface ContractCase {
 	host: string;
 	owner: string;
 	repo: string;
-	number: number;
-	head: string;
-	base: string;
-	/** The `data` of a detail query response. */
+	/** The PRs of the batch query. A case is a batch of one, and its PR is `pr0` in `data`. */
+	prs: { number: number; head: string; base: string }[];
+	/** The `data` of a batch detail query response. */
 	data: { repository: Record<string, unknown> } & Record<string, unknown>;
 }
 
@@ -57,7 +56,8 @@ export interface ContractFile {
 	expected: PrDetail;
 }
 
-const CASE_KEYS = ['base', 'data', 'head', 'host', 'name', 'number', 'owner', 'repo'];
+const CASE_KEYS = ['data', 'host', 'name', 'owner', 'prs', 'repo'];
+const PR_KEYS = ['base', 'head', 'number'];
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const isText = (v: unknown): v is string => typeof v === 'string' && v !== '';
 
@@ -74,13 +74,20 @@ export function validateCase(value: unknown, file: string): ContractCase {
 	if (typeof value.host !== 'string' || !Object.hasOwn(CONTEXT.hosts, value.host)) return bad(`has a host that is not one of ${Object.keys(CONTEXT.hosts).join(', ')}`);
 	// owner and repo go into a REST path, and the shaping skips the base age when they do not match this.
 	for (const key of ['owner', 'repo'] as const) if (typeof value[key] !== 'string' || !/^[\w.-]+$/.test(value[key])) return bad(`has a ${key} that is not a name`);
-	if (!Number.isInteger(value.number) || (value.number as number) < 1) return bad('has a number that is not a positive integer');
-	if (!isText(value.head) || !isText(value.base)) return bad('has no head or no base branch name');
+	const pr = Array.isArray(value.prs) && value.prs.length === 1 ? value.prs[0] : undefined;
+	if (!isObject(pr)) return bad('has no prs list with exactly one PR');
+	if (!isDeepStrictEqual(Object.keys(pr).sort(), PR_KEYS)) return bad(`has a PR with the keys ${Object.keys(pr).sort().join(', ')}, not ${PR_KEYS.join(', ')}`);
+	if (!Number.isInteger(pr.number) || (pr.number as number) < 1) return bad('has a number that is not a positive integer');
+	if (!isText(pr.head) || !isText(pr.base)) return bad('has no head or no base branch name');
 	const repository = isObject(value.data) ? value.data.repository : undefined;
 	if (!isObject(repository)) return bad('has no data.repository object');
-	for (const key of ['defaultBranchRef', 'pullRequest', 'stackedOnThis']) if (!(key in repository)) return bad(`has no data.repository.${key}`);
-	if (!isObject(repository.pullRequest)) return bad('has a data.repository.pullRequest that is not an object');
-	if (!isObject(repository.stackedOnThis)) return bad('has a data.repository.stackedOnThis that is not an object');
+	// The batch has the aliases pr0, dn0 (the head is never empty) and up0, which only a base that is not a default branch has.
+	const wantsParent = !DEFAULT_BRANCHES.has(pr.base as string);
+	const want = wantsParent ? ['defaultBranchRef', 'dn0', 'pr0', 'up0'] : ['defaultBranchRef', 'dn0', 'pr0'];
+	if (!isDeepStrictEqual(Object.keys(repository).sort(), want)) {
+		return bad(`has the keys ${Object.keys(repository).sort().join(', ')} in data.repository, and a base of ${pr.base} needs ${want.join(', ')}`);
+	}
+	for (const key of ['pr0', 'dn0', ...(wantsParent ? ['up0'] : [])]) if (!isObject(repository[key])) return bad(`has a data.repository.${key} that is not an object`);
 	return value as unknown as ContractCase;
 }
 
@@ -102,21 +109,25 @@ export async function loadCases(dir: string = CASES_DIR): Promise<ContractCase[]
 }
 
 /**
- * A `gh` that answers only the detail query of this case, with the case data. It rejects any other query text,
+ * A `gh` that answers only the batch detail query of this case, with the case data. It rejects any other query text,
  * any other variables, and every REST call, so that a case cannot pass by getting another answer than GitHub gives.
  */
 export function contractGh(c: ContractCase): GhRunner {
 	return {
 		rate: {},
 		async query<T>(hostKey: string, query: string, variables: Record<string, unknown> = {}): Promise<T> {
-			if (query !== DETAIL_QUERY) throw new Error(`contract case ${c.name}: the fake answers only the detail query`);
-			const withParent = !DEFAULT_BRANCHES.has(c.base);
-			const want = { owner: c.owner, name: c.repo, n: c.number, head: c.head, base: c.base, withParent };
+			if (query !== buildDetailBatch({ owner: c.owner, name: c.repo, prs: c.prs }).query) {
+				throw new Error(`contract case ${c.name}: the fake answers only the batch query of its case`);
+			}
+			// The variables are written out here and not taken from the builder, so that this check does not follow the builder.
+			const [pr] = c.prs as [ContractCase['prs'][number]];
+			const wantsParent = !DEFAULT_BRANCHES.has(pr.base);
+			const want = { owner: c.owner, name: c.repo, n0: pr.number, h0: pr.head, ...(wantsParent ? { b0: pr.base } : {}) };
 			if (hostKey !== c.host || !isDeepStrictEqual(variables, want)) {
 				throw new Error(`contract case ${c.name}: the fake got ${hostKey} ${JSON.stringify(variables)}, not ${c.host} ${JSON.stringify(want)}`);
 			}
-			if (withParent !== ('parent' in c.data.repository)) {
-				throw new Error(`contract case ${c.name}: data.repository has ${withParent ? 'no' : 'a'} parent, and a base of ${c.base} means ${withParent ? 'one' : 'none'}`);
+			if (wantsParent !== ('up0' in c.data.repository)) {
+				throw new Error(`contract case ${c.name}: data.repository has ${wantsParent ? 'no' : 'an'} up0, and a base of ${pr.base} means ${wantsParent ? 'one' : 'none'}`);
 			}
 			return structuredClone(c.data) as T;
 		},
@@ -127,9 +138,10 @@ export function contractGh(c: ContractCase): GhRunner {
 /** Runs one case through a new service of this server's data layer and returns the file content for it. */
 export async function buildContract(c: ContractCase): Promise<ContractFile> {
 	const service = createPrService(CONFIG, contractGh(c));
+	const [pr] = c.prs as [ContractCase['prs'][number]];
 	let detail: PrDetail;
 	try {
-		detail = await service.getDetail({ host: c.host, owner: c.owner, repo: c.repo, number: c.number, head: c.head, base: c.base });
+		detail = await service.getDetail({ host: c.host, owner: c.owner, repo: c.repo, number: pr.number, head: pr.head, base: pr.base });
 	} catch (e) {
 		throw new Error(`contract case ${c.name}: ${(e as Error).message}`);
 	}

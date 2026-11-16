@@ -3,7 +3,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { ROOT } from './config.ts';
 import { buildContracts, contractGh, loadCases, validateCase, type ContractCase, type ContractFile } from './contract.ts';
-import { DETAIL_PR_FIELDS, DETAIL_QUERY, MINI_PR_FIELDS, SEARCH_QUERY } from './queries.ts';
+import { buildDetailBatch, DETAIL_PR_FIELDS, MINI_PR_FIELDS, SEARCH_QUERY } from './queries.ts';
 
 const CASES_DIR = join(ROOT, 'contract', 'cases');
 const FIXED_FETCHED_AT = '2000-01-01T00:00:00.000Z';
@@ -21,19 +21,29 @@ const expectedOf = (name: string): ContractFile['expected'] => {
 	if (!f) throw new Error(`no contract output named ${name}`);
 	return f.expected;
 };
+/** The one PR of a case: a case is a batch of one. */
+const prOf = (c: ContractCase) => c.prs[0]!;
+/** The text of the batch query that a case answers. */
+const queryOf = (c: ContractCase) => buildDetailBatch({ owner: c.owner, name: c.repo, prs: c.prs }).query;
 
-test('every contract case has a valid shape', async () => {
+test('every contract case is a batch response', async () => {
 	const fileNames = (await readdir(CASES_DIR)).filter((f) => f.endsWith('.json')).sort();
 	expect(fileNames.length).toBeGreaterThanOrEqual(9);
 	expect(cases.map((c) => c.name)).toEqual(fileNames.map((f) => basename(f, '.json')));
 	for (const file of fileNames) {
 		const c = JSON.parse(await readFile(join(CASES_DIR, file), 'utf8')) as ContractCase;
 		const name = basename(file, '.json');
-		expect([name, Object.keys(c).sort()]).toEqual([name, ['base', 'data', 'head', 'host', 'name', 'number', 'owner', 'repo']]);
+		expect([name, Object.keys(c).sort()]).toEqual([name, ['data', 'host', 'name', 'owner', 'prs', 'repo']]);
 		expect([name, c.name]).toEqual([name, name]);
 		expect([name, /^[a-z0-9-]+$/.test(c.name)]).toEqual([name, true]);
 		expect([name, ['ghe', 'github'].includes(c.host)]).toEqual([name, true]);
-		for (const key of ['defaultBranchRef', 'pullRequest', 'stackedOnThis']) expect([name, key, key in c.data.repository]).toEqual([name, key, true]);
+		expect([name, c.prs.length]).toEqual([name, 1]);
+		expect([name, Object.keys(prOf(c)).sort()]).toEqual([name, ['base', 'head', 'number']]);
+		expect([name, Object.keys(c.data).sort()]).toEqual([name, ['rateLimit', 'repository']]);
+		expect([name, Object.keys(c.data.rateLimit as object).sort()]).toEqual([name, ['cost', 'limit', 'remaining', 'resetAt']]);
+		// The head is never empty in a case, so there is a dn0; there is an up0 exactly when the base is not a default branch.
+		const wantsUp = !['trunk', 'main', 'master', 'develop'].includes(prOf(c).base);
+		expect([name, Object.keys(c.data.repository).sort()]).toEqual([name, wantsUp ? ['defaultBranchRef', 'dn0', 'pr0', 'up0'] : ['defaultBranchRef', 'dn0', 'pr0']]);
 	}
 });
 
@@ -42,6 +52,24 @@ test('a contract case whose name is not its file name is refused', () => {
 	expect(() => validateCase(c, join(CASES_DIR, 'merged-pr.json'))).not.toThrow();
 	expect(() => validateCase({ ...c, name: 'other-name' }, join(CASES_DIR, 'merged-pr.json'))).toThrow(/merged-pr: .*not its file name/);
 	expect(() => validateCase(c, join(CASES_DIR, 'closed-pr.json'))).toThrow(/closed-pr: .*not its file name/);
+});
+
+test('a contract case whose parent lookup disagrees with its base is refused', () => {
+	const stacked = caseNamed('stacked-pr');
+	const file = join(CASES_DIR, 'stacked-pr.json');
+	expect(() => validateCase(stacked, file)).not.toThrow();
+	// A stacked base needs an up0.
+	const { up0: _up0, ...noParent } = stacked.data.repository;
+	expect(() => validateCase({ ...stacked, data: { ...stacked.data, repository: noParent } }, file)).toThrow(/stacked-pr: .*up0/);
+	// A default base must not have one.
+	const plain = caseNamed('merged-pr');
+	const plainFile = join(CASES_DIR, 'merged-pr.json');
+	expect(() => validateCase({ ...plain, data: { ...plain.data, repository: { ...plain.data.repository, up0: { nodes: [] } } } }, plainFile)).toThrow(/merged-pr: .*up0/);
+	// The base decides: the same data with a stacked base needs the up0, and with a default base it must not have it.
+	expect(() => validateCase({ ...plain, prs: [{ ...prOf(plain), base: 'feature/base-work' }] }, plainFile)).toThrow(/merged-pr: .*up0/);
+	expect(() => validateCase({ ...stacked, prs: [{ ...prOf(stacked), base: 'main' }] }, file)).toThrow(/stacked-pr: .*up0/);
+	// A case that is a batch of more than one PR is refused: the contract is a batch of one.
+	expect(() => validateCase({ ...plain, prs: [prOf(plain), prOf(plain)] }, plainFile)).toThrow(/merged-pr: .*exactly one PR/);
 });
 
 // ---- the cases answer the detail query ----
@@ -85,8 +113,8 @@ const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'obj
 
 /**
  * Compares a response value with the selection that asked for it: no key that was not asked for, and every key that was.
- * A field of `... on Type` is required when the value says `__typename: Type`, and optional when the value has no __typename
- * (an author is a User, with a name, or a bot, without one). `covered` collects the paths that some value has.
+ * A field of `... on Type` is required when the value says `__typename: Type`, and optional when the value has no __typename.
+ * `covered` collects the paths that some value has.
  */
 function check(value: unknown, sel: Sel, path: string, problems: string[], covered: Set<string>): void {
 	if (value === null) return;
@@ -132,12 +160,12 @@ test('every contract case answers every field the detail query asks for', () => 
 		const found: string[] = [];
 		const { repository } = c.data;
 		expect([c.name, Object.keys(c.data).filter((k) => k !== 'rateLimit')]).toEqual([c.name, ['repository']]);
-		const wantsParent = !['trunk', 'main', 'master', 'develop'].includes(c.base);
-		expect([c.name, 'parent' in repository]).toEqual([c.name, wantsParent]);
-		expect([c.name, Object.keys(repository).sort()]).toEqual([c.name, (wantsParent ? ['defaultBranchRef', 'parent', 'pullRequest', 'stackedOnThis'] : ['defaultBranchRef', 'pullRequest', 'stackedOnThis'])]);
-		check(repository.pullRequest, detail, 'pullRequest', found, covered);
+		const wantsParent = !['trunk', 'main', 'master', 'develop'].includes(prOf(c).base);
+		expect([c.name, 'up0' in repository]).toEqual([c.name, wantsParent]);
+		expect([c.name, Object.keys(repository).sort()]).toEqual([c.name, (wantsParent ? ['defaultBranchRef', 'dn0', 'pr0', 'up0'] : ['defaultBranchRef', 'dn0', 'pr0'])]);
+		check(repository.pr0, detail, 'pr0', found, covered);
 		check(repository.defaultBranchRef, parseSelection('name target { oid }'), 'defaultBranchRef', found, new Set());
-		for (const key of wantsParent ? ['parent', 'stackedOnThis'] : ['stackedOnThis']) {
+		for (const key of wantsParent ? ['up0', 'dn0'] : ['dn0']) {
 			const list = repository[key] as { nodes: unknown[] };
 			expect([c.name, key, Object.keys(list)]).toEqual([c.name, key, ['nodes']]);
 			check(list.nodes, mini, key, found, miniCovered);
@@ -146,46 +174,57 @@ test('every contract case answers every field the detail query asks for', () => 
 		problems.push(...note(found));
 	}
 	expect(problems).toEqual([]);
-	const uncovered = leaves(detail, 'pullRequest').filter((p) => !covered.has(p));
+	const uncovered = leaves(detail, 'pr0').filter((p) => !covered.has(p));
 	expect(uncovered).toEqual([]);
-	expect(leaves(mini, 'parent').map((p) => p.replace('parent.', '')).filter((p) => ![...miniCovered].some((m) => m.endsWith(`.${p}`)))).toEqual([]);
+	expect(leaves(mini, 'up0').map((p) => p.replace('up0.', '')).filter((p) => ![...miniCovered].some((m) => m.endsWith(`.${p}`)))).toEqual([]);
 	// The check itself finds a missing field and an extra one.
-	const broken = structuredClone(caseNamed('merged-pr').data.repository.pullRequest as Record<string, unknown>);
+	const broken = structuredClone(caseNamed('merged-pr').data.repository.pr0 as Record<string, unknown>);
 	delete broken.mergeable;
 	broken.extra = 1;
 	const found: string[] = [];
-	check(broken, detail, 'pullRequest', found, new Set());
-	expect(found.sort()).toEqual(['pullRequest.extra is not asked for', 'pullRequest.mergeable is missing']);
+	check(broken, detail, 'pr0', found, new Set());
+	expect(found.sort()).toEqual(['pr0.extra is not asked for', 'pr0.mergeable is missing']);
 });
 
 // ---- the fake gh ----
 
-test('the contract fake answers only the detail query', async () => {
+test('the contract fake answers only the batch query of its case', async () => {
 	const c = caseNamed('ai-review-bot');
-	const vars = { owner: c.owner, name: c.repo, n: c.number, head: c.head, base: c.base, withParent: false };
+	const pr = prOf(c);
+	const query = queryOf(c);
+	const vars = { owner: c.owner, name: c.repo, n0: pr.number, h0: pr.head };
 	const gh = contractGh(c);
 	expect(gh.rate).toEqual({});
 
-	const answer = await gh.query<ContractCase['data']>(c.host, DETAIL_QUERY, vars);
+	const answer = await gh.query<ContractCase['data']>(c.host, query, vars);
 	expect(answer).toEqual(c.data);
 	expect(answer).not.toBe(c.data); // a copy: the service cannot change the case through it
 
-	await expect(gh.query(c.host, SEARCH_QUERY, vars)).rejects.toThrow(/only the detail query/);
-	await expect(gh.query(c.host, 'query { viewer { login } }', vars)).rejects.toThrow(/only the detail query/);
-	await expect(gh.query(c.host, DETAIL_QUERY, { ...vars, n: c.number + 1 })).rejects.toThrow(/the fake got/);
-	await expect(gh.query(c.host, DETAIL_QUERY, { ...vars, withParent: true })).rejects.toThrow(/the fake got/);
-	await expect(gh.query(c.host, DETAIL_QUERY, { owner: c.owner, name: c.repo, n: c.number })).rejects.toThrow(/the fake got/);
-	await expect(gh.query(c.host, DETAIL_QUERY, { ...vars, extra: 1 })).rejects.toThrow(/the fake got/);
-	await expect(gh.query('github', DETAIL_QUERY, vars)).rejects.toThrow(/the fake got/);
+	// Another query text: another query, a text that is not this batch, a batch of another size, a text that differs by a character.
+	await expect(gh.query(c.host, SEARCH_QUERY, vars)).rejects.toThrow(/only the batch query of its case/);
+	await expect(gh.query(c.host, 'query { viewer { login } }', vars)).rejects.toThrow(/only the batch query of its case/);
+	const two = buildDetailBatch({ owner: c.owner, name: c.repo, prs: [pr, { ...pr, number: pr.number + 1 }] }).query;
+	await expect(gh.query(c.host, two, vars)).rejects.toThrow(/only the batch query of its case/);
+	await expect(gh.query(c.host, `${query} `, vars)).rejects.toThrow(/only the batch query of its case/);
+	// Other variables: a number, a missing or an extra variable, a variable of the stacked lookup on a default base, another host.
+	await expect(gh.query(c.host, query, { ...vars, n0: pr.number + 1 })).rejects.toThrow(/the fake got/);
+	await expect(gh.query(c.host, query, { owner: c.owner, name: c.repo, n0: pr.number })).rejects.toThrow(/the fake got/);
+	await expect(gh.query(c.host, query, { ...vars, extra: 1 })).rejects.toThrow(/the fake got/);
+	await expect(gh.query(c.host, query, { ...vars, b0: pr.base })).rejects.toThrow(/the fake got/);
+	await expect(gh.query(c.host === 'github' ? 'ghe' : 'github', query, vars)).rejects.toThrow(/the fake got/);
+	// Every REST call.
 	await expect(gh.get(c.host, 'repos/example-org/app/compare/a...b')).rejects.toThrow(COMPARE_ERROR);
 
-	// withParent must agree with the data: a stacked base needs a parent, and a default base must not have one.
+	// A stacked base has b0 in its variables, and its data must have an up0; a default base must not have one.
 	const stacked = caseNamed('stacked-pr');
-	const stackedVars = { owner: stacked.owner, name: stacked.repo, n: stacked.number, head: stacked.head, base: stacked.base, withParent: true };
-	await expect(contractGh(stacked).query(stacked.host, DETAIL_QUERY, stackedVars)).resolves.toEqual(stacked.data);
-	const { parent: _parent, ...noParent } = stacked.data.repository;
-	await expect(contractGh({ ...stacked, data: { ...stacked.data, repository: noParent } }).query(stacked.host, DETAIL_QUERY, stackedVars)).rejects.toThrow(/has no parent/);
-	await expect(contractGh({ ...c, data: { ...c.data, repository: { ...c.data.repository, parent: { nodes: [] } } } }).query(c.host, DETAIL_QUERY, vars)).rejects.toThrow(/has a parent/);
+	const sPr = prOf(stacked);
+	const stackedVars = { owner: stacked.owner, name: stacked.repo, n0: sPr.number, h0: sPr.head, b0: sPr.base };
+	await expect(contractGh(stacked).query(stacked.host, queryOf(stacked), stackedVars)).resolves.toEqual(stacked.data);
+	await expect(contractGh(stacked).query(stacked.host, queryOf(stacked), { ...stackedVars, b0: 'other' })).rejects.toThrow(/the fake got/);
+	await expect(contractGh(stacked).query(stacked.host, queryOf(stacked), { owner: stacked.owner, name: stacked.repo, n0: sPr.number, h0: sPr.head })).rejects.toThrow(/the fake got/);
+	const { up0: _up0, ...noParent } = stacked.data.repository;
+	await expect(contractGh({ ...stacked, data: { ...stacked.data, repository: noParent } }).query(stacked.host, queryOf(stacked), stackedVars)).rejects.toThrow(/has no up0/);
+	await expect(contractGh({ ...c, data: { ...c.data, repository: { ...c.data.repository, up0: { nodes: [] } } } }).query(c.host, query, vars)).rejects.toThrow(/has an up0/);
 });
 
 test('contract output is the same on every run', async () => {
@@ -210,8 +249,49 @@ test('every contract case shapes without an error', () => {
 	expect(files.map((f) => f.name)).toEqual(cases.map((c) => c.name));
 	for (const c of cases) {
 		const e = expectedOf(c.name);
-		expect([c.name, e.key, e.number]).toEqual([c.name, `${c.host}:${c.owner}/${c.repo}#${c.number}`, c.number]);
+		expect([c.name, e.key, e.number]).toEqual([c.name, `${c.host}:${c.owner}/${c.repo}#${prOf(c).number}`, prOf(c).number]);
 	}
+});
+
+// ---- bots ----
+
+/** Every actor of a case's pr0: an object with a `__typename` of User or Bot and a login. */
+function actors(value: unknown, out: { login: string; type: string }[] = []): { login: string; type: string }[] {
+	if (Array.isArray(value)) for (const v of value) actors(v, out);
+	else if (isObject(value)) {
+		if ((value.__typename === 'User' || value.__typename === 'Bot') && typeof value.login === 'string') out.push({ login: value.login, type: value.__typename });
+		for (const v of Object.values(value)) actors(v, out);
+	}
+	return out;
+}
+
+test('contract cases use the Bot type only for logins the shaping treats as bots', () => {
+	// The login rules of the shaping, with the AI-review bot of the contract context (the same in every case).
+	const byLogin = (login: string) => /\[bot\]$|-bot$|^app\//i.test(login);
+	let typedOnly = 0;
+	for (const c of cases) {
+		const list = actors(c.data.repository.pr0);
+		const e = expectedOf(c.name);
+		const seen = new Set([...e.participants.map((p) => p.login), ...(e.lastActivity ? [e.lastActivity.login] : [])]);
+		for (const { login, type } of list) {
+			// A login that the rules know is typed Bot, and a login with no such shape is a bot only when it is typed Bot, in one case.
+			if (byLogin(login)) expect([c.name, login, type]).toEqual([c.name, login, 'Bot']);
+			if (type === 'Bot' && !byLogin(login)) {
+				expect(c.name).toBe('bot-typed-actor');
+				typedOnly++;
+			}
+			// A bot is never a participant and never the last activity.
+			if (type === 'Bot') expect([c.name, login, seen.has(login)]).toEqual([c.name, login, false]);
+		}
+	}
+	// The case has bots that only their type marks (github-actions and copilot-reviewer).
+	expect(typedOnly).toBeGreaterThan(0);
+});
+
+test('contract: bots that only their type marks', () => {
+	const e = expectedOf('bot-typed-actor');
+	expect(e.participants).toEqual([{ login: 'bob', name: 'Bob Example', lastActive: '2026-11-10T10:00:00Z' }]);
+	expect(e.lastActivity).toEqual({ login: 'bob', at: '2026-11-10T10:00:00Z', kind: 'comment' });
 });
 
 // ---- shaped values, one test for each group of cases ----
