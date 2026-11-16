@@ -136,6 +136,7 @@ Every key, with defaults, is in [Configuration](docs/configuration.md).
 - [Review teams](docs/review-teams.md): count a GitHub team review request as waiting on each member
 - [Push policies](docs/push-policy.md): whether an author wants comments only, stacked PRs, or pushes to their branch
 - [GitHub Enterprise and proxies](docs/github-enterprise.md)
+- [Embedding the client](docs/embedding.md): set the API path and extra request headers from a host page
 
 **Working on Shepherd**
 

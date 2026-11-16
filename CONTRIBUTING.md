@@ -29,6 +29,7 @@ Run `bun run check` and `bun test` before you open a pull request.
 | `src/repo-chips.ts` | Keys and labels of the repo chips when the config has no repos, used by the browser client |
 | `src/followups.ts` | What counts as a follow-up: parses descriptions, reviews and comments |
 | `src/herdr.ts` | Optional herdr integration: pane scan, PR matching and pane focus over herdr's socket |
+| `src/embed.ts` | Options that a host page gives to the client in `window.SHEPHERD`: API base path and extra headers |
 | `src/types.ts` | Types shared by the server, the MCP endpoint and the browser client |
 | `web/app.ts` | The dashboard client: no framework, bundled by Bun into `/app.js` |
 | `public/` | `index.html` and `styles.css` |
