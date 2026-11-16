@@ -926,7 +926,7 @@ function computeGroups(): Group[] {
 			updated: Math.max(...members.map((m) => new Date(m.light.updatedAt).getTime())),
 		});
 	}
-	// Ready to land first (approved, no conflicts, no failed checks), then approved but blocked,
+	// Review order: ready to land first (approved, no conflicts, no failed checks), then approved but blocked,
 	// then what waits on you, then most recently updated.
 	// "Newest first" uses only the newest update in each group. The band borders stay in both orders.
 	const band = (g: Group): number => (g.approved ? (g.blocked ? 1 : 2) : 0);
