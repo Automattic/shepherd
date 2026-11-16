@@ -1,0 +1,206 @@
+{
+  "name": "participants",
+  "host": "ghe",
+  "owner": "example-org",
+  "repo": "app",
+  "number": 104,
+  "head": "feature/participants",
+  "base": "trunk",
+  "data": {
+    "rateLimit": {
+      "remaining": 4990,
+      "limit": 5000,
+      "resetAt": "2026-11-10T15:00:00Z",
+      "cost": 1
+    },
+    "repository": {
+      "defaultBranchRef": {
+        "name": "trunk",
+        "target": {
+          "oid": "dddddddddddddddddddddddddddddddddddddddd"
+        }
+      },
+      "pullRequest": {
+        "number": 104,
+        "title": "Example change 104",
+        "url": "https://github.example.com/example-org/app/pull/104",
+        "state": "OPEN",
+        "merged": false,
+        "mergedAt": null,
+        "isDraft": false,
+        "updatedAt": "2026-11-10T14:00:00Z",
+        "createdAt": "2026-11-08T09:00:00Z",
+        "headRefName": "feature/participants",
+        "baseRefName": "trunk",
+        "isCrossRepository": false,
+        "headRepositoryOwner": {
+          "login": "example-org"
+        },
+        "headRefOid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "baseRefOid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "baseRef": {
+          "target": {
+            "oid": "cccccccccccccccccccccccccccccccccccccccc"
+          }
+        },
+        "body": "Example change 104.",
+        "mergeable": "MERGEABLE",
+        "reviewDecision": null,
+        "additions": 12,
+        "deletions": 3,
+        "changedFiles": 2,
+        "author": {
+          "login": "alice",
+          "name": "Alice Example"
+        },
+        "statusCheckRollup": {
+          "state": "SUCCESS"
+        },
+        "reviewRequests": {
+          "nodes": []
+        },
+        "latestOpinionatedReviews": {
+          "nodes": []
+        },
+        "participants": {
+          "totalCount": 6,
+          "nodes": [
+            {
+              "login": "carol",
+              "name": "Carol Example"
+            },
+            {
+              "login": "dana",
+              "name": "Dana Example"
+            },
+            {
+              "login": "bob",
+              "name": "Bob Example"
+            },
+            {
+              "login": "alice",
+              "name": "Alice Example"
+            }
+          ]
+        },
+        "comments": {
+          "nodes": [
+            {
+              "author": {
+                "login": "bob"
+              },
+              "createdAt": "2026-11-10T09:00:00Z"
+            },
+            {
+              "author": null,
+              "createdAt": "2026-11-10T09:30:00Z"
+            },
+            {
+              "author": {
+                "login": "dependabot[bot]"
+              },
+              "createdAt": "2026-11-10T12:00:00Z"
+            }
+          ]
+        },
+        "reviews": {
+          "nodes": [
+            {
+              "author": {
+                "login": "carol"
+              },
+              "submittedAt": "2026-11-10T11:00:00Z"
+            },
+            {
+              "author": {
+                "login": "deploy-bot"
+              },
+              "submittedAt": "2026-11-10T12:30:00Z"
+            }
+          ]
+        },
+        "commits": {
+          "nodes": [
+            {
+              "commit": {
+                "committedDate": "2026-11-09T08:00:00Z",
+                "author": {
+                  "user": {
+                    "login": "alice"
+                  }
+                }
+              }
+            },
+            {
+              "commit": {
+                "committedDate": "2026-11-10T10:30:00Z",
+                "author": {
+                  "user": {
+                    "login": "erin"
+                  }
+                }
+              }
+            },
+            {
+              "commit": {
+                "committedDate": "2026-11-10T13:00:00Z",
+                "author": {
+                  "user": null
+                }
+              }
+            },
+            {
+              "commit": {
+                "committedDate": "2026-11-10T13:15:00Z",
+                "author": null
+              }
+            }
+          ]
+        },
+        "reviewThreads": {
+          "nodes": [
+            {
+              "isResolved": false,
+              "isOutdated": false,
+              "path": "src/a.ts",
+              "line": 10,
+              "comments": {
+                "nodes": [
+                  {
+                    "author": {
+                      "login": "dana"
+                    },
+                    "body": "Is this still needed?",
+                    "url": "https://github.example.com/example-org/app/pull/101#discussion_r1",
+                    "createdAt": "2026-11-10T10:00:00Z"
+                  }
+                ]
+              }
+            },
+            {
+              "isResolved": false,
+              "isOutdated": false,
+              "path": "src/a.ts",
+              "line": 20,
+              "comments": {
+                "nodes": [
+                  {
+                    "author": {
+                      "login": "review-bot"
+                    },
+                    "body": "**Unused import** · fix here · low",
+                    "url": "https://github.example.com/example-org/app/pull/101#discussion_r2",
+                    "createdAt": "2026-11-10T12:45:00Z"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "stackedOnThis": {
+        "nodes": []
+      }
+    }
+  }
+}

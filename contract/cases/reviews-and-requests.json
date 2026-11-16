@@ -1,0 +1,133 @@
+{
+  "name": "reviews-and-requests",
+  "host": "github",
+  "owner": "example-org",
+  "repo": "app",
+  "number": 102,
+  "head": "feature/reviews",
+  "base": "main",
+  "data": {
+    "rateLimit": {
+      "remaining": 4990,
+      "limit": 5000,
+      "resetAt": "2026-11-10T15:00:00Z",
+      "cost": 1
+    },
+    "repository": {
+      "defaultBranchRef": {
+        "name": "main",
+        "target": {
+          "oid": "dddddddddddddddddddddddddddddddddddddddd"
+        }
+      },
+      "pullRequest": {
+        "number": 102,
+        "title": "Example change 102",
+        "url": "https://github.com/example-org/app/pull/102",
+        "state": "OPEN",
+        "merged": false,
+        "mergedAt": null,
+        "isDraft": false,
+        "updatedAt": "2026-11-10T14:00:00Z",
+        "createdAt": "2026-11-08T09:00:00Z",
+        "headRefName": "feature/reviews",
+        "baseRefName": "main",
+        "isCrossRepository": false,
+        "headRepositoryOwner": {
+          "login": "example-org"
+        },
+        "headRefOid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "baseRefOid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "baseRef": {
+          "target": {
+            "oid": "cccccccccccccccccccccccccccccccccccccccc"
+          }
+        },
+        "body": "Example change 102.",
+        "mergeable": "MERGEABLE",
+        "reviewDecision": "CHANGES_REQUESTED",
+        "additions": 12,
+        "deletions": 3,
+        "changedFiles": 2,
+        "author": {
+          "login": "alice",
+          "name": "Alice Example"
+        },
+        "statusCheckRollup": {
+          "state": "SUCCESS"
+        },
+        "reviewRequests": {
+          "nodes": [
+            {
+              "requestedReviewer": {
+                "__typename": "User",
+                "login": "bob",
+                "name": "Bob Example"
+              }
+            },
+            {
+              "requestedReviewer": {
+                "__typename": "User",
+                "login": "carol",
+                "name": null
+              }
+            },
+            {
+              "requestedReviewer": {
+                "__typename": "Team",
+                "slug": "core-reviewers",
+                "combinedSlug": "example-org/core-reviewers",
+                "name": "Core Reviewers"
+              }
+            },
+            {
+              "requestedReviewer": null
+            }
+          ]
+        },
+        "latestOpinionatedReviews": {
+          "nodes": [
+            {
+              "state": "APPROVED",
+              "submittedAt": "2026-11-10T11:00:00Z",
+              "author": {
+                "login": "dana"
+              }
+            },
+            {
+              "state": "CHANGES_REQUESTED",
+              "submittedAt": "2026-11-10T12:00:00Z",
+              "author": null
+            },
+            {
+              "state": "DISMISSED",
+              "submittedAt": null,
+              "author": {
+                "login": "erin"
+              }
+            }
+          ]
+        },
+        "participants": {
+          "totalCount": 0,
+          "nodes": []
+        },
+        "comments": {
+          "nodes": []
+        },
+        "reviews": {
+          "nodes": []
+        },
+        "commits": {
+          "nodes": []
+        },
+        "reviewThreads": {
+          "nodes": []
+        }
+      },
+      "stackedOnThis": {
+        "nodes": []
+      }
+    }
+  }
+}

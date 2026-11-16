@@ -1,0 +1,114 @@
+{
+  "name": "stacked-pr",
+  "host": "github",
+  "owner": "example-org",
+  "repo": "app",
+  "number": 110,
+  "head": "feature/stacked-ui",
+  "base": "feature/base-work",
+  "data": {
+    "rateLimit": {
+      "remaining": 4990,
+      "limit": 5000,
+      "resetAt": "2026-11-10T15:00:00Z",
+      "cost": 1
+    },
+    "repository": {
+      "defaultBranchRef": {
+        "name": "trunk",
+        "target": {
+          "oid": "dddddddddddddddddddddddddddddddddddddddd"
+        }
+      },
+      "pullRequest": {
+        "number": 110,
+        "title": "Example change 110",
+        "url": "https://github.com/example-org/app/pull/110",
+        "state": "OPEN",
+        "merged": false,
+        "mergedAt": null,
+        "isDraft": false,
+        "updatedAt": "2026-11-10T14:00:00Z",
+        "createdAt": "2026-11-08T09:00:00Z",
+        "headRefName": "feature/stacked-ui",
+        "baseRefName": "feature/base-work",
+        "isCrossRepository": false,
+        "headRepositoryOwner": {
+          "login": "example-org"
+        },
+        "headRefOid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "baseRefOid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "baseRef": {
+          "target": {
+            "oid": "cccccccccccccccccccccccccccccccccccccccc"
+          }
+        },
+        "body": "Example change 110.",
+        "mergeable": "MERGEABLE",
+        "reviewDecision": null,
+        "additions": 12,
+        "deletions": 3,
+        "changedFiles": 2,
+        "author": {
+          "login": "alice",
+          "name": "Alice Example"
+        },
+        "statusCheckRollup": {
+          "state": "SUCCESS"
+        },
+        "reviewRequests": {
+          "nodes": []
+        },
+        "latestOpinionatedReviews": {
+          "nodes": []
+        },
+        "participants": {
+          "totalCount": 0,
+          "nodes": []
+        },
+        "comments": {
+          "nodes": []
+        },
+        "reviews": {
+          "nodes": []
+        },
+        "commits": {
+          "nodes": []
+        },
+        "reviewThreads": {
+          "nodes": []
+        }
+      },
+      "parent": {
+        "nodes": [
+          {
+            "number": 109,
+            "title": "Add the base API",
+            "url": "https://github.com/example-org/app/pull/109",
+            "author": {
+              "login": "bob"
+            }
+          }
+        ]
+      },
+      "stackedOnThis": {
+        "nodes": [
+          {
+            "number": 111,
+            "title": "Add the dashboard on top",
+            "url": "https://github.com/example-org/app/pull/111",
+            "author": {
+              "login": "carol"
+            }
+          },
+          {
+            "number": 112,
+            "title": "Add docs on top",
+            "url": "https://github.com/example-org/app/pull/112",
+            "author": null
+          }
+        ]
+      }
+    }
+  }
+}

@@ -1,9 +1,12 @@
 // Builds the browser client. The server calls buildClient() at startup.
-// `bun run build:client` runs this file and writes a minified copy of the client to dist/ for a host that embeds it.
+// `bun run build:client` runs this file and writes a minified copy of the client to dist/ for a host that embeds it,
+// plus queries.json (the GraphQL field sets) and contract/ (shaping fixtures) for a host that ports the data layer.
 
-import { copyFile, mkdir, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, rm, writeFile } from 'node:fs/promises';
 import { join, relative, resolve } from 'node:path';
 import { ROOT } from './config.ts';
+import { buildContracts } from './contract.ts';
+import { queriesJson } from './queries.ts';
 
 export const PUBLIC_DIR = join(ROOT, 'public');
 const CLIENT_ENTRY = join(ROOT, 'web', 'app.ts');
@@ -59,21 +62,35 @@ function rootRelativeSources(mapText: string): string {
 	return JSON.stringify(map);
 }
 
-/** `bun run build:client`: writes the minified client, its styles and index.html to dist/. */
+const jsonText = (value: unknown): string => `${JSON.stringify(value, null, 2)}\n`;
+
+/**
+ * `bun run build:client`: writes the minified client, its styles and index.html to dist/,
+ * plus dist/queries.json and one dist/contract/<case>.json per case in contract/cases/.
+ * It deletes dist/contract/ first, so a removed or renamed case leaves no file behind.
+ */
 async function writeDist(): Promise<void> {
 	const outDir = join(ROOT, 'dist');
+	const contractDir = join(outDir, 'contract');
 	await mkdir(outDir, { recursive: true });
+	await rm(contractDir, { recursive: true, force: true });
+	const contracts = await buildContracts();
+	await writeFile(join(outDir, 'queries.json'), jsonText(queriesJson()));
+	await mkdir(contractDir, { recursive: true });
+	for (const file of contracts) await writeFile(join(contractDir, `${file.name}.json`), jsonText(file));
 	const client = await buildClient({ minify: true });
 	await writeFile(join(outDir, 'app.js'), client.js);
 	if (client.map) await writeFile(join(outDir, 'app.js.map'), client.map);
 	const [styles] = await bundle({ entrypoints: [join(PUBLIC_DIR, 'styles.css')], minify: true });
 	await writeFile(join(outDir, 'styles.css'), await styles!.text());
 	await copyFile(join(PUBLIC_DIR, 'index.html'), join(outDir, 'index.html'));
-	console.log(`Wrote app.js, app.js.map, styles.css and index.html to ${outDir}`);
+	console.log(`Wrote app.js, app.js.map, styles.css, index.html, queries.json and ${contracts.length} files in contract/ to ${outDir}`);
 }
 
 if (import.meta.main) {
 	try {
+		// Bun puts a debugId in app.js and its map that depends on the current folder; build from ROOT so every folder gives the same files.
+		process.chdir(ROOT);
 		await writeDist();
 	} catch (e) {
 		console.error(e);

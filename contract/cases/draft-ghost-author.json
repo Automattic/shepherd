@@ -1,0 +1,78 @@
+{
+  "name": "draft-ghost-author",
+  "host": "github",
+  "owner": "example-org",
+  "repo": "app",
+  "number": 103,
+  "head": "wip/draft",
+  "base": "trunk",
+  "data": {
+    "rateLimit": {
+      "remaining": 4990,
+      "limit": 5000,
+      "resetAt": "2026-11-10T15:00:00Z",
+      "cost": 1
+    },
+    "repository": {
+      "defaultBranchRef": {
+        "name": "trunk",
+        "target": {
+          "oid": "dddddddddddddddddddddddddddddddddddddddd"
+        }
+      },
+      "pullRequest": {
+        "number": 103,
+        "title": "Example change 103",
+        "url": "https://github.com/example-org/app/pull/103",
+        "state": "OPEN",
+        "merged": false,
+        "mergedAt": null,
+        "isDraft": true,
+        "updatedAt": "2026-11-10T14:00:00Z",
+        "createdAt": "2026-11-08T09:00:00Z",
+        "headRefName": "wip/draft",
+        "baseRefName": "trunk",
+        "isCrossRepository": false,
+        "headRepositoryOwner": {
+          "login": "example-org"
+        },
+        "headRefOid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "baseRefOid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "baseRef": null,
+        "body": null,
+        "mergeable": "UNKNOWN",
+        "reviewDecision": null,
+        "additions": 12,
+        "deletions": 3,
+        "changedFiles": 2,
+        "author": null,
+        "statusCheckRollup": null,
+        "reviewRequests": {
+          "nodes": []
+        },
+        "latestOpinionatedReviews": {
+          "nodes": []
+        },
+        "participants": {
+          "totalCount": 0,
+          "nodes": []
+        },
+        "comments": {
+          "nodes": []
+        },
+        "reviews": {
+          "nodes": []
+        },
+        "commits": {
+          "nodes": []
+        },
+        "reviewThreads": {
+          "nodes": []
+        }
+      },
+      "stackedOnThis": {
+        "nodes": []
+      }
+    }
+  }
+}
