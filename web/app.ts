@@ -1694,7 +1694,10 @@ document.addEventListener('contextmenu', (e) => {
 
 document.addEventListener('keydown', (e) => {
 	if (e.key === 'Escape') closePopover();
-	if (!(e.target instanceof Element) || e.target.matches('input, textarea') || e.metaKey || e.ctrlKey || e.altKey) return;
+	// Ignore the keys in all editable elements, also the ones on a host page (a select or a contenteditable editor).
+	const t = e.target;
+	if (!(t instanceof Element) || t.matches('input, textarea, select') || (t instanceof HTMLElement && t.isContentEditable)) return;
+	if (e.metaKey || e.ctrlKey || e.altKey) return;
 	if (e.key === 'r') refreshNow();
 	if (e.key === '/') {
 		e.preventDefault();

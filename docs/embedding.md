@@ -63,7 +63,7 @@ All the rules in `styles.css` start with `.shepherd`, the class that the client 
 - The host's CSS rules for element names (for example `button` or `input`) also apply in the dashboard, when a rule of the client does not set the same property.
 - The popover and the "Copied" tip use `position: fixed`. When an ancestor of the mount element has a `transform` or a `filter`, they show at the wrong position.
 - The client renders a `<main>` element. Do not put the mount element in another `<main>`.
-- The keyboard shortcuts (`R` to refresh, `/` to go to the filter, `Esc` to close the popover) work on all of the page, when the focus is not in a text field.
+- The keyboard shortcuts (`R` to refresh, `/` to go to the filter, `Esc` to close the popover) work on all of the page. `R` and `/` do not work when the focus is in a text field, a `<select>` or an element with `contenteditable`.
 
 ## Invalid values
 
