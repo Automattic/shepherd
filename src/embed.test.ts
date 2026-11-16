@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { apiUrl, readEmbedOptions } from './embed.ts';
+import { apiHeaders, apiUrl, readEmbedOptions } from './embed.ts';
 
 test('readEmbedOptions gives no options when window.SHEPHERD is not an object', () => {
 	for (const raw of [undefined, null, 'x', 42, true, ['/x']]) expect(readEmbedOptions(raw)).toEqual({});
@@ -13,6 +13,25 @@ test('readEmbedOptions keeps a valid apiBase without the trailing slash', () => 
 
 test('readEmbedOptions ignores an apiBase that is not valid', () => {
 	for (const apiBase of ['', 'relative/path', '//evil.example/api', 'javascript:alert(1)', 42, null, {}]) {
+		expect(readEmbedOptions({ apiBase })).toEqual({});
+	}
+});
+
+test('readEmbedOptions ignores a path apiBase that the URL parser sends to another origin', () => {
+	for (const apiBase of ['/\\evil.example/api', '/\t/evil.example/api', '/\n/evil.example', '/\r/evil.example', '/ /x']) {
+		expect(readEmbedOptions({ apiBase })).toEqual({});
+	}
+});
+
+test('readEmbedOptions ignores an http(s) apiBase without "//"', () => {
+	for (const apiBase of ['http:/evil.example', 'https:evil.example/s', 'https:/evil.example']) {
+		expect(readEmbedOptions({ apiBase })).toEqual({});
+	}
+	expect(readEmbedOptions({ apiBase: 'HTTPS://example.com/s' })).toEqual({ apiBase: 'HTTPS://example.com/s' });
+});
+
+test('readEmbedOptions ignores an apiBase with a query, a fragment or credentials', () => {
+	for (const apiBase of ['/x?a=1', '/x?', '/x#f', 'https://example.com/s?a=1', 'https://u:p@example.com/s', 'https://u@example.com/s']) {
 		expect(readEmbedOptions({ apiBase })).toEqual({});
 	}
 });
@@ -33,6 +52,24 @@ test('apiUrl replaces only the /api prefix', () => {
 	expect(apiUrl('/api', '/x')).toBe('/x');
 	expect(apiUrl('/apis/x', '/x')).toBe('/apis/x');
 	expect(apiUrl('/app.js', '/x')).toBe('/app.js');
+});
+
+test('apiHeaders adds the host headers, then the call headers, then the token', () => {
+	const h = apiHeaders({ 'X-Nonce': 'n', 'Content-Type': 'text/plain' }, { 'content-type': 'application/json' }, 'tok');
+	expect(h.get('x-nonce')).toBe('n');
+	expect(h.get('content-type')).toBe('application/json');
+	expect(h.get('authorization')).toBe('Bearer tok');
+});
+
+test('apiHeaders keeps an Authorization header from the host or the call, in any case', () => {
+	expect(apiHeaders({ AUTHORIZATION: 'Basic abc' }, undefined, 'tok').get('authorization')).toBe('Basic abc');
+	expect(apiHeaders(undefined, [['Authorization', 'Basic call']], 'tok').get('authorization')).toBe('Basic call');
+});
+
+test('apiHeaders without options or a token gives only the call headers', () => {
+	const h = apiHeaders(undefined, { 'content-type': 'application/json' }, '');
+	expect([...h.keys()]).toEqual(['content-type']);
+	expect([...apiHeaders(undefined, undefined, '').keys()]).toEqual([]);
 });
 
 test('readEmbedOptions keeps a mount selector and a boolean header', () => {

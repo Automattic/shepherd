@@ -19,18 +19,31 @@ export const DEFAULT_MOUNT = '#shepherd';
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
-/** A path on this origin ("/x/api") or an http(s) URL. Other values give `undefined`. */
+// A fixed origin to parse a path against. A path that resolves to a different origin is not a path.
+const PATH_ORIGIN = 'http://path.invalid';
+
+/**
+ * A path on this origin ("/x/api") or an http(s) URL. Other values give `undefined`.
+ * The URL parser changes `\` to `/` and removes tabs and newlines, so "/\evil.example" goes to
+ * another origin. Thus the check parses the value. It also rejects a query, a fragment and a
+ * user name or password, because these values break every call.
+ */
 function readApiBase(v: unknown): string | undefined {
 	if (typeof v !== 'string') return undefined;
-	const base = v.trim().replace(/\/+$/, '');
-	if (v.trim().startsWith('/') && !v.trim().startsWith('//')) return base;
+	const raw = v.trim();
+	if (/[\\\s?#]/.test(raw)) return undefined;
+	const isPath = raw.startsWith('/');
+	// `fetch()` resolves "http:/x" against the page when the scheme is the same, so a URL must have "//".
+	if (!isPath && !/^https?:\/\//i.test(raw)) return undefined;
+	let url: URL;
 	try {
-		const url = new URL(base);
-		if (url.protocol === 'http:' || url.protocol === 'https:') return base;
+		url = isPath ? new URL(raw, PATH_ORIGIN) : new URL(raw);
 	} catch {
-		/* not a URL */
+		return undefined;
 	}
-	return undefined;
+	if (isPath ? url.origin !== PATH_ORIGIN : url.protocol !== 'http:' && url.protocol !== 'https:') return undefined;
+	if (url.username || url.password) return undefined;
+	return raw.replace(/\/+$/, '');
 }
 
 /** Keeps only the entries that `Headers` accepts, with a string value. */
@@ -75,4 +88,15 @@ export function apiUrl(path: string, apiBase: string | undefined): string {
 	if (apiBase === undefined) return path;
 	if (path === '/api' || path.startsWith('/api/') || path.startsWith('/api?')) return apiBase + path.slice(4);
 	return path;
+}
+
+/**
+ * The headers of one API call, in this order: the host's headers, then the headers of the call,
+ * then the bearer token. The token is added only when no earlier header sets `Authorization`.
+ */
+export function apiHeaders(embedHeaders: Record<string, string> | undefined, callHeaders: HeadersInit | undefined, token: string): Headers {
+	const headers = new Headers(embedHeaders);
+	new Headers(callHeaders).forEach((value, name) => headers.set(name, value));
+	if (token && !headers.has('authorization')) headers.set('authorization', `Bearer ${token}`);
+	return headers;
 }

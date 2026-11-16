@@ -25,6 +25,7 @@ Run `bun run check` and `bun test` before you open a pull request.
 | `src/merged.ts` | The Shipped ranges and filter, shared by the dashboard and the MCP tools |
 | `src/followups.ts` | What counts as a follow-up: parses descriptions, reviews and comments |
 | `src/herdr.ts` | Optional herdr integration: pane scan, PR matching and pane focus over herdr's socket |
+| `src/embed.ts` | Options that a host page gives to the client in `window.SHEPHERD`: API base path, extra headers, mount element and header |
 | `src/types.ts` | Types shared by the server, the MCP endpoint and the browser client |
 | `web/app.ts` | The dashboard client: no framework, bundled by Bun into `/app.js` |
 | `web/shell.ts` | The markup of the dashboard, which the client renders into the mount element |
