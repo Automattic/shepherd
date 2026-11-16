@@ -2,7 +2,7 @@
 // `bun run build:client` runs this file and writes a minified copy of the client to dist/ for a host that embeds it.
 
 import { copyFile, mkdir, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, relative, resolve } from 'node:path';
 import { ROOT } from './config.ts';
 
 export const PUBLIC_DIR = join(ROOT, 'public');
@@ -46,7 +46,17 @@ export async function buildClient({ minify = false }: ClientBuildOptions = {}): 
 	if (!minify) return { js };
 	// Bun adds no sourceMappingURL comment when it does not write the files itself.
 	const map = await outputs.find((o) => o.kind === 'sourcemap')?.text();
-	return map ? { js: `${js}//# sourceMappingURL=app.js.map\n`, map } : { js };
+	return map ? { js: `${js}//# sourceMappingURL=app.js.map\n`, map: rootRelativeSources(map) } : { js };
+}
+
+/**
+ * Bun writes each source path relative to the current folder. Write it relative to ROOT instead,
+ * so that the map is the same from any folder and has no folder names of the machine that built it.
+ */
+function rootRelativeSources(mapText: string): string {
+	const map = JSON.parse(mapText) as { sources: string[] };
+	map.sources = map.sources.map((s) => relative(ROOT, resolve(s)).replaceAll('\\', '/'));
+	return JSON.stringify(map);
 }
 
 if (import.meta.main) {
