@@ -282,6 +282,22 @@ describe('MCP tools with review teams', () => {
 		expect(numbers(queue.pullRequests)).toEqual([1, 2, 6]);
 		expect(queue.pullRequests.every((p: { waitingBecause: string[] }) => p.waitingBecause.join() === 'team')).toBe(true);
 	});
+
+	test('review_queue keeps only the reasons asked for', async () => {
+		const h = handler(['example-org/reviewers']);
+		const all = await call(h, 'review_queue', { person: 'bob' });
+		expect(numbers((await call(h, 'review_queue', { person: 'bob', reasons: [] })).pullRequests)).toEqual(numbers(all.pullRequests));
+		expect(numbers((await call(h, 'review_queue', { person: 'bob', reasons: ['team'] })).pullRequests)).toEqual([1, 2]);
+		const requested = await call(h, 'review_queue', { person: 'bob', reasons: ['requested'] });
+		expect(requested.pullRequests).toEqual([]);
+		expect(requested.count).toBe(0);
+	});
+
+	test('review_queue names the known reasons when one is unknown', async () => {
+		const out = await call(handler(), 'review_queue', { reasons: ['requested', 'mine'] });
+		expect(out.error).toBe('Error: `reasons` must be a list of "requested", "team", "turn", "author"');
+		expect((await call(handler(), 'review_queue', { reasons: 'team' })).error).toContain('must be a list');
+	});
 });
 
 describe('getDetail marks review teams', () => {

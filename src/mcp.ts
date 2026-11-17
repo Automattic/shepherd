@@ -11,7 +11,7 @@ import { PUSH_POLICIES, PUSH_POLICY_INSTRUCTIONS, PUSH_POLICY_RULE, resolvePushP
 import { anyRepoOrgs, inScope, listedRepo, searchHostKeys } from './repo-scope.ts';
 import { reviewBot } from './review-bot.ts';
 import type { Config, FollowUp, LightPr, MergedPr, PrDetail, TeamMember } from './types.ts';
-import { changesRequestedPending, waitReasons, type WaitReason } from './waiting.ts';
+import { changesRequestedPending, WAIT_REASONS, waitReasons, type WaitReason } from './waiting.ts';
 
 /** A repo that a tool filters on. `host` is null when the repo is in scope on more than one host. */
 interface RepoFilter {
@@ -74,6 +74,17 @@ function int(args: Args, name: string): number | undefined {
 	const n = typeof v === 'string' ? Number(v) : v;
 	if (typeof n !== 'number' || !Number.isInteger(n) || n < 1) throw new Error(`\`${name}\` must be a positive integer`);
 	return n;
+}
+
+/** A list of wait reasons; undefined when not given. An empty list counts as not given. */
+function reasons(args: Args, name: string): WaitReason[] | undefined {
+	const v = args[name];
+	if (v === undefined || v === null) return undefined;
+	const known: readonly unknown[] = WAIT_REASONS;
+	if (!Array.isArray(v) || v.some((r) => !known.includes(r))) {
+		throw new Error(`\`${name}\` must be a list of ${WAIT_REASONS.map((r) => `"${r}"`).join(', ')}`);
+	}
+	return v.length ? (v as WaitReason[]) : undefined;
 }
 
 function isRequest(msg: unknown): msg is JsonRpcRequest {
@@ -414,15 +425,23 @@ export function createMcpHandler(config: Config, prs: PrService, herdr: HerdrSer
 			name: 'review_queue',
 			title: 'Review queue for a person',
 			description:
-				`Open PRs in ${scopeText} that are waiting on one person (default: "me", the dashboard owner), with the reason for each: "requested" (their review is directly requested), "team" (a review team they belong to is requested; never on their own PRs, drafts or PRs they approved), "turn" (someone else had the last word on a PR they wrote or took part in, and they have not already approved it), or "author" (they wrote it, changes were requested, and nothing was pushed since). Use it to answer "what is waiting on me?" or "on ${exampleMember}?". PRs idle for more than 60 days are left out unless their review, or a review team's, is requested.`,
+				`Open PRs in ${scopeText} that are waiting on one person (default: "me", the dashboard owner), with the reason for each: "requested" (their review is directly requested), "team" (a review team they belong to is requested; never on their own PRs, drafts or PRs they approved), "turn" (someone else had the last word on a PR they wrote or took part in, and they have not already approved it), or "author" (they wrote it, changes were requested, and nothing was pushed since). Use it to answer "what is waiting on me?" or "on ${exampleMember}?". Set reasons to keep only PRs with at least one of those reasons, for example ["requested", "team"] for the reviews asked of them; each PR still lists all of its reasons. PRs idle for more than 60 days are left out unless their review, or a review team's, is requested.`,
 			inputSchema: {
 				type: 'object',
-				properties: { person: { type: 'string', default: 'me', description: 'Team id, first name or GitHub login.' } },
+				properties: {
+					person: { type: 'string', default: 'me', description: 'Team id, first name or GitHub login.' },
+					reasons: {
+						type: 'array',
+						items: { type: 'string', enum: WAIT_REASONS },
+						description: 'Only PRs with at least one of these reasons. Default: every reason.',
+					},
+				},
 				additionalProperties: false,
 			},
 			annotations: { readOnlyHint: true, openWorldHint: true },
 			run: async (args) => {
 				const person = requireMember(str(args, 'person') ?? 'me');
+				const only = reasons(args, 'reasons') ?? WAIT_REASONS;
 				const { prs: all, errors } = await collect([person.id]);
 				// Every non-dormant candidate needs details: "turn" and "author" depend on activity, not just requests.
 				const candidates = all.filter(
@@ -439,8 +458,8 @@ export function createMcpHandler(config: Config, prs: PrService, herdr: HerdrSer
 						errors.push(`${candidates[i]!.url}: ${(s.reason as Error).message}`);
 						return;
 					}
-					const reasons = waitReasons(s.value, person);
-					if (reasons.length) waiting.push({ ...summarize(s.value), waitingBecause: reasons });
+					const why = waitReasons(s.value, person);
+					if (why.some((r) => only.includes(r))) waiting.push({ ...summarize(s.value), waitingBecause: why });
 				});
 				waiting.sort((a, b) => b.updated.localeCompare(a.updated));
 				return { person: person.name, count: waiting.length, errors, pullRequests: waiting };
