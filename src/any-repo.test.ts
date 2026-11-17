@@ -4,8 +4,8 @@
 import { describe, expect, test } from 'bun:test';
 import { problems, publicConfig } from './config.ts';
 import type { GhRunner } from './gh.ts';
-import { createPrService } from './prs.ts';
-import { findListed, newRepoEntry, unlistedRepos } from './repo-chips.ts';
+import { createPrService, followUpTargets } from './prs.ts';
+import { findListed, newRepoEntry, reconcileRepoFilter, repoChipLabels, unlistedRepos } from './repo-chips.ts';
 import { anyRepoAfterAdding, defaultScope, inScope, scopeQualifiers, searchHostKeys } from './repo-scope.ts';
 import { checkSettingsPut, mergePersonal, settingsFromConfig } from './settings.ts';
 import { localSettings } from './settings-api.ts';
@@ -238,5 +238,56 @@ describe('Add more repos', () => {
 		expect(newRepoEntry({ host: 'github', owner: 'partner-org', name: 'lib' }, listed)).toEqual({ host: 'github', owner: 'partner-org', name: 'lib', short: 'lib' });
 		expect(newRepoEntry({ host: 'ghe', owner: 'example-org', name: 'app' }, listed).short).toBe('example-org/app');
 		expect(newRepoEntry({ host: 'ghe', owner: 'example-org', name: 'app' }, [...listed, { short: 'example-org/app' }]).short).toBe('example-org/app (2)');
+	});
+});
+
+describe('review fixes', () => {
+	test('the follow-ups endpoint takes PR keys in a listed repo or an org of the scope, and nothing else', () => {
+		const c = config([outside], { orgs: ['example-org'] });
+		expect(followUpTargets(c, ['github:Example-Org/anything#1', 'github:partner-org/lib#2'])).toEqual({
+			targets: [
+				{ host: 'github', owner: 'Example-Org', repo: 'anything', number: 1 },
+				{ host: 'github', owner: 'partner-org', repo: 'lib', number: 2 },
+			],
+		});
+		expect(followUpTargets(c, ['github:partner-org/other#3'])).toEqual({ error: 'bad request: not a PR key in a tracked repo: github:partner-org/other#3' });
+		expect('error' in followUpTargets(c, ['ghe:example-org/app#1'])).toBe(true);
+		expect('error' in followUpTargets(c, ['constructor:example-org/app#1'])).toBe(true);
+		expect('error' in followUpTargets(c, ['not a key'])).toBe(true);
+	});
+
+	test('a saved repo filter follows its repo into and out of the listed repos', () => {
+		const listed = [{ host: 'github', owner: 'example-org', name: 'app', short: 'the-app' }];
+		const rows = [{ host: 'github', owner: 'partner-org', name: 'lib' }];
+		// Added with "Add more repos": the repo key becomes the short name.
+		expect(reconcileRepoFilter(['github:Example-Org/app'], listed, [])).toEqual(['the-app']);
+		// Removed from the list: the short name becomes the repo key of the row with that name.
+		expect(reconcileRepoFilter(['lib'], listed, rows)).toEqual(['github:partner-org/lib']);
+		expect(reconcileRepoFilter(['partner-org/lib'], listed, rows)).toEqual(['github:partner-org/lib']);
+		// Values that match nothing stay, so the user can see and clear them; duplicates go.
+		expect(reconcileRepoFilter(['gone', 'the-app', 'github:example-org/app'], listed, rows)).toEqual(['gone', 'the-app']);
+	});
+
+	test('an unlisted chip never shows the same label as a listed repo', () => {
+		const ids = [{ host: 'ghe', owner: 'example-org', name: 'lib' }];
+		expect(repoChipLabels(ids, (h) => h)).toEqual(['lib']);
+		expect(repoChipLabels(ids, (h) => h, ['LIB'])).toEqual(['example-org/lib']);
+		expect(repoChipLabels(ids, (h) => h, ['lib', 'example-org/lib'])).toEqual(['example-org/lib (ghe)']);
+	});
+
+	test('a PUT without anyRepo keeps it only for the hosts that the request keeps', () => {
+		const c = config([app], { orgs: ['example-org'] }, { ghe: { ...ghe, anyRepo: { orgs: ['other-org'] } } });
+		const now: SettingsResponse = { ...settingsFromConfig(c), version: 'v1', mode: 'personal', fields: { '/personal': { editable: true }, '/deployment/hosts': { editable: true } } };
+		const { anyRepo: _drop, ...older } = structuredClone(now.personal);
+		const { ghe: _gone, ...hosts } = structuredClone(now.deployment.hosts);
+		const r = checkSettingsPut({ version: 'v1', personal: older, deployment: { hosts } }, { current: now });
+		expect(r.ok && r.personal.anyRepo).toEqual({ github: { orgs: ['example-org'] } });
+	});
+
+	test('importing a file from before anyRepo keeps the server\'s anyRepo', () => {
+		const now: SettingsResponse = { ...settingsFromConfig(config([app], { orgs: ['example-org'] })), version: 'v1', mode: 'personal', fields: { '/personal': { editable: true } } };
+		const file = JSON.parse(JSON.stringify(exportSettings(now))) as { personal: Record<string, unknown> };
+		delete file.personal.anyRepo;
+		expect(importSettings(file, now).personal.anyRepo).toEqual({ github: { orgs: ['example-org'] } });
 	});
 });

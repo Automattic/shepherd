@@ -365,14 +365,19 @@ export function checkSettingsPut(body: unknown, { current, refuse }: PutContext)
 	if (body.version !== current.version) {
 		return refused(409, 'The settings changed since you loaded them (in another tab, or on the server). Load them again and repeat your change.', [], current);
 	}
-	// `anyRepo` is newer than the other keys, so a request without it keeps the current value instead of deleting it.
-	const personal = Object.hasOwn(body.personal, 'anyRepo') ? body.personal : { ...body.personal, anyRepo: structuredClone(current.personal.anyRepo ?? {}) };
-	const missing = PERSONAL_KEYS.filter((k) => !Object.hasOwn(personal, k)).map(
+	const sent = body.personal;
+	const missing = PERSONAL_KEYS.filter((k) => !Object.hasOwn(sent, k)).map(
 		(k): SettingsFieldError => ({ path: toPointer(['personal', k]), code: 'invalid', message: `send \`${k}\` too: a settings request has every personal setting, so a missing one is never deleted` })
 	);
 	if (missing.length) return refused(422, 'Some settings are not valid.', missing);
 	const { deployment, errors: hostErrors } = nextDeployment(body, current.deployment);
 	if (hostErrors.length) return refused(422, 'Some settings were refused.', hostErrors);
+	// `anyRepo` is newer than the other keys, so a request without it keeps the current value instead of deleting it,
+	// less the hosts that the request removes (an older client cannot show an error about them).
+	const hosts = isObject(deployment.hosts) ? deployment.hosts : {};
+	const personal = Object.hasOwn(sent, 'anyRepo')
+		? sent
+		: { ...sent, anyRepo: Object.fromEntries(Object.entries(current.personal.anyRepo ?? {}).filter(([k]) => Object.hasOwn(hosts, k)).map(([k, v]) => [k, structuredClone(v)])) };
 	const next: SettingsDocument = { personal: personal as unknown as PersonalSettings, deployment };
 	const invalid = validate(SETTINGS_SCHEMA, next).map((e): SettingsFieldError => ({ path: e.pointer, code: 'invalid', message: e.message }));
 	if (invalid.length) return refused(422, 'Some settings are not valid.', invalid);

@@ -9,8 +9,7 @@ import { createGh } from './gh.ts';
 import { createHerdr } from './herdr.ts';
 import { createMcpHandler } from './mcp.ts';
 import { FOLLOWUPS_MAX_PRS } from './followups.ts';
-import { createPrService, NotFoundError, parsePrKey } from './prs.ts';
-import { inScope } from './repo-scope.ts';
+import { createPrService, followUpTargets, NotFoundError } from './prs.ts';
 import { createSettingsHandler } from './settings-api.ts';
 import { createConfigStore } from './settings-store.ts';
 import type { DetailResponse, ErrorResponse, FollowUpsResponse, HerdrLinksResponse, LightPr, ListResponse, MergedPr, MergedResponse, PaneMatchPr } from './types.ts';
@@ -28,9 +27,9 @@ let herdr = createHerdr(config);
 let prs = createPrService(config, gh);
 let handleMcp = createMcpHandler(config, prs, herdr);
 let features = configFeatures(config);
-/** The hosts as the gh runner and herdr see them: review teams and any-repo scopes are personal settings and change neither. */
+/** The hosts as the gh runner and herdr see them: review teams, any-repo scopes and default orgs change neither. */
 const runnerHosts = (c: typeof config): string =>
-	JSON.stringify(Object.entries(c.hosts).map(([k, { reviewTeams: _teams, anyRepo: _scope, ...h }]) => [k, h]));
+	JSON.stringify(Object.entries(c.hosts).map(([k, { reviewTeams: _teams, anyRepo: _scope, defaultOrgs: _defaults, ...h }]) => [k, h]));
 store.onChange((next) => {
 	const hostsBefore = runnerHosts(config);
 	for (const key of Object.keys(config)) if (!(key in next)) delete (config as unknown as Record<string, unknown>)[key];
@@ -125,22 +124,16 @@ async function getFollowUps(url: URL): Promise<Response> {
 	if (!keys.length || keys.length > FOLLOWUPS_MAX_PRS) {
 		return json<ErrorResponse>(400, { error: `bad request: prs must list 1 to ${FOLLOWUPS_MAX_PRS} PR keys` });
 	}
-	const targets = [];
-	for (const key of keys) {
-		const t = parsePrKey(key);
-		// Only repos in a host's scope (listed, or in its any-repo orgs), so the endpoint can't be used to read arbitrary PRs
-		// through the server's gh login.
-		const tracked = t && inScope(config, t.host, t.owner, t.repo);
-		if (!t || !tracked) return json<ErrorResponse>(400, { error: `bad request: not a PR key in a tracked repo: ${key.slice(0, 200)}` });
-		targets.push(t);
-	}
-	return json<FollowUpsResponse>(200, await prs.getFollowUps(targets));
+	const scoped = followUpTargets(config, keys);
+	if ('error' in scoped) return json<ErrorResponse>(400, { error: scoped.error });
+	return json<FollowUpsResponse>(200, await prs.getFollowUps(scoped.targets));
 }
 
 async function getPr(url: URL): Promise<Response> {
 	const q = Object.fromEntries(url.searchParams);
 	const { host, owner, repo, number } = q;
-	if (!host || !config.hosts[host] || !owner || !repo || !number || !/^\d+$/.test(number)) {
+	// A host key of this config, never an Object.prototype name such as `constructor`.
+	if (!host || !Object.hasOwn(config.hosts, host) || !owner || !repo || !number || !/^\d+$/.test(number)) {
 		return json<ErrorResponse>(400, { error: 'bad request: host, owner, repo and number are required' });
 	}
 	try {

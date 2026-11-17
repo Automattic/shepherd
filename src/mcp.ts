@@ -11,6 +11,7 @@ import { PUSH_POLICIES, PUSH_POLICY_INSTRUCTIONS, PUSH_POLICY_RULE, resolvePushP
 import { anyRepoOrgs, inScope, searchHostKeys } from './repo-scope.ts';
 import { reviewBot } from './review-bot.ts';
 import type { Config, FollowUp, LightPr, MergedPr, PrDetail, TeamMember } from './types.ts';
+import { changesRequestedPending, waitReasons, type WaitReason } from './waiting.ts';
 
 /** A repo that a tool filters on. `host` is null when the repo is in scope on more than one host. */
 interface RepoFilter {
@@ -18,7 +19,6 @@ interface RepoFilter {
 	owner: string;
 	name: string;
 }
-import { changesRequestedPending, waitReasons, type WaitReason } from './waiting.ts';
 
 const PROTOCOL_VERSIONS = ['2025-06-18', '2025-03-26', '2024-11-05'] as const;
 const DETAIL_MAX_AGE_MS = 60_000; // agents get data at most a minute old
@@ -109,10 +109,12 @@ export function createMcpHandler(config: Config, prs: PrService, herdr: HerdrSer
 	 * not listed; `host` is then null when more than one such host has that owner in scope.
 	 */
 	function findRepo(repo: string): RepoFilter {
-		const r = repo.trim().toLowerCase().replace(/^https?:\/\/[^/]+\//, '');
+		// Matched without case; an unlisted repo keeps the case it was given, so its PR key is the one the list uses.
+		const given = repo.trim().replace(/^https?:\/\/[^/]+\//, '');
+		const r = given.toLowerCase();
 		const hit = config.repos.find((x) => [x.short, x.name, `${x.owner}/${x.name}`].some((v) => v.toLowerCase() === r));
 		if (hit) return { host: hit.host, owner: hit.owner, name: hit.name };
-		const m = /^([\w.-]+)\/([\w.-]+)$/.exec(r);
+		const m = /^([\w.-]+)\/([\w.-]+)$/.exec(given);
 		const hosts = m ? searchHostKeys(config).filter((h) => anyRepoOrgs(config, h) !== null && inScope(config, h, m[1]!, m[2]!)) : [];
 		if (m && hosts.length) return { host: hosts.length === 1 ? hosts[0]! : null, owner: m[1]!, name: m[2]! };
 		const anyNote = anyRepoHosts.length ? ` On ${anyRepoHosts.map(hostname).join(', ')}, give any repo in scope as owner/name.` : '';
@@ -318,8 +320,9 @@ export function createMcpHandler(config: Config, prs: PrService, herdr: HerdrSer
 				linear: config.linear ? `https://linear.app/${config.linear.workspace}` : null,
 				// GitHub teams per host whose review requests put a PR in the team's queue; null when none are set.
 				reviewTeams: reviewTeamsByHost,
-				// Hosts that find the team's PRs in any repo of some orgs, not only the listed ones, with those orgs. null when none.
-				anyRepo: anyRepoHosts.length ? Object.fromEntries(anyRepoHosts.map((h) => [hostname(h), anyRepoOrgs(config, h)])) : null,
+				// Hosts that find the team's PRs in any repo of some orgs, not only the listed ones: per host key, its hostname and
+				// those orgs. null when none.
+				anyRepo: anyRepoHosts.length ? Object.fromEntries(anyRepoHosts.map((h) => [h, { hostname: hostname(h), orgs: anyRepoOrgs(config, h) }])) : null,
 			}),
 		},
 		{

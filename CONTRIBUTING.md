@@ -37,7 +37,8 @@ Run `bun run check` and `bun test` before you open a pull request.
 | `src/waiting.ts` | What "waiting on" means, shared by the dashboard and the MCP tools |
 | `src/base-age.ts` | How old a PR's base is, shared by the dashboard and the MCP tools |
 | `src/merged.ts` | The Shipped ranges and filter, shared by the dashboard and the MCP tools |
-| `src/repo-chips.ts` | Keys and labels of the repo chips when the config has no repos, used by the browser client |
+| `src/repo-scope.ts` | Which repos each host searches: the listed repos, its `anyRepo` orgs or its `defaultOrgs`; the search qualifiers, and the check that the follow-ups endpoint and the MCP tools use |
+| `src/repo-chips.ts` | Keys and labels of the repo chips for repos that the config does not list, the repos that "Add more repos" offers, and how a saved repo filter follows a repo into or out of the list; used by the browser client |
 | `src/followups.ts` | What counts as a follow-up: parses descriptions, reviews and comments |
 | `src/herdr.ts` | Optional herdr integration: pane scan, PR matching and pane focus over herdr's socket |
 | `src/embed.ts` | Options that a host page gives to the client in `window.SHEPHERD`: API base path, extra headers, mount element and header |

@@ -82,7 +82,7 @@ describe('the schema and problems() agree', () => {
 		expect(validate(SETTINGS_SCHEMA, settingsFromConfig(config()))).toEqual([]);
 	});
 
-	test('no repos is valid: each host then finds PRs in any repo', () => {
+	test('no repos is valid: a host then searches its defaultOrgs, or nothing', () => {
 		const doc = settingsFromConfig(config());
 		doc.personal.repos = [];
 		expect(validate(SETTINGS_SCHEMA, doc)).toEqual([]);

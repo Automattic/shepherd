@@ -30,7 +30,7 @@ import { apiHeaders, apiUrl, pageToken, readEmbedOptions, sendsToken } from '../
 import { PUSH_POLICY_LABELS, resolvePushPolicy } from '../src/push-policy.ts';
 import { createSettingsPanel } from './settings.ts';
 import { linearKeyRegExp } from '../src/linear.ts';
-import { findListed, parseRepoKey, repoChipLabels, repoKey, unknownSelectedRepos, unlistedRepos, type RepoId } from '../src/repo-chips.ts';
+import { findListed, parseRepoKey, reconcileRepoFilter, repoChipLabels, repoKey, unknownSelectedRepos, unlistedRepos, type RepoId } from '../src/repo-chips.ts';
 import { reviewBot } from '../src/review-bot.ts';
 import { rowMaxAge } from '../src/row-refresh.ts';
 import { mountShell } from './shell.ts';
@@ -1048,6 +1048,12 @@ function scheduleLayout(): void {
 function layout(): void {
 	// Before boot (or when a banner stopped it), there is no config and no list to show.
 	if (!booted) return;
+	// A saved repo filter follows its repo into or out of the listed repos (for example after "Add more repos").
+	const repoFilter = reconcileRepoFilter(S.repos, cfg.repos, [...rows.values()].map((r) => ({ host: r.light.host, owner: r.light.owner, name: r.light.repo })));
+	if (repoFilter.join('\n') !== S.repos.join('\n')) {
+		S.repos = repoFilter;
+		save();
+	}
 	const container = $('#groups');
 	const before = new Map<Element, number>();
 	for (const el of container.children) before.set(el, el.getBoundingClientRect().top);
@@ -1138,6 +1144,7 @@ function repoChips(inScopeRows: Row[]): RepoChip[] {
 	const labels = repoChipLabels(
 		list.map((c) => parseRepoKey(c.key)),
 		(host) => cfg.hosts[host]?.label || cfg.hosts[host]?.hostname || host,
+		cfg.repos.map((r) => r.short),
 	);
 	list.forEach((c, i) => (c.label = labels[i]!));
 	const oldShort = unknown.filter((key) => !parseRepoKey(key).host).map((key) => ({ key, label: key, icon: 'fa-solid fa-code-branch', n: 0 }));

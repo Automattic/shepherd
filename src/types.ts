@@ -161,7 +161,7 @@ export interface PersonalSettings {
 	/** The team id of the viewer. */
 	me: string;
 	team: TeamMember[];
-	/** Can be empty: a host with no listed repos finds PRs in any repo (or, on another host, by author). */
+	/** Can be empty: a host with no listed repos searches its `defaultOrgs`, or nothing (on another host, it can find PRs by author). */
 	repos: RepoConfig[];
 	/** "org/team" names per host key; see `HostConfig.reviewTeams`. config.json keeps them under `hosts`. */
 	reviewTeams: Record<string, string[]>;

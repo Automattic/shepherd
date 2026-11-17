@@ -103,7 +103,11 @@ export function importSettings(raw: unknown, current: Pick<SettingsResponse, 'pe
 	let team: TeamMember[] = structuredClone(file.personal.team).map((m) => ({ ...m, logins: mapLogins(m.logins) }));
 	const repos = structuredClone(file.personal.repos).flatMap((r) => (keyMap.has(r.host) ? [{ ...r, host: keyMap.get(r.host)! }] : []));
 	const reviewTeams = Object.fromEntries(Object.entries(file.personal.reviewTeams ?? {}).flatMap(([k, v]) => (keyMap.has(k) ? [[keyMap.get(k)!, v]] : [])));
-	const anyRepo = Object.fromEntries(Object.entries(file.personal.anyRepo ?? {}).flatMap(([k, v]) => (keyMap.has(k) ? [[keyMap.get(k)!, structuredClone(v)]] : [])));
+	// A file from before `anyRepo` has none: keep the server's, as a settings request without it does.
+	const anyRepo =
+		file.personal.anyRepo === undefined
+			? structuredClone(current.personal.anyRepo ?? {})
+			: Object.fromEntries(Object.entries(file.personal.anyRepo).flatMap(([k, v]) => (keyMap.has(k) ? [[keyMap.get(k)!, structuredClone(v)]] : [])));
 
 	/** Gives a member a new id, and moves the per-author policies keyed by the old one. */
 	const renameMember = (m: TeamMember, to: string) => {

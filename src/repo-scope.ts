@@ -1,4 +1,4 @@
-// Which repos a host finds PRs in: the listed repos, or any repo (optionally only the repos of some orgs).
+// Which repos a host finds PRs in: the listed repos, or any repo of a list of orgs (never any repo in any org).
 // A host with no listed repos searches its `defaultOrgs`, when someone on the team has a login there.
 // Shared by the list and merged searches, the follow-ups guard, the MCP tools and /api/config. See docs/configuration.md.
 

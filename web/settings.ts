@@ -401,13 +401,12 @@ export function createSettingsPanel({ root, api, onSaved, seenRepos }: SettingsP
 	function suggestedRepos(): string {
 		const ids = suggestions();
 		if (!ids.length) return '';
-		const labels = repoChipLabels(ids, hostLabel);
+		const labels = repoChipLabels(ids, hostLabel, draft!.personal.repos.map((r) => r.short));
 		return `<div class="s-suggest"><span class="s-hint">Add more repos:</span>${ids
 			.map((id, i) => `<button type="button" class="chip-btn add" data-s-add-repo="${esc(repoKey(id))}" title="Track ${esc(`${id.owner}/${id.name}`)} on ${esc(hostLabel(id.host))}"><i class="fa-solid fa-plus"></i>${esc(labels[i]!)}</button>`)
 			.join('')}</div>`;
 	}
 
-	/** Per host: find PRs only in the listed repos, or in any repo (optionally only in some orgs). */
 	/** The draft as the scope rules read it: the hosts (with their `defaultOrgs`), the repos and the team. */
 	const scopeConfig = () => ({ hosts: draft!.deployment.hosts as unknown as Config['hosts'], repos: draft!.personal.repos, team: draft!.personal.team });
 	const defaultOrgsOf = (h: string): string[] => (Object.hasOwn(draft!.deployment.hosts, h) ? (draft!.deployment.hosts[h]!.defaultOrgs ?? []) : []);
@@ -459,7 +458,7 @@ export function createSettingsPanel({ root, api, onSaved, seenRepos }: SettingsP
 					${meta('/personal/team').editable ? '<button type="button" class="s-add" data-s-add="team"><i class="fa-solid fa-plus"></i> Add a person</button>' : ''}`;
 			case 'repos':
 				// A server without the any-repo setting sends no `anyRepo`; it gets no switches.
-				return `${loaded!.personal.anyRepo !== undefined ? scopeSection() : ''}${fieldErrors('/personal/repos')}${p.repos.length ? `<div class="s-rows">${p.repos.map(repoRow).join('')}</div>` : '<p class="s-muted">No repos listed: each host finds your team\'s PRs in any repo.</p>'}
+				return `${loaded!.personal.anyRepo !== undefined ? scopeSection() : ''}${fieldErrors('/personal/repos')}${p.repos.length ? `<div class="s-rows">${p.repos.map(repoRow).join('')}</div>` : '<p class="s-muted">No repos listed. A host with default orgs searches them; other hosts are not searched.</p>'}
 					${meta('/personal/repos').editable ? `<button type="button" class="s-add" data-s-add="repos"><i class="fa-solid fa-plus"></i> Add a repo</button>${suggestedRepos()}` : ''}`;
 			case 'review':
 				return hostKeys()
@@ -819,7 +818,8 @@ export function createSettingsPanel({ root, api, onSaved, seenRepos }: SettingsP
 			const id = suggestions().find((x) => repoKey(x) === ds.sAddRepo);
 			if (!id) return;
 			// A host that is in any-repo mode only because it has no repos stays in it: the chip means "track this one too".
-			draft.personal.anyRepo = anyRepoAfterAdding({ ...scopeConfig(), anyRepo: draft.personal.anyRepo }, id.host);
+			// Where the host locks `anyRepo`, the setting stays as it is, so the save is not refused.
+			if (meta('/personal/anyRepo').editable) draft.personal.anyRepo = anyRepoAfterAdding({ ...scopeConfig(), anyRepo: draft.personal.anyRepo }, id.host);
 			draft.personal.repos.push(newRepoEntry(id, draft.personal.repos));
 			const next = dialog.querySelector<HTMLElement>(`[data-s-add-repo]:not([data-s-add-repo="${CSS.escape(ds.sAddRepo)}"])`)?.dataset.sAddRepo;
 			renderFocus(next ? `[data-s-add-repo="${CSS.escape(next)}"]` : '[data-s-add="repos"]');

@@ -5,7 +5,7 @@ import type { GhRunner } from './gh.ts';
 import { mergedSearchSince } from './merged.ts';
 import { BATCH_MAX, buildDetailBatch, MERGED_SEARCH_QUERY, SEARCH_QUERY } from './queries.ts';
 import { linearKeyRegExp } from './linear.ts';
-import { scopeQualifiers, searchHostKeys, searchTerms } from './repo-scope.ts';
+import { inScope, scopeQualifiers, searchHostKeys, searchTerms } from './repo-scope.ts';
 import { allReviewBots, reviewBot } from './review-bot.ts';
 import {
 	SEVERITIES,
@@ -230,6 +230,21 @@ export function prKey(host: string, owner: string, repo: string, number: number 
 }
 
 /** The reverse of prKey, or null when `key` is not one. */
+/**
+ * The PRs of `/api/followups?prs=<key>,…`: each key parsed, and only in a repo of a host's scope (a listed repo, or a repo
+ * of its any-repo orgs), so the endpoint can't be used to read the follow-ups of any PR through the server's gh login.
+ * The first key that fails is the error.
+ */
+export function followUpTargets(config: Pick<Config, 'hosts' | 'repos' | 'team'>, keys: string[]): { targets: PrTarget[] } | { error: string } {
+	const targets: PrTarget[] = [];
+	for (const key of keys) {
+		const t = parsePrKey(key);
+		if (!t || !inScope(config, t.host, t.owner, t.repo)) return { error: `bad request: not a PR key in a tracked repo: ${key.slice(0, 200)}` };
+		targets.push(t);
+	}
+	return { targets };
+}
+
 export function parsePrKey(key: string): PrTarget | null {
 	const m = /^(.+):([\w.-]+)\/([\w.-]+)#(\d{1,9})$/.exec(key);
 	return m ? { host: m[1]!, owner: m[2]!, repo: m[3]!, number: Number(m[4]) } : null;
