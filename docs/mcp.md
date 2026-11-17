@@ -36,12 +36,17 @@ claude mcp add --transport http --scope user shepherd http://127.0.0.1:5050/mcp 
 A script, such as a cron job that starts a review for each PR that asks for your review, can call a tool with one POST. The server is stateless, so it needs no `initialize` first. The `author` and `turn` reasons are not review requests, so leave them out:
 
 ```sh
-curl -s http://127.0.0.1:5050/mcp -H 'content-type: application/json' \
-  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"review_queue","arguments":{"reasons":["requested","team"]}}}' \
-  | jq -r '.result.content[0].text | fromjson | .pullRequests[].url'
+out=$(curl -sf http://127.0.0.1:5050/mcp -H 'content-type: application/json' \
+  -H "Authorization: Bearer $SHEPHERD_TOKEN" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"review_queue","arguments":{"reasons":["requested","team"]}}}') || exit 1
+# A failed tool call returns "Error: ..." as text, with isError set.
+if echo "$out" | jq -e '.result.isError' >/dev/null; then echo "$out" | jq -r '.result.content[0].text' >&2; exit 1; fi
+# A host that does not answer is in errors, and its PRs are not in pullRequests.
+echo "$out" | jq -r '.result.content[0].text | fromjson | .errors[]' >&2
+echo "$out" | jq -r '.result.content[0].text | fromjson | .pullRequests[].url'
 ```
 
-A PR stays in the queue until you review it, so a script that runs again must skip the PRs that it already started.
+The server ignores the `Authorization` header when no token is set. A PR can stay in the queue after the script starts a review for it. For example, a `team` PR stays until you approve it, while the team request is on the PR. So a script that runs again must skip the PRs that it already started.
 
 To check the endpoint without a client (add `-H "Authorization: Bearer $SHEPHERD_TOKEN"` when a token is set):
 
