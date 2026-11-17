@@ -184,12 +184,12 @@ describe('getDetail', () => {
 	afterEach(() => setSystemTime());
 
 	const now = new Date().toISOString();
-	// The smallest DETAIL_QUERY answer that shapeDetail reads.
+	// The smallest batch detail answer (a batch of one) that shapeDetail reads.
 	const detailData = {
 		repository: {
 			defaultBranchRef: { name: 'main', target: { oid: 'base0' } },
-			stackedOnThis: { nodes: [] },
-			pullRequest: {
+			dn0: { nodes: [] },
+			pr0: {
 				number: 1, title: 'PR', url: 'https://github.com/example-org/app/pull/1', state: 'OPEN', merged: false, mergedAt: null,
 				isDraft: false, updatedAt: now, createdAt: now, headRefName: 'feature', baseRefName: 'main', headRefOid: 'head0',
 				baseRefOid: 'base0', baseRef: { target: { oid: 'base0' } }, body: null, mergeable: 'MERGEABLE', reviewDecision: null,

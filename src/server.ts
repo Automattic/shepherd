@@ -66,6 +66,9 @@ async function listPrs(url: URL): Promise<Response> {
 			errors[host] = (s.reason as Error).message;
 		}
 	});
+	// Fetch the details of the rows that lack them, in batches, and do not wait: the list answers now, and the page's /api/pr calls
+	// for these rows wait for the pending batch and send no query. A failed batch is only logged, and its rows just have no detail.
+	void prs.prefetchDetails(list, throttled);
 	return json<ListResponse>(200, { prs: list, errors, throttled, rate: gh.rate, fetchedAt: new Date().toISOString() });
 }
 

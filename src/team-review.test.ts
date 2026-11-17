@@ -204,6 +204,12 @@ describe('MCP tools with review teams', () => {
 				if (opts.failing?.includes(Number(req.number))) throw new Error('proxy timeout');
 				return details[Number(req.number)]!;
 			},
+			getDetails: (reqs) =>
+				reqs.map(async (req) => {
+					if (opts.failing?.includes(Number(req.number))) throw new Error('proxy timeout');
+					return details[Number(req.number)]!;
+				}),
+			prefetchDetails: async () => {},
 			cachedDetail: () => null,
 			listMerged: async () => ({ prs: [], total: 0 }),
 			getFollowUps: async () => ({ followUps: {}, errors: {} }),
@@ -283,12 +289,12 @@ describe('getDetail marks review teams', () => {
 	const team = (combinedSlug: string) => ({
 		requestedReviewer: { __typename: 'Team', slug: combinedSlug.split('/')[1], combinedSlug, name: combinedSlug },
 	});
-	// The smallest DETAIL_QUERY answer shapeDetail reads; GitHub returns combinedSlug in the org's own case.
+	// The smallest batch detail answer (a batch of one) that shapeDetail reads; GitHub returns combinedSlug in the org's own case.
 	const detailData = (number: number) => ({
 		repository: {
 			defaultBranchRef: { name: 'main', target: { oid: 'base0' } },
-			stackedOnThis: { nodes: [] },
-			pullRequest: {
+			dn0: { nodes: [] },
+			pr0: {
 				number, title: 'PR', url: `https://github.com/example-org/app/pull/${number}`, state: 'OPEN', merged: false, mergedAt: null,
 				isDraft: false, updatedAt: now, createdAt: now, headRefName: 'feature', baseRefName: 'main', headRefOid: 'head0',
 				baseRefOid: 'base0', baseRef: { target: { oid: 'base0' } }, body: null, mergeable: 'MERGEABLE', reviewDecision: null,
@@ -304,7 +310,7 @@ describe('getDetail marks review teams', () => {
 		const gh: GhRunner = {
 			rate: {},
 			get: () => Promise.reject(new Error('no compare in this test')),
-			query: async <T>(_host: string, _q: string, vars?: Record<string, unknown>) => detailData(Number(vars?.n)) as T,
+			query: async <T>(_host: string, _q: string, vars?: Record<string, unknown>) => detailData(Number(vars?.n0)) as T,
 		};
 		const config: Config = {
 			me: 'alice',
