@@ -86,7 +86,7 @@ interface Settings {
 	reviewers: string[] | null;
 	/** Show only PRs written by these team member ids. */
 	people: string[];
-	/** Show only PRs that directly request a review from these team member ids. */
+	/** Show only PRs waiting on these team member ids (see src/waiting.ts). */
 	waitingOn: string[];
 	repos: string[];
 	drafts: boolean;
@@ -109,6 +109,7 @@ interface Tile {
 	cls: string;
 	icon: string;
 	label: string;
+	title: string;
 	value: number;
 	note?: string;
 }
@@ -180,6 +181,15 @@ const SORT_ORDERS: readonly { id: SortOrder; label: string; title: string }[] = 
 	{ id: 'review', label: 'Review order', title: 'Ready to ship, approved but blocked, waiting on you, then the rest' },
 	{ id: 'newest', label: 'Newest first', title: 'Most recently updated first; a stack stays together' },
 ];
+
+const MERGED_RANGE_TITLES: Record<MergedRange, string> = {
+	'this-week': 'Merged since Monday',
+	'last-week': 'Merged from Monday to Sunday of last week',
+	'last-30-days': 'Merged in the last 30 days',
+};
+
+/** Why a pull request waits on someone, for the tooltips. The rules live in src/waiting.ts. */
+const WAIT_REASONS_TITLE = 'as a requested reviewer, as the author with changes requested, or when someone else had the last word';
 const INTERVALS: readonly { label: string; ms: number }[] = [
 	{ label: '5s', ms: 5_000 },
 	{ label: '30s', ms: 30_000 },
@@ -525,9 +535,9 @@ function cellPr(row: Row): string {
 	meta.push(
 		`<span class="repo-pill" title="${esc(cfg.hosts[l.host]?.hostname)}/${esc(l.owner)}/${esc(l.repo)}"><i class="${repoIcon}"></i>${esc(repoShort(l.host, l.owner, l.repo))}</span>`
 	);
-	meta.push(`<a class="num" href="${esc(l.url)}" target="_blank" rel="noopener">#${l.number}</a>`);
+	meta.push(`<a class="num" href="${esc(l.url)}" target="_blank" rel="noopener" title="Open ${esc(l.owner)}/${esc(l.repo)}#${l.number}">#${l.number}</a>`);
 	if (row.depth === 0 || member(l.author.login) === null || !sameAuthorAsParent(row)) {
-		meta.push(`<span class="meta-item">${avatar(l.author.login, l.host)}${esc(displayName(l.author.login))}</span>`);
+		meta.push(`<span class="meta-item" title="Author: ${esc(member(l.author.login)?.name || l.author.login)}">${avatar(l.author.login, l.host)}${esc(displayName(l.author.login))}</span>`);
 	}
 	meta.push(pushPolicyPill(l));
 	for (const k of linearKeys(row)) {
@@ -688,7 +698,7 @@ function cellWait(row: Row): string {
 	const host = row.light.host;
 	if (!d) {
 		return row.light.requestedFor.includes(cfg.me)
-			? `<span class="you-pill">${avatar(loginOn(meMember(), host) ?? '', host)}You</span>`
+			? `<span class="you-pill" title="Your review is requested">${avatar(loginOn(meMember(), host) ?? '', host)}You</span>`
 			: skel(70);
 	}
 	const parts: string[] = [];
@@ -717,7 +727,7 @@ function cellWait(row: Row): string {
 	const teams = d.requested.teams;
 	for (const t of teams.slice(0, 2)) parts.push(`<span class="team-chip" title="Team: ${esc(t.name)}"><i class="fa-solid fa-users"></i>${esc(t.slug)}</span>`);
 	if (teams.length > 2) parts.push(`<span class="team-chip" title="${esc(teams.slice(2).map((t) => t.slug).join(', '))}">+${teams.length - 2}</span>`);
-	if (!parts.length) return `<span class="muted">—</span>`;
+	if (!parts.length) return `<span class="muted" title="No review is requested">—</span>`;
 	return `<div class="stack">${parts.join('')}</div>`;
 }
 
@@ -727,7 +737,7 @@ function cellApprovals(row: Row): string {
 	const host = row.light.host;
 	const approved = d.reviews.filter((r) => r.state === 'APPROVED');
 	const changes = d.reviews.filter((r) => r.state === 'CHANGES_REQUESTED');
-	if (!approved.length && !changes.length) return `<span class="muted">None yet</span>`;
+	if (!approved.length && !changes.length) return `<span class="muted" title="Nobody approved or requested changes yet">None yet</span>`;
 	const badge = (r: PrDetail['reviews'][number]): string => {
 		const ok = r.state === 'APPROVED';
 		const who = esc(member(r.login)?.name || r.login);
@@ -735,10 +745,11 @@ function cellApprovals(row: Row): string {
 		return `<span class="avatar-wrap ${isMe(r.login, host) ? 'you' : ''}" title="${who} ${verb} ${esc(relTime(r.submittedAt))}">${avatar(r.login, host)}<span class="badge ${ok ? 'ok' : 'bad'}"><i class="fa-solid ${ok ? 'fa-check' : 'fa-xmark'}"></i></span></span>`;
 	};
 	const all = [...approved, ...changes];
+	const said = all.map((r) => `${member(r.login)?.name || r.login} ${r.state === 'APPROVED' ? 'approved' : 'requested changes'}`).join(', ');
 	const names =
 		all.length <= 2
-			? `<span class="appr-names">${all.map((r) => esc(isMe(r.login, host) ? 'You' : displayName(r.login))).join(', ')}</span>`
-			: `<span class="appr-names">${approved.length} approved${changes.length ? `, ${changes.length} changes` : ''}</span>`;
+			? `<span class="appr-names" title="${esc(said)}">${all.map((r) => esc(isMe(r.login, host) ? 'You' : displayName(r.login))).join(', ')}</span>`
+			: `<span class="appr-names" title="${esc(said)}">${approved.length} approved${changes.length ? `, ${changes.length} changes` : ''}</span>`;
 	return `<div class="stack">${all.map(badge).join('')}${names}</div>`;
 }
 
@@ -748,7 +759,7 @@ function cellBot(row: Row): string {
 	const d = row.detail;
 	if (!d) return skel(48);
 	const b = d.bot;
-	if (!b || !b.open) return `<span class="bot-clear"><i class="fa-solid fa-circle-check"></i>Clear</span>`;
+	if (!b || !b.open) return `<span class="bot-clear" title="No unresolved ${esc(cfg.aiReviewLabel)} threads"><i class="fa-solid fa-circle-check"></i>Clear</span>`;
 	const minor = b.open - b.blocking;
 	// Only repeat the numbers when the total is split across both kinds.
 	const both = b.blocking && minor;
@@ -768,7 +779,7 @@ function cellParticipants(row: Row): string {
 	const latest = people[0];
 	const label = (p: { login: string }): string => (isMe(p.login, host) ? 'You' : displayName(p.login));
 	const last = lastActivityLine(row);
-	if (!latest) return `<div class="ppl-top"><span class="muted">Nobody yet</span></div>${last}`;
+	if (!latest) return `<div class="ppl-top"><span class="muted" title="Nobody but the author has commented, reviewed or committed yet">Nobody yet</span></div>${last}`;
 	const shown = people.slice(0, 5).map((p) => {
 		const when = p.lastActive ? `active ${relTime(p.lastActive)}` : 'no activity yet';
 		return `<span class="avatar-wrap ${isMe(p.login, host) ? 'you' : ''}" title="${esc(member(p.login)?.name || p.name || p.login)} · ${esc(when)}">${avatar(p.login, host)}</span>`;
@@ -838,9 +849,9 @@ function baseAgePill(d: PrDetail): string {
 function cellStatus(row: Row): string {
 	const d = row.detail;
 	const parts: string[] = [];
-	if (d?.state === 'MERGED') parts.push(`<span class="merged-pill"><i class="fa-solid fa-code-merge"></i> Merged</span>`);
-	else if (d?.state === 'CLOSED') parts.push(`<span class="draft-pill">Closed</span>`);
-	else if (row.light.isDraft) parts.push(`<span class="draft-pill">Draft</span>`);
+	if (d?.state === 'MERGED') parts.push(`<span class="merged-pill" title="${esc(`Merged ${relTime(d.mergedAt)}`.trim())}"><i class="fa-solid fa-code-merge"></i> Merged</span>`);
+	else if (d?.state === 'CLOSED') parts.push(`<span class="draft-pill" title="Closed without merging">Closed</span>`);
+	else if (row.light.isDraft) parts.push(`<span class="draft-pill" title="Draft: not marked as ready for review">Draft</span>`);
 	if (!d) return parts.join('') || skel(40);
 	const ci = (d.checks || '').toLowerCase();
 	const ciIcon = CI_ICONS[ci];
@@ -890,7 +901,7 @@ function matchesFilters(row: Row, { ignoreTile = false }: { ignoreTile?: boolean
 	if (!inScope(row)) return false;
 	const l = row.light;
 	if (S.repos.length && !S.repos.includes(repoFilterKey(l.host, l.owner, l.repo))) return false;
-	// Names filter by owner; clocks by whose review is waiting. Each is "any of", and the two combine with AND.
+	// Names filter by owner; clocks by who the PR is waiting on. Each is "any of", and the two combine with AND.
 	if (S.people.length) {
 		const authorId = member(l.author.login)?.id;
 		if (authorId === undefined || !S.people.includes(authorId)) return false;
@@ -1106,15 +1117,15 @@ function renderChrome(): void {
 	const count = (fn: (r: Row) => unknown): number => scoped.filter((r) => fn(r)).length;
 	const botOpen = scoped.reduce((n, r) => n + (r.detail?.bot?.open || 0), 0);
 	const tiles: Tile[] = [
-		{ id: 'me', cls: 'you', icon: 'fa-solid fa-hand-point-right', label: 'Waiting on you', value: count(waitingOnMe) },
-		{ id: 'approved', cls: 'ok', icon: 'fa-solid fa-check', label: 'Approved', value: count(isApproved) },
-		{ id: 'changes', cls: 'bad', icon: 'fa-solid fa-arrow-rotate-left', label: 'Changes requested', value: count((r) => r.detail?.reviews.some((x) => x.state === 'CHANGES_REQUESTED')) },
-		{ id: 'bot', cls: 'bot', icon: 'fa-solid fa-robot', label: `${cfg.aiReviewLabel} open`, value: count((r) => (r.detail?.bot?.open ?? 0) > 0), note: botOpen ? `${botOpen} threads` : '' },
-		{ id: null, cls: 'all', icon: 'fa-solid fa-code-pull-request', label: 'Open PRs', value: scoped.length },
+		{ id: 'me', cls: 'you', icon: 'fa-solid fa-hand-point-right', label: 'Waiting on you', title: `Show only pull requests waiting on you: ${WAIT_REASONS_TITLE}`, value: count(waitingOnMe) },
+		{ id: 'approved', cls: 'ok', icon: 'fa-solid fa-check', label: 'Approved', title: 'Show only approved pull requests', value: count(isApproved) },
+		{ id: 'changes', cls: 'bad', icon: 'fa-solid fa-arrow-rotate-left', label: 'Changes requested', title: 'Show only pull requests with changes requested', value: count((r) => r.detail?.reviews.some((x) => x.state === 'CHANGES_REQUESTED')) },
+		{ id: 'bot', cls: 'bot', icon: 'fa-solid fa-robot', label: `${cfg.aiReviewLabel} open`, title: 'Show only pull requests with unresolved threads from the review bot', value: count((r) => (r.detail?.bot?.open ?? 0) > 0), note: botOpen ? `${botOpen} threads` : '' },
+		{ id: null, cls: 'all', icon: 'fa-solid fa-code-pull-request', label: 'Open PRs', title: 'Clear the tile filter and show all pull requests', value: scoped.length },
 	];
 	const html = tiles
 		.map(
-			(t) => `<button class="tile ${t.cls}" data-tile="${t.id ?? ''}" aria-pressed="${S.tile === t.id && t.id !== null}">
+			(t) => `<button class="tile ${t.cls}" data-tile="${t.id ?? ''}" aria-pressed="${S.tile === t.id && t.id !== null}" title="${esc(t.title)}">
 				<div class="t-label"><i class="${t.icon}"></i>${t.label}</div>
 				<div class="t-value">${t.value}${t.note ? `<span class="t-note">${t.note}</span>` : ''}</div>
 			</button>`
@@ -1135,7 +1146,7 @@ function renderChrome(): void {
 			const who = m.id === cfg.me ? 'you' : m.short;
 			return `<span class="person ${on ? 'on' : ''}">
 				<button class="p-main" data-person="${m.id}" title="Show only pull requests ${m.id === cfg.me ? 'you' : esc(m.name)} wrote">${avatar(Object.values(m.logins)[0] ?? '', Object.keys(m.logins)[0] ?? '')}${esc(m.short)} <span class="count">${n}</span></button>
-				<button class="p-wait ${waiting ? 'on' : ''}" data-wait="${m.id}" title="Show only pull requests waiting on ${esc(who)}'s review (${waitN})"><i class="fa-${waiting ? 'solid' : 'regular'} fa-hourglass-half"></i>${waitN ? `<span class="count">${waitN}</span>` : ''}</button>
+				<button class="p-wait ${waiting ? 'on' : ''}" data-wait="${m.id}" title="Show only pull requests waiting on ${esc(who)} (${waitN}): ${WAIT_REASONS_TITLE}"><i class="fa-${waiting ? 'solid' : 'regular'} fa-hourglass-half"></i>${waitN ? `<span class="count">${waitN}</span>` : ''}</button>
 				<button class="p-bell ${bell ? 'on' : ''}" data-bell="${m.id}" title="${bell ? 'Hide' : 'Include'} pull requests that request a review from ${esc(who)}"><i class="fa-${bell ? 'solid' : 'regular'} fa-bell"></i></button>
 			</span>`;
 		})
@@ -1147,7 +1158,7 @@ function renderChrome(): void {
 	const repos = repoChips
 		.map(({ key, label, icon, n }) => {
 			const on = S.repos.includes(key);
-			return `<button class="chip-btn ${on ? 'on' : ''}" data-repo="${esc(key)}"><i class="${icon}"></i>${esc(label)} <span class="count">${n}</span></button>`;
+			return `<button class="chip-btn ${on ? 'on' : ''}" data-repo="${esc(key)}" title="Show only pull requests in ${esc(label)}"><i class="${icon}"></i>${esc(label)} <span class="count">${n}</span></button>`;
 		})
 		.join('');
 	const reposEl = $('#repos');
@@ -1166,7 +1177,7 @@ function renderChrome(): void {
 	if (approvalsEl.innerHTML !== approvals) approvalsEl.innerHTML = approvals;
 	const toggles = `
 		<button class="chip-btn ${S.drafts ? 'on' : ''}" data-toggle="drafts" title="Show draft pull requests"><i class="fa-regular fa-file-lines"></i>Drafts <span class="count">${draftN}</span></button>
-		<button class="chip-btn ${S.dormant ? 'on' : ''}" data-toggle="dormant" title="Show pull requests idle for 60+ days"><i class="fa-solid fa-moon"></i>Dormant 60d+ <span class="count">${dormantN}</span></button>`;
+		<button class="chip-btn ${S.dormant ? 'on' : ''}" data-toggle="dormant" title="Show pull requests with no update for 60+ days · The ones that request your review show either way"><i class="fa-solid fa-moon"></i>Dormant 60d+ <span class="count">${dormantN}</span></button>`;
 	const togglesEl = $('#toggles');
 	if (togglesEl.innerHTML !== toggles) togglesEl.innerHTML = toggles;
 
@@ -1525,7 +1536,7 @@ function renderShipped(): void {
 	const known = features.followups && (needing.prs.length > 0 || !needing.loading);
 	$('#shipped-count').textContent = `${list.length} ${label}${known && list.length ? ` · ${needN} need${needN === '1' ? 's' : ''} follow-up` : ''}`;
 	$('#shipped-range').innerHTML = MERGED_RANGES.map(
-		(r) => `<button role="radio" aria-checked="${S.mergedRange === r}" data-merged-range="${r}">${esc(MERGED_RANGE_LABELS[r])}</button>`
+		(r) => `<button role="radio" aria-checked="${S.mergedRange === r}" data-merged-range="${r}" title="${esc(MERGED_RANGE_TITLES[r])}">${esc(MERGED_RANGE_LABELS[r])}</button>`
 	).join('');
 	$('#shipped-filter').innerHTML = !features.followups ? '' : `<button class="chip-btn ${S.shippedNeedsFollowUp ? 'on' : ''}" data-shipped-followups title="Show only merged PRs that left follow-ups behind"><i class="fa-solid fa-list-check"></i>Needs follow-up <span class="count">${needN}</span></button>`;
 	const shown = onlyNeeding ? needing.prs : list;
@@ -1537,7 +1548,7 @@ function renderShipped(): void {
 		.join('');
 	let empty = `Nothing merged ${label}.`;
 	if (list.length && onlyNeeding) empty = needing.loading ? 'Loading follow-ups…' : `Nothing merged ${label} needs a follow-up.`;
-	$('#shipped-people').innerHTML = (shown.length ? people : empty) + errorLine;
+	$('#shipped-people').innerHTML = (shown.length ? `<span title="Pull requests in the list below, counted by author">${people}</span>` : empty) + errorLine;
 
 	const day: Intl.DateTimeFormatOptions = { weekday: 'short', day: 'numeric', month: 'short' };
 	$('#shipped-list').innerHTML = shown
@@ -1545,9 +1556,9 @@ function renderShipped(): void {
 			const when = p.mergedAt ? new Date(p.mergedAt) : null;
 			return `<li>
 				${avatar(p.author, p.host)}
-				<a href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.title)}</a>
+				<a href="${esc(p.url)}" target="_blank" rel="noopener" title="${esc(p.title)}">${esc(p.title)}</a>
 				${followUpsPill(p)}
-				<span class="ref">${esc(repoShort(p.host, p.owner, p.repo))}#${p.number}</span>
+				<span class="ref" title="${esc(cfg.hosts[p.host]?.hostname)}/${esc(p.owner)}/${esc(p.repo)}">${esc(repoShort(p.host, p.owner, p.repo))}#${p.number}</span>
 				<time datetime="${esc(p.mergedAt)}" title="${esc(when?.toLocaleString())}">${esc(when?.toLocaleDateString(undefined, day))}</time>
 			</li>`;
 		})
@@ -1680,7 +1691,7 @@ const SEVERITY_ORDER: Record<Severity, number> = { critical: 0, high: 1, medium:
 
 /** The last two parts of a file path, with the line. */
 function findingPath(path: string | null, line: number | null): string {
-	return path ? `<span class="f-path">${esc(path.split('/').slice(-2).join('/'))}${line ? `:${line}` : ''}</span>` : '';
+	return path ? `<span class="f-path" title="${esc(path)}${line ? `:${line}` : ''}">${esc(path.split('/').slice(-2).join('/'))}${line ? `:${line}` : ''}</span>` : '';
 }
 
 function openBotPopover(btn: HTMLElement, row: Row): void {
@@ -1690,11 +1701,11 @@ function openBotPopover(btn: HTMLElement, row: Row): void {
 	const items = [...b.findings]
 		.sort((x, y) => SEVERITY_ORDER[x.severity] - SEVERITY_ORDER[y.severity])
 		.map(
-			(f: BotFinding) => `<a class="finding" href="${esc(f.url)}" target="_blank" rel="noopener">
+			(f: BotFinding) => `<a class="finding" href="${esc(f.url)}" target="_blank" rel="noopener" title="Open this thread">
 				<div class="f-title">${esc(f.title)}</div>
 				<div class="f-meta">
-					<span class="sev-tag ${esc(f.severity)}">${esc(f.severity)}</span>
-					<span class="sev-tag">${esc(f.kind)}</span>
+					<span class="sev-tag ${esc(f.severity)}" title="Severity">${esc(f.severity)}</span>
+					<span class="sev-tag" title="Kind of finding">${esc(f.kind)}</span>
 					${f.outdated ? '<span class="sev-tag" title="The code changed since this comment">outdated</span>' : ''}
 					${findingPath(f.path, f.line)}
 				</div>
@@ -1725,11 +1736,11 @@ function openFollowUpsPopover(btn: HTMLElement, key: string): void {
 	const pr = merged.find((p) => p.key === key);
 	if (!live.length || !pr) return;
 	const pop = $('#popover');
-	const item = (f: FollowUp) => `<a class="finding${f.stale ? ' maybe-done' : ''}" href="${esc(f.url)}" target="_blank" rel="noopener">
+	const item = (f: FollowUp) => `<a class="finding${f.stale ? ' maybe-done' : ''}" href="${esc(f.url)}" target="_blank" rel="noopener" title="Open where this was asked">
 				<div class="f-title">${esc(f.text)}</div>
 				<div class="f-meta">
 					${avatar(f.author, pr.host)}<span>${esc(displayName(f.author))}</span>
-					<span class="sev-tag">${esc(f.source)}</span>
+					<span class="sev-tag" title="Where this was asked">${esc(f.source)}</span>
 					${findingPath(f.path, f.line)}
 				</div>
 			</a>`;
