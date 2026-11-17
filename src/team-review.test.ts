@@ -198,7 +198,7 @@ describe('MCP tools with review teams', () => {
 	];
 	const numbers = (prs: { number: number }[]) => prs.map((p) => p.number).sort((a, b) => a - b);
 
-	function handler(reviewTeams?: string[], opts: { extra?: LightPr[]; failing?: number[] } = {}) {
+	function handler(reviewTeams?: string[], opts: { extra?: LightPr[]; failing?: number[]; asked?: number[] } = {}) {
 		const config: Config = {
 			me: 'alice',
 			team: [alice, bob],
@@ -214,6 +214,7 @@ describe('MCP tools with review teams', () => {
 			},
 			getDetails: (reqs) =>
 				reqs.map(async (req) => {
+					opts.asked?.push(Number(req.number));
 					if (opts.failing?.includes(Number(req.number))) throw new Error('proxy timeout');
 					return details[Number(req.number)]!;
 				}),
@@ -307,6 +308,16 @@ describe('MCP tools with review teams', () => {
 		const queue = await call(h, 'review_queue', { person: 'bob', reasons: ['author'] });
 		expect(numbers(queue.pullRequests)).toEqual([8]);
 		expect(queue.pullRequests[0].waitingBecause).toEqual(['author', 'turn']);
+	});
+
+	test('review_queue gets details only for PRs with a review request when it needs no other reason', async () => {
+		const asked: number[] = [];
+		const h = handler(['example-org/reviewers'], { asked });
+		await call(h, 'review_queue', { person: 'bob', reasons: ['requested', 'team'] });
+		expect(asked.sort((a, b) => a - b)).toEqual([1, 2, 4]);
+		asked.length = 0;
+		await call(h, 'review_queue', { person: 'bob', reasons: ['team', 'turn'] });
+		expect(asked.sort((a, b) => a - b)).toEqual([1, 2, 3, 4]);
 	});
 
 	test('review_queue names the known reasons when one is unknown', async () => {

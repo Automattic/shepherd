@@ -443,9 +443,12 @@ export function createMcpHandler(config: Config, prs: PrService, herdr: HerdrSer
 				const person = requireMember(str(args, 'person') ?? 'me');
 				const only = reasons(args, 'reasons') ?? WAIT_REASONS;
 				const { prs: all, errors } = await collect([person.id]);
-				// Every non-dormant candidate needs details: "turn" and "author" depend on activity, not just requests.
+				// "turn" and "author" depend on activity, not just requests, so they need the details of every non-dormant PR.
+				// "requested" and "team" need a review request, which the list already shows.
+				const byActivity = only.includes('turn') || only.includes('author');
 				const candidates = all.filter(
-					(p) => p.requestedFor.includes(person.id) || p.teamRequested || Date.now() - new Date(p.updatedAt).getTime() <= DORMANT_MS
+					(p) =>
+						p.requestedFor.includes(person.id) || p.teamRequested || (byActivity && Date.now() - new Date(p.updatedAt).getTime() <= DORMANT_MS)
 				);
 				const settled = await Promise.allSettled(
 					prs.getDetails(
