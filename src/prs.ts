@@ -337,7 +337,8 @@ export interface PrService {
 	 * Starts fetching, in the background, the details that `/api/prs` does not have: the PRs that are not dormant, plus
 	 * those that have a review request, grouped like `getDetails`. It sends nothing for a PR that has a detail for this
 	 * `updatedAt`, one that is already being fetched, or one whose last batch failed less than a minute ago; nothing at all
-	 * for a host with a low budget (under 150 points) or a host in `throttled`; and in `"list"` mode, nothing for a PR with a
+	 * for a host with a low budget (under 150 points) or a host in `throttled`, and no batch that would take the host under 150 points (the cost of
+	 * a batch is estimated before it is sent, and the PRs it leaves out are left to `getDetail` and the next list); and in `"list"` mode, nothing for a PR with a
 	 * detail under 10 seconds old. Every PR is registered as in flight before this returns, so a `getDetail` call for it
 	 * waits for the batch and sends no query. The returned promise settles when every batch has, never rejects, and callers
 	 * need not wait for it. A failed batch is logged to the console and nowhere else: the PRs just have no detail, and the
@@ -801,13 +802,24 @@ export function createPrService(config: Config, gh: GhRunner): PrService {
 		});
 	}
 
-	/** Sends one query for each BATCH_MAX PRs of each repo, and registers every PR as in flight before the first await. */
-	function startBatches(batches: Iterable<RepoBatch>): Map<string, Promise<PrDetail>> {
+	/**
+	 * Sends one query for each BATCH_MAX PRs of each repo, and registers every PR as in flight before the first await.
+	 * With `reserve`, a chunk is sent only when it returns a release function (null: not sent, and its PRs are not registered).
+	 */
+	function startBatches(batches: Iterable<RepoBatch>, reserve?: (host: string, cost: number) => (() => void) | null): Map<string, Promise<PrDetail>> {
 		const started = new Map<string, Promise<PrDetail>>();
 		for (const b of batches) {
 			for (let i = 0; i < b.items.length; i += BATCH_MAX) {
 				const chunk = b.items.slice(i, i + BATCH_MAX);
-				fetchDetails(b.host, b.owner, b.repo, chunk).forEach((p, j) => started.set(chunk[j]!.key, track(chunk[j]!.key, p)));
+				const release = reserve ? reserve(b.host, chunk.length + 1) : () => {};
+				if (!release) break; // the rest of this repo's PRs are left to the row calls and the next list
+				const fetched = fetchDetails(b.host, b.owner, b.repo, chunk);
+				void Promise.allSettled(fetched).then(release);
+				fetched.forEach((p, j) => {
+					const tracked = track(chunk[j]!.key, p);
+					tracked.catch(() => {}); // a caller that does not wait for a PR must not crash the server when its batch fails
+					started.set(chunk[j]!.key, tracked);
+				});
 			}
 		}
 		return started;
@@ -877,8 +889,20 @@ export function createPrService(config: Config, gh: GhRunner): PrService {
 		return keys.map((k) => answers.get(k)!);
 	}
 
+	// Points that the prefetch has asked GitHub for and not yet seen in `gh.rate`, by host (a batch of n PRs is estimated at n + 1).
+	const unseenCost = new Map<string, number>();
+
+	/** The prefetch sends a batch only when the host would still have LOW_BUDGET_DETAIL points after it. Returns what to call when the batch is answered, or null. */
+	function reserve(host: string, cost: number): (() => void) | null {
+		const r = gh.rate[host];
+		if (r && r.remaining - (unseenCost.get(host) ?? 0) - cost < LOW_BUDGET_DETAIL) return null;
+		unseenCost.set(host, (unseenCost.get(host) ?? 0) + cost);
+		return () => void unseenCost.set(host, (unseenCost.get(host) ?? 0) - cost);
+	}
+
 	function prefetchDetails(list: LightPr[], throttled: Record<string, boolean> = {}): Promise<void> {
 		const now = Date.now();
+		const seen = new Set<string>();
 		for (const [key, at] of prefetchHeld) if (now - at >= DETAIL_HOLD_MS) prefetchHeld.delete(key);
 		const listMode = config.refresh === 'list';
 		const batches = new Map<string, RepoBatch>();
@@ -886,14 +910,15 @@ export function createPrService(config: Config, gh: GhRunner): PrService {
 			const dormant = now - new Date(pr.updatedAt).getTime() > DORMANT_MS;
 			if (dormant && !pr.requestedFor.length && !pr.teamRequested) continue;
 			if (throttled[pr.host] || lowBudget(pr.host)) continue;
-			if (inflight.has(pr.key) || prefetchHeld.has(pr.key)) continue;
+			if (seen.has(pr.key) || inflight.has(pr.key) || prefetchHeld.has(pr.key)) continue;
+			seen.add(pr.key);
 			const cached = detailCache.get(pr.key);
 			// A detail for this `updatedAt` is current. In "list" mode, one under 10 seconds old is kept even when the PR changed.
 			if (cached && (cached.value.updatedAt === pr.updatedAt || (listMode && now - cached.at < LIST_MODE_TTL_MS))) continue;
 			addToBatch(batches, pr.host, pr.owner, pr.repo, { key: pr.key, number: pr.number, head: pr.headRefName, base: pr.baseRefName });
 		}
 		const failed: string[] = [];
-		const settled = [...startBatches(batches.values())].map(([key, p]) =>
+		const settled = [...startBatches(batches.values(), reserve)].map(([key, p]) =>
 			p.then(
 				() => void prefetchHeld.delete(key),
 				(e: unknown) => {

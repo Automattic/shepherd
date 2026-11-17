@@ -59,7 +59,7 @@ interface Fake {
 	calls: Call[];
 	compares: string[];
 	/** Batches answered so far (a delayed batch is recorded in `calls` when it is sent, and counted here when it is answered). */
-	state: { delayMs: number; answered: number; failBatch: (c: Call) => boolean; missing: Set<number> };
+	state: { delayMs: number; answered: number; failBatch: (c: Call) => boolean; missing: Set<number>; onAnswer: () => void };
 	rate: Record<string, RateLimit>;
 	batches: () => Call[];
 	searches: () => Call[];
@@ -68,7 +68,7 @@ interface Fake {
 function fakeGh(world: World, now = iso()): Fake {
 	const calls: Call[] = [];
 	const compares: string[] = [];
-	const state = { delayMs: 0, answered: 0, failBatch: (_c: Call) => false, missing: new Set<number>() };
+	const state = { delayMs: 0, answered: 0, failBatch: (_c: Call) => false, missing: new Set<number>(), onAnswer: () => {} };
 	const rate: Record<string, RateLimit> = {};
 	const find = (host: string, owner: string, name: string, number: number) => world[host]?.[`${owner}/${name}`]?.find((s) => s.number === number);
 
@@ -109,6 +109,7 @@ function fakeGh(world: World, now = iso()): Fake {
 				calls.push(call);
 				if (state.delayMs) await Bun.sleep(state.delayMs);
 				state.answered++;
+				state.onAnswer();
 				if (state.failBatch(call)) throw new Error('batch failed: HTTP 502');
 				const repository: Record<string, unknown> = { defaultBranchRef: { name: 'main', target: { oid: 'base-oid' } } };
 				indexes.forEach((i, k) => {
@@ -375,6 +376,47 @@ test('the low budget rule holds for batched details', async () => {
 	// getDetail serves the cached detail at a low budget, as before.
 	expect((await svc.getDetail(reqOf('github', 'example-org', 'app', 1))).throttled).toBe(true);
 	expect(batches()).toHaveLength(1);
+});
+
+test('a prefetch stops sending batches when the budget falls below the floor', async () => {
+	// Each answered batch costs 11 points (a batch of 10 PRs), and the host has 170: the floor is 150.
+	const world: World = { github: { 'example-org/app': specs(1, 30) } };
+	const { svc, rate, state, batches } = setup(world);
+	rate.github = { remaining: 170, limit: 5000, resetAt: '', at: Date.now() };
+	state.onAnswer = () => void (rate.github!.remaining -= 11);
+	const { rows, prefetch } = await listLikeServer(svc);
+	await prefetch;
+	// Some PRs were fetched, and the prefetch left the host above the floor, so the rest is left to the per-row path.
+	expect(batches().length).toBeGreaterThan(0);
+	expect(batches().length).toBeLessThan(3);
+	expect(rate.github.remaining).toBeGreaterThanOrEqual(150);
+	const unfetched = rows.filter((r) => !svc.cachedDetail(r.key, r.updatedAt));
+	expect(unfetched.length).toBeGreaterThan(0);
+	// A PR that was not sent is not stuck: its own call still sends a query.
+	const before = batches().length;
+	await svc.getDetail(reqOf('github', unfetched[0]!.owner, unfetched[0]!.repo, unfetched[0]!.number));
+	expect(batches()).toHaveLength(before + 1);
+});
+
+test('a duplicate key in one prefetch leaves no unhandled rejection', async () => {
+	const world: World = { github: { 'example-org/app': specs(1, 3) } };
+	const { svc, state, batches } = setup(world);
+	state.failBatch = () => true;
+	const seen: unknown[] = [];
+	const onRejection = (e: unknown) => void seen.push(e);
+	const log = spyOn(console, 'error').mockImplementation(() => {});
+	process.on('unhandledRejection', onRejection);
+	try {
+		const rows = (await svc.listHost('github', [])).prs;
+		await svc.prefetchDetails([...rows, rows[0]!]);
+		await Bun.sleep(20);
+		expect(seen).toEqual([]);
+		expect(batches()).toHaveLength(1);
+		expect(batches()[0]!.numbers).toEqual([1, 2, 3]);
+	} finally {
+		process.off('unhandledRejection', onRejection);
+		log.mockRestore();
+	}
 });
 
 test('a throttled list prefetches nothing', async () => {

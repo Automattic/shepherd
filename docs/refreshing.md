@@ -14,9 +14,9 @@ The list carries the details the server already has for each PR's current **upda
 
 After it answers a list call, the server starts to fetch the details of the PRs in that list that have none for their current **updated** time. It groups them by host and repository, and sends up to 10 PRs of one repository in one query. It covers the PRs that are not dormant (updated within the last 60 days) and the PRs that have a review request, also when they are older. The rules are:
 
-- The server sends nothing for a host that has fewer than 150 GraphQL points left, and nothing when the list for that host is the reused list of a low budget (fewer than 300 points).
+- The server sends nothing for a host that has fewer than 150 GraphQL points left, and nothing when the list for that host is the reused list of a low budget (fewer than 300 points). Before it sends each batch, it estimates the cost, and it sends the batch only when the host would still have 150 points after it. The PRs that it does not send are left to the row calls and to the next list.
 - With `refresh: "list"`, a PR whose details are less than 10 seconds old is not fetched again, also when its **updated** time changed.
-- When a query fails, or GitHub leaves a PR out of the answer, only the PRs of that query have no details. The server writes a line to its console and adds nothing to the `errors` of the list, so the page does not show the host as unreachable. It does not fetch those PRs again for 60 seconds. The page loads those rows one by one, and a row call is never held back by this.
+- When a query fails, its PRs have no details. When GitHub leaves a PR out of the answer, only that PR has none. The server writes a line to its console and adds nothing to the `errors` of the list, so the page does not show the host as unreachable. It does not fetch those PRs again for 60 seconds. The page loads those rows one by one, and a row call is never held back by this.
 - Each PR also makes one REST compare call for its base age, as described below.
 
 Batching saves `gh` processes, round trips and the requests that count toward the secondary rate limits of GitHub. It does not save GraphQL points. The MCP tools `list_prs` and `review_queue` fetch details in the same batches.
