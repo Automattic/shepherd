@@ -28,6 +28,7 @@ import { FOLLOWUPS_MAX_PRS, liveFollowUps, needingFollowUp } from '../src/follow
 import { countByAuthor, isMergedRange, MERGED_RANGE_LABELS, MERGED_RANGES, mergedInRange, type MergedRange, withoutApproval } from '../src/merged.ts';
 import { apiHeaders, apiUrl, pageToken, readEmbedOptions, sendsToken } from '../src/embed.ts';
 import { PUSH_POLICY_LABELS, resolvePushPolicy } from '../src/push-policy.ts';
+import { hasBlockers } from '../src/ready.ts';
 import { createSettingsPanel } from './settings.ts';
 import { linearKeyRegExp } from '../src/linear.ts';
 import { findListed, parseRepoKey, reconcileRepoFilter, repoChipLabels, repoKey, unknownSelectedRepos, unlistedRepos, type RepoId } from '../src/repo-chips.ts';
@@ -461,14 +462,6 @@ function linearKeys(row: Row): Set<string> {
 }
 
 /** Approved: GitHub's review decision says so, or someone approved and nobody asked for changes. */
-/** Merge conflicts or failed checks stand between this PR and merging. Pending checks don't count. */
-function hasBlockers(row: Row): boolean {
-	const d = row.detail;
-	if (!d) return false;
-	const checks = (d.checks ?? '').toUpperCase();
-	return d.mergeable === 'CONFLICTING' || checks === 'FAILURE' || checks === 'ERROR';
-}
-
 function isApproved(row: Row): boolean {
 	const d = row.detail;
 	if (!d || d.state !== 'OPEN') return false;
@@ -811,6 +804,9 @@ function cellBot(row: Row): string {
 	const d = row.detail;
 	if (!d) return skel(48);
 	const b = d.bot;
+	// The review is older than the newest commit: a new one may be on its way, so "Clear" would say too much.
+	const behind = b?.current === false ? `Last ${cfg.aiReviewLabel} ${relTime(b.reviewedAt)}, newest commit ${relTime(d.lastCommitAt)}: the review does not cover the head` : '';
+	if (b && !b.open && behind) return `<span class="bot-behind" title="${esc(behind)}"><i class="fa-solid fa-clock-rotate-left"></i>Behind</span>`;
 	if (!b || !b.open) return `<span class="bot-clear" title="No unresolved ${esc(cfg.aiReviewLabel)} threads"><i class="fa-solid fa-circle-check"></i>Clear</span>`;
 	const minor = b.open - b.blocking;
 	// Only repeat the numbers when the total is split across both kinds.
@@ -820,7 +816,8 @@ function cellBot(row: Row): string {
 		minor ? `<span class="sev minor" title="${minor} low, info or nit">${both ? `${minor} ` : ''}minor</span>` : '',
 	].join('');
 	const outdated = b.outdated ? `, ${b.outdated} on outdated code` : '';
-	return `<button class="bot-btn" data-bot="${esc(row.key)}" title="${b.open} unresolved ${esc(cfg.aiReviewLabel)} thread${b.open === 1 ? '' : 's'}${outdated}"><i class="fa-solid fa-robot"></i><span class="n">${b.open}</span><span class="split">${split}</span></button>`;
+	const stale = behind ? `<i class="bot-behind fa-solid fa-clock-rotate-left"></i>` : '';
+	return `<button class="bot-btn" data-bot="${esc(row.key)}" title="${b.open} unresolved ${esc(cfg.aiReviewLabel)} thread${b.open === 1 ? '' : 's'}${outdated}${behind ? `. ${esc(behind)}` : ''}"><i class="fa-solid fa-robot"></i><span class="n">${b.open}</span><span class="split">${split}</span>${stale}</button>`;
 }
 
 function cellParticipants(row: Row): string {
@@ -1029,11 +1026,11 @@ function computeGroups(): Group[] {
 			// A stack is ready only when all of it is; rows already leaving (merged) don't count.
 			approved: open.length > 0 && approvedCount === open.length,
 			partial: approvedCount > 0 && approvedCount < open.length,
-			blocked: open.length > 0 && approvedCount === open.length && open.some(hasBlockers),
+			blocked: open.length > 0 && approvedCount === open.length && open.some((m) => m.detail !== null && hasBlockers(m.detail)),
 			updated: Math.max(...members.map((m) => new Date(m.light.updatedAt).getTime())),
 		});
 	}
-	// Review order: ready to land first (approved, no conflicts, no failed checks), then approved but blocked,
+	// Review order: ready to land first (approved, and nothing in src/ready.ts blocks it), then approved but blocked,
 	// then what waits on you, then most recently updated.
 	// "Newest first" uses only the newest update in each group. The band borders stay in both orders.
 	const band = (g: Group): number => (g.approved ? (g.blocked ? 1 : 2) : 0);

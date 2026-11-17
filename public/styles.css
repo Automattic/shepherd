@@ -470,7 +470,8 @@
 .shepherd .bot-btn { white-space: nowrap; max-width: 100%; }
 .shepherd .sev.block { background: var(--bad-soft); color: var(--bad); }
 .shepherd .sev.minor { background: var(--surface); color: var(--text-2); }
-.shepherd .bot-clear { color: var(--ok); font-size: 12.5px; display: inline-flex; align-items: center; gap: 6px; }
+.shepherd .bot-clear, .shepherd .bot-behind { color: var(--ok); font-size: 12.5px; display: inline-flex; align-items: center; gap: 6px; }
+.shepherd .bot-behind { color: var(--warn); }
 
 /* Status */
 .shepherd .status { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; font-size: 12px; }

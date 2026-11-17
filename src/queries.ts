@@ -22,7 +22,7 @@ export const DETAIL_PR_FIELDS = `
 	} } }
 	latestOpinionatedReviews(first:30) { nodes { state submittedAt author { __typename login avatarUrl(size: 64) } } }
 	participants(first:50) { totalCount nodes { login name avatarUrl(size: 64) } }
-	comments(last:50) { nodes { author { __typename login } createdAt } }
+	comments(last:50) { nodes { author { __typename login } createdAt updatedAt } }
 	reviews(last:50) { nodes { author { __typename login } submittedAt } }
 	commits(last:50) { nodes { commit { committedDate author { user { login } } } } }
 	reviewThreads(first:100) { nodes {

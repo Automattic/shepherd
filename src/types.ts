@@ -334,6 +334,16 @@ export interface BotSummary {
 	outdated: number;
 	bySeverity: Record<Severity, number>;
 	findings: BotFinding[];
+	/**
+	 * When the bot last reviewed: the last edit of its newest comment on the PR (a bot can edit its review in place), or
+	 * its newest review when that is later. Null when it has not reviewed this PR.
+	 */
+	reviewedAt: string | null;
+	/**
+	 * Whether that review covers the head: it is not older than the newest commit (`lastCommitAt`). GitHub gives no push
+	 * time, so the commit date stands in for it. Null when the bot has not reviewed this PR, which says nothing about the head.
+	 */
+	current: boolean | null;
 }
 
 export interface MiniPr {

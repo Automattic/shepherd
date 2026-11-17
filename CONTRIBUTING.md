@@ -35,6 +35,7 @@ Run `bun run check` and `bun test` before you open a pull request.
 | `src/prs.ts` | The follow-up query, shaping of the list, detail and follow-up data (AI-review findings, Linear keys, participants), caches, and the batched fetching of details (`getDetails()`, `prefetchDetails()`) |
 | `src/mcp.ts` | The MCP endpoint and its tools |
 | `src/waiting.ts` | What "waiting on" means, shared by the dashboard and the MCP tools |
+| `src/ready.ts` | What keeps an approved PR from going out, used by the dashboard |
 | `src/base-age.ts` | How old a PR's base is, shared by the dashboard and the MCP tools |
 | `src/merged.ts` | The Shipped ranges and filter, shared by the dashboard and the MCP tools |
 | `src/repo-scope.ts` | Which repos each host searches: the listed repos, its `anyRepo` orgs or its `defaultOrgs`; the search qualifiers, and the check that the follow-ups endpoint and the MCP tools use |

@@ -7,7 +7,7 @@
 | **Pull request** | State icon, title and number, repo, author, the [push policy](push-policy.md) that applies to the PR (from the author, the repo or a fork; none on your own PRs), Linear tickets, and related PRs. A stacked PR sits under its parent in smaller, inset text. Click the state icon to copy the PR's URL. On the top PR of a stack, a click copies every URL in the stack, one per line; ⌘+click or Ctrl+click copies only that PR's URL. |
 | **Waiting on** | Reviewers asked directly, plus an orange **You** pill whenever the PR is waiting on you for any reason (hover it for why). A red **Author** pill means changes were requested and the author hasn't pushed since. Teammates whose bell is on get an orange ring. Team requests (for example from CODEOWNERS) are grey chips. When the team is one of your `reviewTeams`, the **You** pill gets a team icon. |
 | **Approvals** | Who approved (green check) and who asked for changes (red cross), with names. |
-| **AI review** | Unresolved review threads opened by the AI-review bot of the PR's org: the host's `botsByOwner` entry for the org, or else its `bot`. **fix** means severity medium or higher and not a nit; **minor** covers everything else. Click the count to list every finding with its file and a link. Shows "n/a" when the org has no bot. The column name comes from `aiReviewLabel`. |
+| **AI review** | Unresolved review threads opened by the AI-review bot of the PR's org: the host's `botsByOwner` entry for the org, or else its `bot`. **fix** means severity medium or higher and not a nit; **minor** covers everything else. Click the count to list every finding with its file and a link. An orange clock and **Behind** mean that the bot's last review is older than the newest commit, so it does not cover the head (see [Is the review current?](configuration.md#is-the-review-current)). Shows "n/a" when the org has no bot. The column name comes from `aiReviewLabel`. |
 | **Participants** | Everyone who commented, reviewed or committed, except the author and bots, most recently active first. Hover an avatar to see when that person was last active. Below them, a small line shows who acted last (author included) and how: comment, review or push. It turns orange as **your turn** when someone else had the last word on a PR you wrote or took part in, unless your approval still stands. |
 | **Status** | Draft, checks, merge conflicts, a thumbs-up when the review decision is approved, how old the base is (see below), and lines added and removed. |
 | **Updated** | When the PR last changed. Hover the row for a refresh button that reloads just that row. |
@@ -20,8 +20,10 @@ If [herdr](herdr.md) is running, rows also show a chip for each terminal pane wo
 
 Rows are sorted in four bands:
 
-1. **Ready to ship** (green border): approved, with no merge conflicts and no failed checks. Pending checks don't block.
-2. **Approved but blocked** (dark cyan border): approved, but a PR has merge conflicts or failed checks.
+1. **Ready to ship** (green border): approved, with no merge conflicts and no failed checks, and the AI review is not in the way. Pending checks don't block.
+2. **Approved but blocked** (dark cyan border): approved, but a PR has merge conflicts or failed checks, an AI review that is behind the head, or an unresolved **fix** thread of the AI-review bot.
+
+   A PR that the bot has not reviewed at all is not blocked, and neither is a PR in an org with no bot.
 3. **Waiting on you** (orange left bar).
 4. Everything else, most recently updated first.
 

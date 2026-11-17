@@ -1,0 +1,175 @@
+{
+  "name": "ai-review-behind",
+  "host": "ghe",
+  "owner": "example-org",
+  "repo": "app",
+  "prs": [
+    {
+      "number": 112,
+      "head": "feature/review-behind",
+      "base": "trunk"
+    }
+  ],
+  "data": {
+    "rateLimit": {
+      "remaining": 4990,
+      "limit": 5000,
+      "resetAt": "2026-11-10T15:00:00Z",
+      "cost": 1
+    },
+    "repository": {
+      "defaultBranchRef": {
+        "name": "trunk",
+        "target": {
+          "oid": "dddddddddddddddddddddddddddddddddddddddd"
+        }
+      },
+      "pr0": {
+        "number": 112,
+        "title": "Example change 112",
+        "url": "https://github.example.com/example-org/app/pull/112",
+        "state": "OPEN",
+        "merged": false,
+        "mergedAt": null,
+        "isDraft": false,
+        "updatedAt": "2026-11-10T14:00:00Z",
+        "createdAt": "2026-11-08T09:00:00Z",
+        "headRefName": "feature/review-behind",
+        "baseRefName": "trunk",
+        "isCrossRepository": false,
+        "headRepositoryOwner": {
+          "login": "example-org"
+        },
+        "headRefOid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "baseRefOid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "baseRef": {
+          "target": {
+            "oid": "cccccccccccccccccccccccccccccccccccccccc"
+          }
+        },
+        "body": "Example change 112.",
+        "mergeable": "MERGEABLE",
+        "reviewDecision": "APPROVED",
+        "additions": 12,
+        "deletions": 3,
+        "changedFiles": 2,
+        "author": {
+          "__typename": "User",
+          "login": "alice",
+          "avatarUrl": "https://avatars.example.com/alice?size=64",
+          "name": "Alice Example"
+        },
+        "statusCheckRollup": {
+          "state": "SUCCESS"
+        },
+        "reviewRequests": {
+          "nodes": []
+        },
+        "latestOpinionatedReviews": {
+          "nodes": [
+            {
+              "state": "APPROVED",
+              "submittedAt": "2026-11-10T09:30:00Z",
+              "author": {
+                "__typename": "User",
+                "login": "bob",
+                "avatarUrl": "https://avatars.example.com/bob?size=64"
+              }
+            }
+          ]
+        },
+        "participants": {
+          "totalCount": 2,
+          "nodes": [
+            {
+              "login": "alice",
+              "name": "Alice Example",
+              "avatarUrl": "https://avatars.example.com/alice?size=64"
+            },
+            {
+              "login": "bob",
+              "name": "Bob Example",
+              "avatarUrl": "https://avatars.example.com/bob?size=64"
+            }
+          ]
+        },
+        "comments": {
+          "nodes": [
+            {
+              "author": {
+                "__typename": "Bot",
+                "login": "review-bot"
+              },
+              "createdAt": "2026-11-10T09:00:00Z",
+              "updatedAt": "2026-11-10T12:30:00Z"
+            },
+            {
+              "author": {
+                "__typename": "Bot",
+                "login": "review-bot"
+              },
+              "createdAt": "2026-11-10T10:00:00Z",
+              "updatedAt": "2026-11-10T10:05:00Z"
+            },
+            {
+              "author": {
+                "__typename": "User",
+                "login": "alice"
+              },
+              "createdAt": "2026-11-10T12:00:00Z",
+              "updatedAt": "2026-11-10T12:00:00Z"
+            }
+          ]
+        },
+        "reviews": {
+          "nodes": [
+            {
+              "author": {
+                "__typename": "Bot",
+                "login": "review-bot"
+              },
+              "submittedAt": "2026-11-10T10:02:00Z"
+            },
+            {
+              "author": {
+                "__typename": "User",
+                "login": "bob"
+              },
+              "submittedAt": "2026-11-10T09:30:00Z"
+            }
+          ]
+        },
+        "commits": {
+          "nodes": [
+            {
+              "commit": {
+                "committedDate": "2026-11-10T08:00:00Z",
+                "author": {
+                  "user": {
+                    "login": "alice"
+                  }
+                }
+              }
+            },
+            {
+              "commit": {
+                "committedDate": "2026-11-10T11:00:00Z",
+                "author": {
+                  "user": {
+                    "login": "alice"
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "reviewThreads": {
+          "nodes": []
+        }
+      },
+      "dn0": {
+        "nodes": []
+      }
+    }
+  }
+}
