@@ -5,6 +5,7 @@ import type { GhRunner } from './gh.ts';
 import { mergedSearchSince } from './merged.ts';
 import { BATCH_MAX, buildDetailBatch, MERGED_SEARCH_QUERY, SEARCH_QUERY } from './queries.ts';
 import { linearKeyRegExp } from './linear.ts';
+import { inScope, scopeQualifiers, searchHostKeys, searchTerms } from './repo-scope.ts';
 import { allReviewBots, reviewBot } from './review-bot.ts';
 import {
 	SEVERITIES,
@@ -228,6 +229,21 @@ export function prKey(host: string, owner: string, repo: string, number: number 
 	return `${host}:${owner}/${repo}#${number}`;
 }
 
+/**
+ * The PRs of `/api/followups?prs=<key>,…`: each key parsed, and only in a repo of a host's scope (a listed repo, or a repo
+ * of its any-repo orgs), so the endpoint can't be used to read the follow-ups of any PR through the server's gh login.
+ * The first key that fails is the error.
+ */
+export function followUpTargets(config: Pick<Config, 'hosts' | 'repos' | 'team'>, keys: string[]): { targets: PrTarget[] } | { error: string } {
+	const targets: PrTarget[] = [];
+	for (const key of keys) {
+		const t = parsePrKey(key);
+		if (!t || !inScope(config, t.host, t.owner, t.repo)) return { error: `bad request: not a PR key in a tracked repo: ${key.slice(0, 200)}` };
+		targets.push(t);
+	}
+	return { targets };
+}
+
 /** The reverse of prKey, or null when `key` is not one. */
 export function parsePrKey(key: string): PrTarget | null {
 	const m = /^(.+):([\w.-]+)\/([\w.-]+)#(\d{1,9})$/.exec(key);
@@ -357,7 +373,7 @@ export class NotFoundError extends Error {
 
 export function createPrService(config: Config, gh: GhRunner): PrService {
 	const teamById = new Map(config.team.map((m) => [m.id, m]));
-	const hostKeys = [...new Set(config.repos.map((r) => r.host))];
+	const hostKeys = searchHostKeys(config);
 	const hostByHostname = new Map(Object.entries(config.hosts).map(([k, h]) => [h.hostname, k]));
 	const loginFor = (member: TeamMember | undefined, hostKey: string): string | undefined =>
 		member && Object.hasOwn(member.logins, hostKey) ? member.logins[hostKey] : undefined;
@@ -417,18 +433,14 @@ export function createPrService(config: Config, gh: GhRunner): PrService {
 		};
 	}
 
-	/** Search qualifiers for the tracked repos and the team's authors on one host. */
-	function teamScope(hostKey: string): { repos: string; authors: string } {
-		const repos = config.repos
-			.filter((x) => x.host === hostKey)
-			.map((x) => `repo:${x.owner}/${x.name}`)
-			.join(' ');
+	/** The search qualifiers of the host's scope (null: nothing to search) and of the team's authors on one host. */
+	function teamScope(hostKey: string): { repos: string | null; authors: string } {
 		const authors = config.team
 			.map((m) => loginFor(m, hostKey))
 			.filter((l): l is string => Boolean(l))
 			.map((l) => `author:${l}`)
 			.join(' ');
-		return { repos, authors };
+		return { repos: scopeQualifiers(config, hostKey), authors };
 	}
 
 	function listHost(hostKey: string, reviewerIds: string[]) {
@@ -464,22 +476,24 @@ export function createPrService(config: Config, gh: GhRunner): PrService {
 	async function searchHost(hostKey: string, reviewerIds: string[], cacheKey: string) {
 		const { repos, authors } = teamScope(hostKey);
 		// Repos with allAuthors list every open PR, so they skip the author filter. That search also finds the team's PRs.
+		// In any-repo mode the team search covers the whole scope, the allAuthors repos too; the dedup below merges them.
 		const hostRepos = config.repos.filter((x) => x.host === hostKey);
-		const qualifiers = (list: typeof hostRepos) => list.map((x) => `repo:${x.owner}/${x.name}`).join(' ');
-		const teamRepos = qualifiers(hostRepos.filter((x) => !x.allAuthors));
-		const allAuthorsRepos = qualifiers(hostRepos.filter((x) => x.allAuthors));
+		const teamRepos = scopeQualifiers(config, hostKey, (x) => !x.allAuthors);
+		const allAuthorsRepos = hostRepos.filter((x) => x.allAuthors).map((x) => `repo:${x.owner}/${x.name}`).join(' ');
 		const teamLogins = new Set(config.team.map((m) => loginFor(m, hostKey)?.toLowerCase()).filter(Boolean));
 		const searches: { kind: 'team' | 'allAuthors' | 'review' | 'teamReview'; id?: string; q: string }[] = [];
-		if (authors && teamRepos) searches.push({ kind: 'team', q: `is:pr is:open ${teamRepos} ${authors}` });
+		if (authors && teamRepos !== null) searches.push({ kind: 'team', q: searchTerms('is:pr is:open', teamRepos, authors) });
 		if (allAuthorsRepos) searches.push({ kind: 'allAuthors', q: `is:pr is:open ${allAuthorsRepos}` });
-		for (const id of reviewerIds) {
-			const login = loginFor(teamById.get(id), hostKey);
-			if (login) searches.push({ kind: 'review', id, q: `is:pr is:open ${repos} user-review-requested:${login}` });
-		}
-		// Review teams are searched whatever the bells say: a team request waits on everyone in the team.
-		// Drafts never wait on a team (see src/waiting.ts), so skip them and their detail fetches.
-		for (const slug of config.hosts[hostKey]?.reviewTeams ?? []) {
-			searches.push({ kind: 'teamReview', q: `is:pr is:open draft:false ${repos} team-review-requested:${slug}` });
+		if (repos !== null) {
+			for (const id of reviewerIds) {
+				const login = loginFor(teamById.get(id), hostKey);
+				if (login) searches.push({ kind: 'review', id, q: searchTerms('is:pr is:open', repos, `user-review-requested:${login}`) });
+			}
+			// Review teams are searched whatever the bells say: a team request waits on everyone in the team.
+			// Drafts never wait on a team (see src/waiting.ts), so skip them and their detail fetches.
+			for (const slug of config.hosts[hostKey]?.reviewTeams ?? []) {
+				searches.push({ kind: 'teamReview', q: searchTerms('is:pr is:open draft:false', repos, `team-review-requested:${slug}`) });
+			}
 		}
 
 		const results = await Promise.all(searches.map((s) => searchAll<RawLightPr>(hostKey, s.q, SEARCH_QUERY)));
@@ -520,8 +534,8 @@ export function createPrService(config: Config, gh: GhRunner): PrService {
 			// One search per host, like the open list; GitHub accepted 120 author: qualifiers in one query when tried.
 			const { repos, authors } = teamScope(hostKey);
 			// Newest first, so a search with more than 500 results drops the oldest merges.
-			const q = `is:pr is:merged merged:>=${mergedSearchSince(new Date())} ${repos} ${authors} sort:updated-desc`;
-			const { nodes, total } = authors ? await searchAll<RawMergedPr>(hostKey, q, MERGED_SEARCH_QUERY) : { nodes: [], total: 0 };
+			const q = searchTerms(`is:pr is:merged merged:>=${mergedSearchSince(new Date())}`, repos, authors, 'sort:updated-desc');
+			const { nodes, total } = authors && repos !== null ? await searchAll<RawMergedPr>(hostKey, q, MERGED_SEARCH_QUERY) : { nodes: [], total: 0 };
 			const prs = nodes.map((n): MergedPr => {
 				const owner = n.repository.owner.login;
 				const repo = n.repository.name;

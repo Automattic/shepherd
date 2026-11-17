@@ -57,7 +57,7 @@ const embedded = (): SettingsResponse => ({
 		ignoreParticipants: [],
 		limits: {},
 	},
-	version: 'mc-v1',
+	version: 'embedded-v1',
 	mode: 'personal',
 	fields: {
 		'/personal': { editable: true },
@@ -101,7 +101,7 @@ describe('settings export and import', () => {
 		expect(p.features).toEqual({ herdr: false });
 		expect(r.hosts).toBeUndefined();
 		expect(r.notes).toEqual([
-			'This server has no host git.example.org, so the logins, repos and review teams there were left out.',
+			'This server has no host git.example.org, so the logins, repos, review teams and any-repo settings there were left out.',
 			'You are "alice.smith" on this server, so the file\'s "alice" became "alice.smith".',
 		]);
 		expect(checkSettingsPut({ version: target.version, personal: p }, { current: target }).ok).toBe(true);

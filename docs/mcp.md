@@ -5,16 +5,16 @@ The same process answers MCP at `http://127.0.0.1:5050/mcp`. It uses the Streama
 | Tool | Use it for | Arguments |
 | --- | --- | --- |
 | `review_queue` | "What is waiting on me?" or on someone else, with the reason for each PR (`requested`, `team`, `turn` or `author`) | `person` (default `me`) |
-| `list_prs` | The team's open PRs, plus every open PR in repos with `allAuthors`, filtered | `author`, `repo`, `waiting_on`, `include_drafts`, `include_dormant`, `has_ai_review_findings`, `review_team_requested`, `limit` |
+| `list_prs` | The team's open PRs (in the tracked repos, or in any repo on hosts in [any-repo mode](configuration.md#prs-in-any-repo)), plus every open PR in repos with `allAuthors`, filtered | `author`, `repo`, `waiting_on`, `include_drafts`, `include_dormant`, `has_ai_review_findings`, `review_team_requested`, `limit` |
 | `merged_prs` | "What did we ship this week?": the team's merged PRs with a count per person, in the server's time zone. Each PR has `followUps`, the number of non-blocking asks left on it that the code hasn't changed since (see [Follow-ups](dashboard.md#follow-ups)), or null when they could not be fetched | `range` (`this-week`, `last-week` or `last-30-days`; default `this-week`), `author`, `repo`, `include_follow_ups` (list them as `followUpItems`) |
 | `get_pr` | One PR in full: every unresolved AI-review finding, participants with last-active times, who acted last (and whether that was you or the author), stack, checks, follow-ups (who, where, the line and a link; `followUpsMaybeDone` counts the ones the code may have handled since, which are left out), and any herdr panes working on it | `url`, or `repo` and `number` |
-| `team` | The roster with each person's logins and push policy, the tracked repos with their push policies, what each push policy asks for and the rule that decides which one applies, the AI-review bots, the Linear workspace and the review teams | |
+| `team` | The roster with each person's logins and push policy, the tracked repos with their push policies, the hosts in any-repo mode (`anyRepo`, with their orgs), what each push policy asks for and the rule that decides which one applies, the AI-review bots, the Linear workspace and the review teams | |
 
 `merged_prs` fetches follow-ups for every PR in the range that isn't cached yet, 10 PRs of a repo per query, and keeps them for 10 minutes. A first `last-30-days` call on a busy team can take several seconds; later calls are served from the cache.
 
 Every PR that `list_prs`, `review_queue` and `get_pr` return has `pushPolicy`: how changes to its branch should arrive, where that came from (`source`), and an `instruction` to follow before pushing to the branch. Your own PRs always allow pushes, and PRs from forks are review-only. See [Push policies](push-policy.md).
 
-Agents can name people by `id`, first name or any of their logins, and repos by short name or owner/name. Data is at most 60 seconds old. An unknown person or repo returns an error that lists the valid names.
+Agents can name people by `id`, first name or any of their logins, and repos by short name or owner/name. On a host in any-repo mode, `owner/name` also names a repo that is not tracked; `get_pr` then needs the PR URL when that repo is in scope on more than one host. Data is at most 60 seconds old. An unknown person or repo returns an error that lists the valid names.
 
 Example prompts once it is connected:
 

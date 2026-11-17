@@ -4,9 +4,10 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { resolveFeatures, type Features } from './features.ts';
 import { fromPointer, validate } from './schema.ts';
-import { documentFromConfig, localRules } from './settings.ts';
+import { documentFromConfig } from './settings.ts';
 import { SETTINGS_SCHEMA } from './settings-schema.ts';
-import { API_VERSION, type Config, type PublicConfig } from './types.ts';
+import { anyRepoOrgs } from './repo-scope.ts';
+import { API_VERSION, type AnyRepoScope, type Config, type PublicConfig } from './types.ts';
 
 /** The project root (one level above src/). */
 export const ROOT = join(import.meta.dir, '..');
@@ -22,14 +23,15 @@ function fail(message: string): never {
 	process.exit(1);
 }
 
-/** config.json keeps review teams under `hosts.<key>`, so messages name them there. */
+/** config.json keeps review teams and any-repo scopes under `hosts.<key>`, so messages name them there. */
 function configPath(segments: string[]): string[] {
-	return segments[0] === 'reviewTeams' && segments.length > 1 ? ['hosts', segments[1]!, 'reviewTeams', ...segments.slice(2)] : segments;
+	const [key, host, ...rest] = segments;
+	return (key === 'reviewTeams' || key === 'anyRepo') && host !== undefined ? ['hosts', host, key, ...rest] : segments;
 }
 
 /**
  * Checks a parsed config and returns a list of problems. The rules are the settings schema
- * (src/settings-schema.ts), plus `localRules()` of this server.
+ * (src/settings-schema.ts).
  */
 export function problems(c: Partial<Config>): string[] {
 	const doc = documentFromConfig(c);
@@ -42,7 +44,6 @@ export function problems(c: Partial<Config>): string[] {
 		}
 		return e.message;
 	});
-	if (Array.isArray(c.repos)) out.push(...localRules({ repos: c.repos }).map((e) => e.message));
 	// A message can come from more than one check (an item with neither id nor name, for example).
 	return [...new Set(out)];
 }
@@ -55,6 +56,11 @@ export function warnings(c: Config): string[] {
 		const { rowRefreshFloorMs: floor, rowRefreshLowBudgetMs: low } = h;
 		if (floor !== undefined && low !== undefined && low < floor) {
 			out.push(`hosts.${key}.rowRefreshLowBudgetMs (${low}) is less than rowRefreshFloorMs (${floor}); when the budget is low, the page uses the floor`);
+		}
+		// "Add more repos" turns a host's default orgs into its own orgs, which count toward limits.maxOrgs.
+		const maxOrgs = c.limits?.maxOrgs;
+		if (maxOrgs !== undefined && (h.defaultOrgs?.length ?? 0) > maxOrgs) {
+			out.push(`hosts.${key}.defaultOrgs has ${h.defaultOrgs!.length} orgs, more than limits.maxOrgs (${maxOrgs}); a save that keeps them as the host's own orgs is refused`);
 		}
 	}
 	c.repos.forEach((r, i) => {
@@ -111,6 +117,12 @@ export function configFeatures(config: Config): Features {
 	return resolveFeatures({ ...config.features, ...(config.herdr?.enabled === false ? { herdr: false } : {}), settings: true });
 }
 
+/** The host's effective any-repo scope for the page, also for a host with no listed repos that searches its `defaultOrgs`. */
+function anyRepoOf(config: Config, hostKey: string): { anyRepo?: AnyRepoScope } {
+	const orgs = anyRepoOrgs(config, hostKey);
+	return orgs === null ? {} : { anyRepo: { orgs } };
+}
+
 export function publicConfig(config: Config): PublicConfig {
 	return {
 		apiVersion: API_VERSION,
@@ -120,7 +132,7 @@ export function publicConfig(config: Config): PublicConfig {
 		hosts: Object.fromEntries(
 			Object.entries(config.hosts).map(([k, h]) => [
 				k,
-				{ hostname: h.hostname, label: h.label, bot: h.bot, ...(h.botsByOwner ? { botsByOwner: h.botsByOwner } : {}), rowRefreshFloorMs: h.rowRefreshFloorMs, rowRefreshLowBudgetMs: h.rowRefreshLowBudgetMs },
+				{ hostname: h.hostname, label: h.label, bot: h.bot, ...(h.botsByOwner ? { botsByOwner: h.botsByOwner } : {}), ...anyRepoOf(config, k), rowRefreshFloorMs: h.rowRefreshFloorMs, rowRefreshLowBudgetMs: h.rowRefreshLowBudgetMs },
 			])
 		),
 		linear: config.linear ?? null,

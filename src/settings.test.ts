@@ -82,11 +82,11 @@ describe('the schema and problems() agree', () => {
 		expect(validate(SETTINGS_SCHEMA, settingsFromConfig(config()))).toEqual([]);
 	});
 
-	test('the shared schema allows no repos; the local server does not', () => {
+	test('no repos is valid: a host then searches its defaultOrgs, or nothing', () => {
 		const doc = settingsFromConfig(config());
 		doc.personal.repos = [];
 		expect(validate(SETTINGS_SCHEMA, doc)).toEqual([]);
-		expect(problems({ ...config(), repos: [] })).toEqual(['`repos` must be a non-empty array']);
+		expect(problems({ ...config(), repos: [] })).toEqual([]);
 	});
 });
 
@@ -343,9 +343,9 @@ describe('the config.json store', () => {
 		test('PUT returns per-field errors, and refuses other origins and other content types', async () => {
 			const handle = await handler();
 			const got = (await (await handle(req('GET'))).json()) as SettingsResponse;
-			const bad = await handle(req('PUT', { version: got.version, personal: { ...got.personal, repos: [] } }));
+			const bad = await handle(req('PUT', { version: got.version, personal: { ...got.personal, repos: [{ host: 'github', owner: '', name: 'app', short: 'app' }] } }));
 			expect(bad.status).toBe(422);
-			expect(((await bad.json()) as SettingsErrorResponse).errors).toEqual([{ path: '/personal/repos', code: 'refused', message: '`repos` must be a non-empty array' }]);
+			expect(((await bad.json()) as SettingsErrorResponse).errors).toEqual([{ path: '/personal/repos/0/owner', code: 'invalid', message: 'repos[0] needs owner, name and short' }]);
 			expect((await handle(req('PUT', { version: got.version, personal: got.personal }, { 'content-type': 'application/json', origin: 'https://evil.example' }))).status).toBe(403);
 			expect((await handle(req('PUT', { version: got.version, personal: got.personal }, { 'content-type': 'text/plain' }))).status).toBe(415);
 		});

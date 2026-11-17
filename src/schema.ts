@@ -194,8 +194,9 @@ export function validate(root: SchemaNode, doc: unknown, options: ValidateOption
 		}
 		if (node.enum && !node.enum.some((e) => e === value)) return report(node, 'enum', frame, { enum: quoteList(node.enum) });
 		if (typeof value === 'string') {
+			// A value that is too short gets one error, not a second one from its pattern.
 			if (node.minLength !== undefined && value.length < node.minLength) report(node, 'minLength', frame);
-			if (node.pattern !== undefined && !new RegExp(node.pattern, 'u').test(value)) report(node, 'pattern', frame);
+			else if (node.pattern !== undefined && !new RegExp(node.pattern, 'u').test(value)) report(node, 'pattern', frame);
 		}
 		if (typeof value === 'number') {
 			if (node.minimum !== undefined && !(value >= node.minimum)) report(node, 'minimum', frame);

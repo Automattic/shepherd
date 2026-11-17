@@ -8,9 +8,17 @@ import type { HerdrService } from './herdr.ts';
 import { countByAuthor, isMergedRange, MERGED_RANGES, mergedInRange, rangeBounds } from './merged.ts';
 import { DORMANT_MS, type PrService } from './prs.ts';
 import { PUSH_POLICIES, PUSH_POLICY_INSTRUCTIONS, PUSH_POLICY_RULE, resolvePushPolicy } from './push-policy.ts';
+import { anyRepoOrgs, inScope, listedRepo, searchHostKeys } from './repo-scope.ts';
 import { reviewBot } from './review-bot.ts';
-import type { Config, FollowUp, LightPr, MergedPr, PrDetail, RepoConfig, TeamMember } from './types.ts';
+import type { Config, FollowUp, LightPr, MergedPr, PrDetail, TeamMember } from './types.ts';
 import { changesRequestedPending, waitReasons, type WaitReason } from './waiting.ts';
+
+/** A repo that a tool filters on. `host` is null when the repo is in scope on more than one host. */
+interface RepoFilter {
+	host: string | null;
+	owner: string;
+	name: string;
+}
 
 const PROTOCOL_VERSIONS = ['2025-06-18', '2025-03-26', '2024-11-05'] as const;
 const DETAIL_MAX_AGE_MS = 60_000; // agents get data at most a minute old
@@ -96,14 +104,25 @@ export function createMcpHandler(config: Config, prs: PrService, herdr: HerdrSer
 		return m;
 	}
 
-	function findRepo(repo: string): RepoConfig {
-		const r = repo.trim().toLowerCase().replace(/^https?:\/\/[^/]+\//, '');
+	/**
+	 * A listed repo by short name, name or owner/name. On a host set to any repo, `owner/name` also names a repo that is
+	 * not listed; `host` is then null when more than one such host has that owner in scope.
+	 */
+	function findRepo(repo: string): RepoFilter {
+		// Matched without case; an unlisted repo keeps the case it was given, so its PR key is the one the list uses.
+		const given = repo.trim().replace(/^https?:\/\/[^/]+\//, '');
+		const r = given.toLowerCase();
 		const hit = config.repos.find((x) => [x.short, x.name, `${x.owner}/${x.name}`].some((v) => v.toLowerCase() === r));
-		if (!hit) {
-			throw new Error(`Unknown repo "${repo}". Known: ${config.repos.map((x) => `${x.short} (${x.owner}/${x.name})`).join(', ')}`);
-		}
-		return hit;
+		if (hit) return { host: hit.host, owner: hit.owner, name: hit.name };
+		const m = /^([\w.-]+)\/([\w.-]+)$/.exec(given);
+		const hosts = m ? searchHostKeys(config).filter((h) => anyRepoOrgs(config, h) !== null && inScope(config, h, m[1]!, m[2]!)) : [];
+		if (m && hosts.length) return { host: hosts.length === 1 ? hosts[0]! : null, owner: m[1]!, name: m[2]! };
+		const anyNote = anyRepoHosts.length ? ` On ${anyRepoHosts.map(hostname).join(', ')}, give any repo in scope as owner/name.` : '';
+		const known = config.repos.length ? ` Known: ${config.repos.map((x) => `${x.short} (${x.owner}/${x.name})`).join(', ')}.` : ' No repos are listed.';
+		throw new Error(`Unknown repo "${repo}".${known}${anyNote}`);
 	}
+	const inRepo = (p: { host: string; owner: string; repo: string }, f: RepoFilter): boolean =>
+		(f.host === null || p.host === f.host) && p.owner.toLowerCase() === f.owner.toLowerCase() && p.repo.toLowerCase() === f.name.toLowerCase();
 
 	function parsePrUrl(url: string): { host: string; owner: string; repo: string; number: number } | null {
 		const m = url.match(/https?:\/\/([\w.-]+)\/([\w.-]+)\/([\w.-]+)\/pull\/(\d+)/);
@@ -117,12 +136,14 @@ export function createMcpHandler(config: Config, prs: PrService, herdr: HerdrSer
 		const m = team.find((t) => Object.values(t.logins).some((x) => x.toLowerCase() === l));
 		return m ? `${m.short === 'You' ? m.name : m.short} (${login})` : login;
 	};
-	const repoShort = (host: string, owner: string, name: string): string =>
-		config.repos.find((r) => r.host === host && r.owner === owner && r.name === name)?.short ?? name;
+	const repoShort = (host: string, owner: string, name: string): string => listedRepo(config, host, owner, name)?.short ?? name;
 	const linearUrl = (key: string) => (config.linear ? `https://linear.app/${config.linear.workspace}/issue/${key}` : null);
 	const reviewLabel = config.aiReviewLabel || 'AI review';
 	const exampleMember = team.find((m) => m.id !== config.me)?.id ?? me.id;
-	const exampleRepos = config.repos.slice(0, 2).map((r) => `"${r.short}"`).join(', ');
+	const exampleRepos = config.repos.slice(0, 2).map((r) => `"${r.short}"`).join(', ') || '"example-org/repo"';
+	const anyRepoHosts = searchHostKeys(config).filter((h) => anyRepoOrgs(config, h) !== null);
+	// How the tool descriptions name the repos that the dashboard searches.
+	const scopeText = anyRepoHosts.length ? 'the tracked repos (and any repo in scope on hosts set to any repo; see the team tool)' : 'the tracked repos';
 	const hostname = (hostKey: string) => config.hosts[hostKey]?.hostname ?? hostKey;
 
 	// ---- shaping ----
@@ -273,7 +294,7 @@ export function createMcpHandler(config: Config, prs: PrService, herdr: HerdrSer
 			name: 'team',
 			title: 'Team and repos',
 			description:
-				'List the people on the team (with their login on each GitHub host and their pushPolicy), who "me" is, the repos the dashboard tracks with their push policies, what each push policy asks for, and the rule that decides which one applies to a PR. For the policy of one PR, use the pushPolicy on that PR from list_prs, review_queue or get_pr.',
+				'List the people on the team (with their login on each GitHub host and their pushPolicy), who "me" is, the repos the dashboard tracks with their push policies, the hosts that find PRs in any repo (anyRepo), what each push policy asks for, and the rule that decides which one applies to a PR. For the policy of one PR, use the pushPolicy on that PR from list_prs, review_queue or get_pr.',
 			inputSchema: { type: 'object', properties: {}, additionalProperties: false },
 			annotations: { readOnlyHint: true, openWorldHint: false },
 			run: async () => ({
@@ -299,13 +320,16 @@ export function createMcpHandler(config: Config, prs: PrService, herdr: HerdrSer
 				linear: config.linear ? `https://linear.app/${config.linear.workspace}` : null,
 				// GitHub teams per host whose review requests put a PR in the team's queue; null when none are set.
 				reviewTeams: reviewTeamsByHost,
+				// Hosts that find the team's PRs in any repo of some orgs, not only the listed ones: per host key, its hostname and
+				// those orgs. null when none.
+				anyRepo: anyRepoHosts.length ? Object.fromEntries(anyRepoHosts.map((h) => [h, { hostname: hostname(h), orgs: anyRepoOrgs(config, h) }])) : null,
 			}),
 		},
 		{
 			name: 'list_prs',
 			title: 'List open team pull requests',
 			description:
-				'List open pull requests written by the team in the tracked repos, plus every open PR in repos set to include all authors. Each result says whose review it waits on (and whether one of the configured review teams is requested), who approved, how many AI-review bot threads are unresolved, who has participated (most recently active first), any Linear tickets, any stacked parent PR, and pushPolicy (follow its instruction before changing the branch). Filter by author, repo, requested reviewer, or review-team request.',
+				`List open pull requests written by the team in ${scopeText}, plus every open PR in repos set to include all authors. Each result says whose review it waits on (and whether one of the configured review teams is requested), who approved, how many AI-review bot threads are unresolved, who has participated (most recently active first), any Linear tickets, any stacked parent PR, and pushPolicy (follow its instruction before changing the branch). Filter by author, repo, requested reviewer, or review-team request.`,
 			inputSchema: {
 				type: 'object',
 				properties: {
@@ -352,7 +376,7 @@ export function createMcpHandler(config: Config, prs: PrService, herdr: HerdrSer
 					if (onlyTeam && !p.teamRequested) return false;
 					if (!reviewer && !p.authoredByTeam && !p.inAllAuthorsRepo && !onlyTeam) return false;
 					if (author && author.logins[p.host] !== p.author.login) return false;
-					if (repo && !(p.host === repo.host && p.owner === repo.owner && p.repo === repo.name)) return false;
+					if (repo && !inRepo(p, repo)) return false;
 					if (!includeDrafts && p.isDraft) return false;
 					// A PR that requests a review team waits on the team, so it stays even when idle, like a direct request.
 					const dormant = Date.now() - new Date(p.updatedAt).getTime() > DORMANT_MS;
@@ -381,7 +405,7 @@ export function createMcpHandler(config: Config, prs: PrService, herdr: HerdrSer
 			name: 'review_queue',
 			title: 'Review queue for a person',
 			description:
-				`Open PRs in the tracked repos that are waiting on one person (default: "me", the dashboard owner), with the reason for each: "requested" (their review is directly requested), "team" (a review team they belong to is requested; never on their own PRs, drafts or PRs they approved), "turn" (someone else had the last word on a PR they wrote or took part in, and they have not already approved it), or "author" (they wrote it, changes were requested, and nothing was pushed since). Use it to answer "what is waiting on me?" or "on ${exampleMember}?". PRs idle for more than 60 days are left out unless their review, or a review team's, is requested.`,
+				`Open PRs in ${scopeText} that are waiting on one person (default: "me", the dashboard owner), with the reason for each: "requested" (their review is directly requested), "team" (a review team they belong to is requested; never on their own PRs, drafts or PRs they approved), "turn" (someone else had the last word on a PR they wrote or took part in, and they have not already approved it), or "author" (they wrote it, changes were requested, and nothing was pushed since). Use it to answer "what is waiting on me?" or "on ${exampleMember}?". PRs idle for more than 60 days are left out unless their review, or a review team's, is requested.`,
 			inputSchema: {
 				type: 'object',
 				properties: { person: { type: 'string', default: 'me', description: 'Team id, first name or GitHub login.' } },
@@ -417,7 +441,8 @@ export function createMcpHandler(config: Config, prs: PrService, herdr: HerdrSer
 			name: 'merged_prs',
 			title: 'Merged team pull requests',
 			description:
-				'Pull requests written by the team in the tracked repos that merged in a range: "this-week" (since Monday 00:00), "last-week" (the Monday-to-Sunday before) or "last-30-days". Times are in the server\'s local time zone. Returns a count per person and the PRs, newest first. Each PR has `followUps`: how many non-blocking asks people left on it (items under headings like "Optional:" or "Does not block:", and lines that ask for a follow-up, a separate PR or a TODO); null when they could not be fetched. Asks written before the last commit, or in a resolved or outdated thread, may be done already and are not counted or listed. Set include_follow_ups to list them, or call get_pr for one PR. Filter by author or repo.',
+				`Pull requests written by the team in ${scopeText} that merged in a range: ` +
+				'"this-week" (since Monday 00:00), "last-week" (the Monday-to-Sunday before) or "last-30-days". Times are in the server\'s local time zone. Returns a count per person and the PRs, newest first. Each PR has `followUps`: how many non-blocking asks people left on it (items under headings like "Optional:" or "Does not block:", and lines that ask for a follow-up, a separate PR or a TODO); null when they could not be fetched. Asks written before the last commit, or in a resolved or outdated thread, may be done already and are not counted or listed. Set include_follow_ups to list them, or call get_pr for one PR. Filter by author or repo.',
 			inputSchema: {
 				type: 'object',
 				properties: {
@@ -448,7 +473,7 @@ export function createMcpHandler(config: Config, prs: PrService, herdr: HerdrSer
 				const now = new Date();
 				const picked = mergedInRange(all, team.flatMap((m) => Object.values(m.logins)), range, now).filter(
 					(p) =>
-						(!repo || (p.host === repo.host && p.owner === repo.owner && p.repo === repo.name)) &&
+						(!repo || inRepo(p, repo)) &&
 						(!author || author.logins[p.host]?.toLowerCase() === p.author.toLowerCase())
 				);
 				const { start, end } = rangeBounds(range, now);
@@ -500,6 +525,7 @@ export function createMcpHandler(config: Config, prs: PrService, herdr: HerdrSer
 					const number = int(args, 'number');
 					if (!repoArg || !number) throw new Error('Give a url, or both repo and number.');
 					const r = findRepo(repoArg);
+					if (r.host === null) throw new Error(`${r.owner}/${r.name} is in scope on more than one host; give the PR URL instead.`);
 					target = { host: r.host, owner: r.owner, repo: r.name, number };
 				}
 				const [d, fu] = await Promise.all([prs.getDetail({ ...target, maxAgeMs: DETAIL_MAX_AGE_MS }), prs.getFollowUps([target])]);

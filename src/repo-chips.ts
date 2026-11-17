@@ -1,4 +1,5 @@
-// The repo chips when the config has no repos: keys and labels. Shared by the browser client and its tests.
+// The repo chips (keys and labels) for repos the config does not list, and the repos the page offers to add.
+// Shared by the browser client and its tests.
 
 export interface RepoId {
 	host: string;
@@ -22,19 +23,23 @@ export function parseRepoKey(key: string): RepoId {
  * One label for each repo, in the same order.
  * The label is the name when no other repo has that name, and `owner/name` when two repos share the name.
  * When two repos also share `owner/name` (on different hosts), the label adds the host label.
+ * `taken` lists labels that other chips already show (the short names of the listed repos), matched without case:
+ * a repo whose name or `owner/name` is taken gets the next longer label.
  */
-export function repoChipLabels(ids: RepoId[], hostLabel: (host: string) => string): string[] {
+export function repoChipLabels(ids: RepoId[], hostLabel: (host: string) => string, taken: string[] = []): string[] {
 	const full = (r: RepoId): string => (r.owner ? `${r.owner}/${r.name}` : r.name);
 	const tally = (keys: string[]): Map<string, number> => {
 		const m = new Map<string, number>();
 		for (const k of keys) m.set(k, (m.get(k) ?? 0) + 1);
 		return m;
 	};
+	const used = new Set(taken.map((t) => t.toLowerCase()));
+	const free = (label: string): boolean => !used.has(label.toLowerCase());
 	const names = tally(ids.map((r) => r.name));
 	const fulls = tally(ids.map(full));
 	return ids.map((r) => {
-		if (names.get(r.name) === 1) return r.name;
-		if (fulls.get(full(r)) === 1 || !r.host) return full(r);
+		if (names.get(r.name) === 1 && free(r.name)) return r.name;
+		if ((fulls.get(full(r)) === 1 && free(full(r))) || !r.host) return full(r);
 		return `${full(r)} (${hostLabel(r.host)})`;
 	});
 }
@@ -45,4 +50,48 @@ export function repoChipLabels(ids: RepoId[], hostLabel: (host: string) => strin
  */
 export function unknownSelectedRepos(selected: string[], shown: string[]): string[] {
 	return selected.filter((key) => !shown.includes(key));
+}
+
+/** The listed repo for a repo id, matched without case, or undefined. */
+export function findListed<T extends RepoId>(listed: T[], id: RepoId): T | undefined {
+	const l = (s: string) => s.toLowerCase();
+	return listed.find((r) => r.host === id.host && l(r.owner) === l(id.owner) && l(r.name) === l(id.name));
+}
+
+/**
+ * The repos of `ids` that `listed` lacks, once each, in label order. With a host in any-repo mode the list finds PRs
+ * outside the listed repos; the page offers each of these repos as one to add ("Add more repos").
+ */
+export function unlistedRepos(ids: RepoId[], listed: RepoId[]): RepoId[] {
+	const seen = new Map<string, RepoId>();
+	for (const id of ids) if (!findListed(listed, id) && !seen.has(repoKey(id))) seen.set(repoKey(id), { host: id.host, owner: id.owner, name: id.name });
+	return [...seen.values()].sort((a, b) => `${a.name}/${a.owner}`.localeCompare(`${b.name}/${b.owner}`));
+}
+
+/** The entry for a repo to add to `repos`: its short name is the repo name, or `owner/name` when a listed repo already has that short name. */
+export function newRepoEntry(id: RepoId, listed: { short: string }[]): { host: string; owner: string; name: string; short: string } {
+	const taken = (s: string) => listed.some((r) => r.short.toLowerCase() === s.toLowerCase());
+	let short = taken(id.name) ? `${id.owner}/${id.name}` : id.name;
+	for (let n = 2; taken(short); n++) short = `${id.owner}/${id.name} (${n})`;
+	return { host: id.host, owner: id.owner, name: id.name, short };
+}
+
+/**
+ * The repo filter (S.repos) after the listed repos changed. A listed repo's filter value is its short name, and any other
+ * repo's is its repo key, so a saved value follows its repo when the repo is added to the list (repo key to short name) or
+ * removed from it (short name to the repo key of a row with that name). A value that matches nothing stays, so the page
+ * still shows it and the user can clear it.
+ */
+export function reconcileRepoFilter(selected: string[], listed: (RepoId & { short: string })[], rows: RepoId[]): string[] {
+	const l = (s: string) => s.toLowerCase();
+	const shorts = new Set(listed.map((r) => r.short));
+	const out = selected.map((key) => {
+		const id = parseRepoKey(key);
+		if (id.host) return findListed(listed, id)?.short ?? key;
+		if (shorts.has(key)) return key;
+		// Only one unlisted repo may match: with two repos of that name, the value stays for the user to clear.
+		const matches = new Map(rows.filter((r) => !findListed(listed, r) && (l(r.name) === l(key) || l(`${r.owner}/${r.name}`) === l(key))).map((r) => [repoKey(r), r]));
+		return matches.size === 1 ? [...matches.keys()][0]! : key;
+	});
+	return [...new Set(out)];
 }

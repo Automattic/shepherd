@@ -42,17 +42,20 @@ export function documentFromConfig(c: Partial<Config>): SettingsDocument {
 	const deployment: Record<string, unknown> = {};
 	if (isObject(raw.hosts)) {
 		const reviewTeams: Record<string, unknown> = {};
+		const anyRepo: Record<string, unknown> = {};
 		const hosts: Record<string, unknown> = {};
 		for (const [key, h] of Object.entries(raw.hosts)) {
 			if (!isObject(h)) {
 				own(hosts, key, h);
 				continue;
 			}
-			const { reviewTeams: teams, proxychains: _proxychains, ...rest } = h;
+			const { reviewTeams: teams, anyRepo: scope, proxychains: _proxychains, ...rest } = h;
 			own(hosts, key, rest);
 			if (teams !== undefined) own(reviewTeams, key, teams);
+			if (scope !== undefined) own(anyRepo, key, scope);
 		}
 		personal.reviewTeams = reviewTeams;
+		personal.anyRepo = anyRepo;
 		deployment.hosts = hosts;
 	} else {
 		copy(deployment, raw, 'hosts');
@@ -73,6 +76,7 @@ export function settingsFromConfig(source: Config): SettingsDocument {
 		team: config.team,
 		repos: config.repos,
 		reviewTeams: doc.personal.reviewTeams ?? {},
+		anyRepo: doc.personal.anyRepo ?? {},
 		linear: config.linear ?? null,
 		features: config.features ?? {},
 	};
@@ -89,6 +93,7 @@ export function settingsFromConfig(source: Config): SettingsDocument {
 					...(h.concurrency !== undefined ? { concurrency: h.concurrency } : {}),
 					...(h.rowRefreshFloorMs !== undefined ? { rowRefreshFloorMs: h.rowRefreshFloorMs } : {}),
 					...(h.rowRefreshLowBudgetMs !== undefined ? { rowRefreshLowBudgetMs: h.rowRefreshLowBudgetMs } : {}),
+					...(h.defaultOrgs !== undefined ? { defaultOrgs: h.defaultOrgs } : {}),
 				},
 			])
 		),
@@ -112,9 +117,13 @@ export function mergePersonal(onDisk: Record<string, unknown>, personal: Persona
 		out.hosts = Object.fromEntries(
 			Object.entries(onDisk.hosts).map(([key, h]) => {
 				if (!isObject(h)) return [key, h];
-				const { reviewTeams: _old, ...rest } = h;
+				const { reviewTeams: _old, anyRepo: oldScope, ...rest } = h;
 				const teams = personal.reviewTeams[key];
-				return [key, teams?.length ? { ...rest, reviewTeams: teams } : rest];
+				const out: Record<string, unknown> = teams?.length ? { ...rest, reviewTeams: teams } : rest;
+				// Without `anyRepo` in the settings, each host keeps what it has on disk.
+				const scope = personal.anyRepo ? (Object.hasOwn(personal.anyRepo, key) ? personal.anyRepo[key] : undefined) : oldScope;
+				if (scope !== undefined) out.anyRepo = scope;
+				return [key, out];
 			})
 		);
 	}
@@ -165,22 +174,20 @@ export function fieldMeta(fields: Record<string, FieldMeta>, pointer: string): F
 // ---------------------------------------------------------------------------
 // PUT /api/settings
 
-/** The rules of the local server that the shared schema does not have: it finds PRs only in the listed repos. */
-export function localRules(personal: Pick<PersonalSettings, 'repos'>): SettingsFieldError[] {
-	return Array.isArray(personal.repos) && personal.repos.length === 0
-		? [{ path: '/personal/repos', code: 'refused', message: '`repos` must be a non-empty array' }]
-		: [];
-}
-
 /** The cost limits that apply to the personal settings. */
 function limitErrors(next: PersonalSettings, current: SettingsResponse): SettingsFieldError[] {
-	const { maxPeople, maxRepos } = current.deployment.limits;
+	const { maxPeople, maxRepos, maxOrgs } = current.deployment.limits;
 	const errors: SettingsFieldError[] = [];
 	if (maxPeople !== undefined && next.team.length > maxPeople) {
 		errors.push({ path: '/personal/team', code: 'limit', message: `This server allows up to ${maxPeople} people; remove ${next.team.length - maxPeople}.` });
 	}
 	if (maxRepos !== undefined && next.repos.length > maxRepos) {
 		errors.push({ path: '/personal/repos', code: 'limit', message: `This server allows up to ${maxRepos} repos; remove ${next.repos.length - maxRepos}.` });
+	}
+	// An org opens every repo in it, so the orgs of `anyRepo` have their own cap.
+	const orgs = Object.values(next.anyRepo ?? {}).reduce((n, s) => n + (Array.isArray(s?.orgs) ? s.orgs.length : 0), 0);
+	if (maxOrgs !== undefined && orgs > maxOrgs) {
+		errors.push({ path: '/personal/anyRepo', code: 'limit', message: `This server allows up to ${maxOrgs} orgs for any repo; remove ${orgs - maxOrgs}.` });
 	}
 	return errors;
 }
@@ -363,13 +370,20 @@ export function checkSettingsPut(body: unknown, { current, refuse }: PutContext)
 	if (body.version !== current.version) {
 		return refused(409, 'The settings changed since you loaded them (in another tab, or on the server). Load them again and repeat your change.', [], current);
 	}
-	const personal = body.personal;
-	const missing = PERSONAL_KEYS.filter((k) => !Object.hasOwn(personal, k)).map(
+	const sent = body.personal;
+	const missing = PERSONAL_KEYS.filter((k) => !Object.hasOwn(sent, k)).map(
 		(k): SettingsFieldError => ({ path: toPointer(['personal', k]), code: 'invalid', message: `send \`${k}\` too: a settings request has every personal setting, so a missing one is never deleted` })
 	);
 	if (missing.length) return refused(422, 'Some settings are not valid.', missing);
 	const { deployment, errors: hostErrors } = nextDeployment(body, current.deployment);
 	if (hostErrors.length) return refused(422, 'Some settings were refused.', hostErrors);
+	// `anyRepo` is newer than the other keys, so a request without it keeps the current value instead of deleting it,
+	// less the hosts that the request removes (an older client cannot show an error about them).
+	const hosts = isObject(deployment.hosts) ? deployment.hosts : {};
+	// A host whose settings have no `anyRepo` gets none, so a locked or unknown field is never filled in.
+	const personal = Object.hasOwn(sent, 'anyRepo') || current.personal.anyRepo === undefined
+		? sent
+		: { ...sent, anyRepo: Object.fromEntries(Object.entries(current.personal.anyRepo ?? {}).filter(([k]) => Object.hasOwn(hosts, k)).map(([k, v]) => [k, structuredClone(v)])) };
 	const next: SettingsDocument = { personal: personal as unknown as PersonalSettings, deployment };
 	const invalid = validate(SETTINGS_SCHEMA, next).map((e): SettingsFieldError => ({ path: e.pointer, code: 'invalid', message: e.message }));
 	if (invalid.length) return refused(422, 'Some settings are not valid.', invalid);
