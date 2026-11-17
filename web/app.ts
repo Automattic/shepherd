@@ -1722,10 +1722,17 @@ document.addEventListener('visibilitychange', () => {
 // Theme
 
 function effectiveTheme(): Theme {
+	if (EMBED.theme === 'host') {
+		const host = ROOT.dataset.theme;
+		if (host === 'dark' || host === 'light') return host;
+		return matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+	}
 	return S.theme || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
 }
 // The theme applies to the mount element. On the standalone page, it also applies to <html>, for the page color.
+// With `theme: 'host'`, the host page sets `data-theme` on the mount element, so the client leaves it alone.
 function applyTheme(): void {
+	if (EMBED.theme === 'host') return;
 	const els = document.documentElement.classList.contains('shepherd-page') ? [ROOT, document.documentElement] : [ROOT];
 	for (const el of els) {
 		if (S.theme) el.dataset.theme = S.theme;

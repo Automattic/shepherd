@@ -26,6 +26,7 @@ The client reads the object one time, when it starts. Changes to the object afte
 | `mount` | The element that gets the dashboard: a CSS selector or an element. The default is `#shepherd`. The client replaces the content of the element. When no element matches, the client stops with an error in the browser console. |
 | `apiTrailingSlash` | `true` adds a `/` to the end of the path of each call to `apiBase`, before the query. For example, `/api/prs?reviewers=…` goes to `/my-app/api/shepherd/prs/?reviewers=…`. Use it when the host redirects a path without the slash: each redirect costs one more request, and a browser changes a redirected `POST` to a `GET`. It has no effect without `apiBase`. The default is `false`. |
 | `header` | `false` removes the brand header (the logo, the name and the line below it). The controls (the rate budget, the refresh interval, **Refresh now**, the theme button, the settings button and the note of a team or member view) stay in a bar at the top of the dashboard. This bar does not stick to the top of the window. The default is `true`. |
+| `theme` | `"host"`: the host page sets the theme of the dashboard, as `data-theme="light"` or `data-theme="dark"` on the mount element, and changes the attribute when its own theme changes (for example, from a `MutationObserver` on its own theme class). The client then hides its theme button and does not apply a theme that the browser saved. Without the attribute, the dashboard follows the system setting. Set the attribute before `app.js` loads, so the first render has the right colors. By default the client has its own theme button. |
 
 The host's API must give the same responses as the paths below on the local server:
 
@@ -170,7 +171,7 @@ The client renders all its markup into the mount element. The host page must loa
 
 All the rules in `styles.css` start with `.shepherd`, the class that the client adds to the mount element. The CSS variables (`--bg`, `--text` and the others) and the dark theme also apply only to that element. The file does not change `html`, `body`, the elements of the host page, or the variables on `:root`. The animation names start with `shepherd-`.
 
-- The theme button and the saved theme set `data-theme` on the mount element, not on `<html>`. Without a saved theme, the dashboard follows the system setting (`prefers-color-scheme`).
+- The theme button and the saved theme set `data-theme` on the mount element, not on `<html>`. Without a saved theme, the dashboard follows the system setting (`prefers-color-scheme`). With `theme: "host"`, only the host page sets it.
 - The column headers of the list stick to the top of the window (with `header: false`) or below the top bar. When the host page has its own fixed header, set `--sticky-top` on the mount element to the height of that header, for example `#shepherd { --sticky-top: 56px; }`. A rule with any selector works, because `styles.css` does not set this variable.
 
 ## Limits
