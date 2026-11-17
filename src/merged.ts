@@ -49,6 +49,15 @@ export function mergedInRange(prs: MergedPr[], logins: Iterable<string>, range: 
 }
 
 /** How many PRs each person merged, most first. */
+/**
+ * The PRs that no person other than the author approved. Null when the server does not say (an older server, or a host
+ * with its own data layer that has not added the field), so the page can leave the label and the chip out.
+ */
+export function withoutApproval(prs: MergedPr[]): MergedPr[] | null {
+	if (prs.length && !prs.some((p) => typeof p.approvedByHuman === 'boolean')) return null;
+	return prs.filter((p) => p.approvedByHuman === false);
+}
+
 export function countByAuthor(prs: MergedPr[], name: (login: string) => string): [string, number][] {
 	const counts = new Map<string, number>();
 	for (const p of prs) counts.set(name(p.author), (counts.get(name(p.author)) ?? 0) + 1);

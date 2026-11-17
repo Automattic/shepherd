@@ -44,7 +44,17 @@ The MCP tools return `baseAgeHours` for every open PR, and `baseTooOld` when the
 
 ## Shipped
 
-The **Shipped** section, collapsed under the tiles, lists the PRs the team merged in the tracked repos (and in any repo on hosts in [any-repo mode](configuration.md#prs-in-any-repo)): **This week** (since Monday 00:00 in your time zone), **Last week** (the Monday to Sunday before) or **Last 30 days**. A line on top counts them per person; the list below is newest first. The server searches the last 32 days once a minute, one search per host, and the page filters to the range you pick, so switching ranges sends no request. The page remembers the range and whether the section is open. To remove the section, or only its follow-ups, see [Turn features off](configuration.md#turn-features-off).
+The **Shipped** section, collapsed under the tiles, lists the PRs the team merged in the tracked repos (and in any repo on hosts in [any-repo mode](configuration.md#prs-in-any-repo)): **This week** (since Monday 00:00 in your time zone), **Last week** (the Monday to Sunday before) or **Last 30 days**. A line on top counts them per person; the list below is newest first. A row has a grey **no approval** label when no person other than the author approved the PR before it merged. Hover the label to see who merged it. The **No approval** chip shows only those rows. The server searches the last 32 days once a minute, one search per host, and the page filters to the range you pick, so switching ranges sends no request. The page remembers the range and whether the section is open. To remove the section, or only its follow-ups, see [Turn features off](configuration.md#turn-features-off).
+
+### No approval
+
+The label states a fact about the PR, and says nothing about whether it needed an approval. What counts as an approval:
+
+- A review that approves, from someone other than the author, sent before the merge. It counts from anyone, also from outside the team.
+- Not one that was dismissed, and not one from a reviewer who asked for changes after it.
+- Not one from a bot: the AI-review bots, the logins in `ignoreParticipants`, a login that ends in `[bot]` or `-bot`, and any actor that GitHub types as a `Bot`.
+
+Shepherd reads each reviewer's latest approval or change request, up to 30 reviewers per PR.
 
 ### Follow-ups
 
