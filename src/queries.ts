@@ -40,7 +40,8 @@ export const LIGHT_PR_FIELDS = `
 	repository { name owner { login } }`;
 
 /** The selection of a pull request in the merged search. */
-export const MERGED_PR_FIELDS = 'number title url mergedAt author { login } repository { name owner { login } }';
+export const MERGED_PR_FIELDS =
+	'number title url mergedAt author { login } mergedBy { login } latestOpinionatedReviews(first:30) { nodes { state submittedAt author { __typename login } } } repository { name owner { login } }';
 
 const searchQuery = (fields: string) => `query($q:String!, $after:String) {
 	rateLimit { remaining limit resetAt cost }

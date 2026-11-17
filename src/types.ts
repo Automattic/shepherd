@@ -460,6 +460,13 @@ export interface MergedPr {
 	author: string;
 	/** Null only when GitHub returns a closed PR that never merged; those are dropped. */
 	mergedAt: string | null;
+	/** The login of whoever merged it; null when GitHub does not say. */
+	mergedBy: string | null;
+	/**
+	 * Someone other than the author, and not a bot, approved it before the merge, and did not ask for changes after that approval.
+	 * False says only that: the PR may still have been read and commented on.
+	 */
+	approvedByHuman: boolean;
 }
 
 /** Where a follow-up was written. */

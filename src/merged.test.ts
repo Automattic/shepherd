@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { countByAuthor, mergedInRange, mergedSearchSince, rangeBounds, weekStart } from './merged.ts';
+import { countByAuthor, mergedInRange, mergedSearchSince, rangeBounds, weekStart, withoutApproval } from './merged.ts';
 import type { MergedPr } from './types.ts';
 
 // Dates are built in local time, as the dashboard sees them. 2026-11-16 is a Monday.
@@ -18,6 +18,8 @@ function pr(mergedAt: Date | null, author = 'alice'): MergedPr {
 		url: `https://github.com/example-org/app/pull/${n}`,
 		author,
 		mergedAt: mergedAt ? mergedAt.toISOString() : null,
+		mergedBy: 'bob',
+		approvedByHuman: true,
 	};
 }
 
@@ -89,6 +91,17 @@ describe('mergedInRange', () => {
 		const newer = pr(local(17, 9), 'BOB');
 		expect(numbers(mergedInRange([older, newer], team, 'this-week', now))).toEqual([newer.number, older.number]);
 	});
+});
+
+test('withoutApproval keeps the PRs with no approval, and is null when the server does not say', () => {
+	const approved = pr(local(17));
+	const not = { ...pr(local(17)), approvedByHuman: false };
+	expect(withoutApproval([approved, not])).toEqual([not]);
+	expect(withoutApproval([approved])).toEqual([]);
+	expect(withoutApproval([])).toBeNull();
+	// A server that predates the field sends neither value.
+	const old = { ...approved, approvedByHuman: undefined } as unknown as MergedPr;
+	expect(withoutApproval([old])).toBeNull();
 });
 
 test('countByAuthor counts per person, most first', () => {

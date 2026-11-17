@@ -25,7 +25,7 @@ import { apiVersionProblem } from '../src/api-version.ts';
 import { baseAgeHours, baseTooOld } from '../src/base-age.ts';
 import { resolveFeatures, type Features } from '../src/features.ts';
 import { FOLLOWUPS_MAX_PRS, liveFollowUps, needingFollowUp } from '../src/followups.ts';
-import { countByAuthor, isMergedRange, MERGED_RANGE_LABELS, MERGED_RANGES, mergedInRange, type MergedRange } from '../src/merged.ts';
+import { countByAuthor, isMergedRange, MERGED_RANGE_LABELS, MERGED_RANGES, mergedInRange, type MergedRange, withoutApproval } from '../src/merged.ts';
 import { apiHeaders, apiUrl, pageToken, readEmbedOptions, sendsToken } from '../src/embed.ts';
 import { PUSH_POLICY_LABELS, resolvePushPolicy } from '../src/push-policy.ts';
 import { hasBlockers } from '../src/ready.ts';
@@ -105,6 +105,8 @@ interface Settings {
 	shippedOpen: boolean;
 	/** Show only the merged PRs that left follow-ups. */
 	shippedNeedsFollowUp: boolean;
+	/** Show only the merged PRs that no person other than the author approved. */
+	shippedNoApproval: boolean;
 	sort: SortOrder;
 }
 
@@ -236,6 +238,7 @@ function loadSettings(): Settings {
 		mergedRange: 'this-week',
 		shippedOpen: false,
 		shippedNeedsFollowUp: false,
+		shippedNoApproval: false,
 		sort: 'review',
 	};
 	let saved: unknown;
@@ -249,6 +252,7 @@ function loadSettings(): Settings {
 	if (!isMergedRange(settings.mergedRange)) settings.mergedRange = 'this-week';
 	settings.shippedOpen = settings.shippedOpen === true;
 	settings.shippedNeedsFollowUp = settings.shippedNeedsFollowUp === true;
+	settings.shippedNoApproval = settings.shippedNoApproval === true;
 	if (settings.sort !== 'newest') settings.sort = 'review';
 	return settings;
 }
@@ -278,7 +282,7 @@ const save = (): void => {
 
 /** In a team or member view: the filters start from the defaults. */
 function resetFilters(): void {
-	const defaults: Pick<Settings, 'reviewers' | 'people' | 'waitingOn' | 'repos' | 'onlyApproved' | 'onlyPartial' | 'tile' | 'q' | 'shippedNeedsFollowUp'> = {
+	const defaults: Pick<Settings, 'reviewers' | 'people' | 'waitingOn' | 'repos' | 'onlyApproved' | 'onlyPartial' | 'tile' | 'q' | 'shippedNeedsFollowUp' | 'shippedNoApproval'> = {
 		reviewers: null,
 		people: [],
 		waitingOn: [],
@@ -288,6 +292,7 @@ function resetFilters(): void {
 		tile: null,
 		q: '',
 		shippedNeedsFollowUp: false,
+		shippedNoApproval: false,
 	};
 	Object.assign(S, defaults);
 	$<HTMLInputElement>('#q').value = '';
@@ -1568,6 +1573,8 @@ function followUpsPill(p: MergedPr): string {
 	return `<button class="followups-pill" data-followups="${esc(p.key)}" title="Non-blocking asks left on this PR"><i class="fa-solid fa-list-check"></i> ${n} follow-up${n === 1 ? '' : 's'}</button>`;
 }
 
+const NO_APPROVAL_TITLE = 'Merged with no approving review from a person other than the author';
+
 function renderShipped(): void {
 	if (!booted || !features.shipped) return;
 	const logins = cfg.team.flatMap((m) => Object.values(m.logins));
@@ -1583,8 +1590,14 @@ function renderShipped(): void {
 	$('#shipped-range').innerHTML = MERGED_RANGES.map(
 		(r) => `<button role="radio" aria-checked="${S.mergedRange === r}" data-merged-range="${r}" title="${esc(MERGED_RANGE_TITLES[r])}">${esc(MERGED_RANGE_LABELS[r])}</button>`
 	).join('');
-	$('#shipped-filter').innerHTML = !features.followups ? '' : `<button class="chip-btn ${S.shippedNeedsFollowUp ? 'on' : ''}" data-shipped-followups title="Show only merged PRs that left follow-ups behind"><i class="fa-solid fa-list-check"></i>Needs follow-up <span class="count">${needN}</span></button>`;
-	const shown = onlyNeeding ? needing.prs : list;
+	// Null when the server does not send `approvedByHuman`, or when the list is empty: then there is no chip, no label and no filter.
+	const unapproved = withoutApproval(list);
+	const noApproval = (p: MergedPr): boolean => p.approvedByHuman === false;
+	const onlyNoApproval = unapproved !== null && S.shippedNoApproval;
+	const followUpsChip = !features.followups ? '' : `<button class="chip-btn ${S.shippedNeedsFollowUp ? 'on' : ''}" data-shipped-followups title="Show only merged PRs that left follow-ups behind"><i class="fa-solid fa-list-check"></i>Needs follow-up <span class="count">${needN}</span></button>`;
+	const noApprovalChip = unapproved === null ? '' : `<button class="chip-btn ${S.shippedNoApproval ? 'on' : ''}" data-shipped-no-approval title="${NO_APPROVAL_TITLE}: show only those"><i class="fa-regular fa-circle"></i>No approval <span class="count">${unapproved.length}</span></button>`;
+	$('#shipped-filter').innerHTML = followUpsChip + noApprovalChip;
+	const shown = (onlyNeeding ? needing.prs : list).filter((p) => !onlyNoApproval || noApproval(p));
 
 	const people = countByAuthor(shown, displayName).map(([n, c]) => `${esc(n)} <b>${c}</b>`).join(' · ');
 	const errorLine = [mergedError, followUpsError]
@@ -1592,7 +1605,8 @@ function renderShipped(): void {
 		.map((e) => `<span class="shipped-error"><i class="fa-solid fa-triangle-exclamation"></i> ${esc(e)}</span>`)
 		.join('');
 	let empty = `Nothing merged ${label}.`;
-	if (list.length && onlyNeeding) empty = needing.loading ? 'Loading follow-ups…' : `Nothing merged ${label} needs a follow-up.`;
+	if (list.length && onlyNeeding && (needing.loading || !needing.prs.length)) empty = needing.loading ? 'Loading follow-ups…' : `Nothing merged ${label} needs a follow-up.`;
+	else if (list.length && onlyNoApproval) empty = onlyNeeding ? `Nothing merged ${label} with no approval needs a follow-up.` : `Everything merged ${label} has an approval.`;
 	$('#shipped-people').innerHTML = (shown.length ? `<span title="Pull requests in the list below, counted by author">${people}</span>` : empty) + errorLine;
 
 	const day: Intl.DateTimeFormatOptions = { weekday: 'short', day: 'numeric', month: 'short' };
@@ -1603,6 +1617,7 @@ function renderShipped(): void {
 				${avatar(p.author, p.host)}
 				<a href="${esc(p.url)}" target="_blank" rel="noopener" title="${esc(p.title)}">${esc(p.title)}</a>
 				${followUpsPill(p)}
+				${noApproval(p) ? `<span class="no-approval-pill" title="${NO_APPROVAL_TITLE}${p.mergedBy ? ` · Merged by ${esc(displayName(p.mergedBy))}` : ''}">no approval</span>` : ''}
 				<span class="ref" title="${esc(cfg.hosts[p.host]?.hostname)}/${esc(p.owner)}/${esc(p.repo)}">${esc(repoShort(p.host, p.owner, p.repo))}#${p.number}</span>
 				<time datetime="${esc(p.mergedAt)}" title="${esc(when?.toLocaleString())}">${esc(when?.toLocaleDateString(undefined, day))}</time>
 			</li>`;
@@ -1857,6 +1872,12 @@ document.addEventListener('click', (e) => {
 	}
 	if ('shippedFollowups' in ds) {
 		S.shippedNeedsFollowUp = !S.shippedNeedsFollowUp;
+		save();
+		renderShipped();
+		return;
+	}
+	if ('shippedNoApproval' in ds) {
+		S.shippedNoApproval = !S.shippedNoApproval;
 		save();
 		renderShipped();
 		return;

@@ -33,7 +33,7 @@ const BASE_MERGED_SEARCH_QUERY = `query($q:String!, $after:String) {
 	rateLimit { remaining limit resetAt cost }
 	search(query:$q, type:ISSUE, first:100, after:$after) {
 		issueCount pageInfo { hasNextPage endCursor }
-		nodes { ... on PullRequest { number title url mergedAt author { login } repository { name owner { login } } } }
+		nodes { ... on PullRequest { number title url mergedAt author { login } mergedBy { login } latestOpinionatedReviews(first:30) { nodes { state submittedAt author { __typename login } } } repository { name owner { login } } } }
 	}
 }`;
 

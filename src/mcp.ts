@@ -451,7 +451,7 @@ export function createMcpHandler(config: Config, prs: PrService, herdr: HerdrSer
 			title: 'Merged team pull requests',
 			description:
 				`Pull requests written by the team in ${scopeText} that merged in a range: ` +
-				'"this-week" (since Monday 00:00), "last-week" (the Monday-to-Sunday before) or "last-30-days". Times are in the server\'s local time zone. Returns a count per person and the PRs, newest first. Each PR has `followUps`: how many non-blocking asks people left on it (items under headings like "Optional:" or "Does not block:", and lines that ask for a follow-up, a separate PR or a TODO); null when they could not be fetched. Asks written before the last commit, or in a resolved or outdated thread, may be done already and are not counted or listed. Set include_follow_ups to list them, or call get_pr for one PR. Filter by author or repo.',
+				'"this-week" (since Monday 00:00), "last-week" (the Monday-to-Sunday before) or "last-30-days". Times are in the server\'s local time zone. Returns a count per person and the PRs, newest first. Each PR says who merged it (`mergedBy`) and whether a person other than the author approved it (`approvedByHuman`; an approval from a bot does not count). Each PR has `followUps`: how many non-blocking asks people left on it (items under headings like "Optional:" or "Does not block:", and lines that ask for a follow-up, a separate PR or a TODO); null when they could not be fetched. Asks written before the last commit, or in a resolved or outdated thread, may be done already and are not counted or listed. Set include_follow_ups to list them, or call get_pr for one PR. Filter by author or repo.',
 			inputSchema: {
 				type: 'object',
 				properties: {
@@ -504,6 +504,8 @@ export function createMcpHandler(config: Config, prs: PrService, herdr: HerdrSer
 						title: p.title,
 						author: nameOf(p.author),
 						merged: p.mergedAt,
+						mergedBy: p.mergedBy ? nameOf(p.mergedBy) : null,
+						approvedByHuman: p.approvedByHuman,
 						followUps: fu.followUps[p.key] ? liveFollowUps(fu.followUps[p.key]).length : null,
 						...(withItems && liveFollowUps(fu.followUps[p.key]).length ? { followUpItems: liveFollowUps(fu.followUps[p.key]).map(followUpItem) } : {}),
 					})),

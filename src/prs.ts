@@ -76,6 +76,9 @@ interface RawMergedPr {
 	url: string;
 	mergedAt: string | null;
 	author: { login: string } | null;
+	mergedBy: { login: string } | null;
+	/** Each reviewer's latest approval or change request; a dismissed approval is DISMISSED. */
+	latestOpinionatedReviews: { nodes: { state: PrReview['state']; submittedAt: string | null; author: RawAuthor | null }[] };
 	repository: { name: string; owner: { login: string } };
 }
 
@@ -539,6 +542,13 @@ export function createPrService(config: Config, gh: GhRunner): PrService {
 			const prs = nodes.map((n): MergedPr => {
 				const owner = n.repository.owner.login;
 				const repo = n.repository.name;
+				const author = n.author?.login ?? 'ghost';
+				// A review can still arrive after the merge, and it says nothing about what merged.
+				const beforeMerge = (at: string | null) => !at || !n.mergedAt || at <= n.mergedAt;
+				const approvedByHuman = n.latestOpinionatedReviews.nodes.some(
+					(r) =>
+						r.state === 'APPROVED' && beforeMerge(r.submittedAt) && r.author !== null && r.author.__typename !== 'Bot' && !isBot(r.author.login) && r.author.login.toLowerCase() !== author.toLowerCase()
+				);
 				return {
 					key: prKey(hostKey, owner, repo, n.number),
 					host: hostKey,
@@ -547,8 +557,10 @@ export function createPrService(config: Config, gh: GhRunner): PrService {
 					number: n.number,
 					title: n.title,
 					url: n.url,
-					author: n.author?.login ?? 'ghost',
+					author,
 					mergedAt: n.mergedAt,
+					mergedBy: n.mergedBy?.login ?? null,
+					approvedByHuman,
 				};
 			});
 			const value = { prs, total };

@@ -15,7 +15,7 @@
 | `refresh` | Optional. `"rows"` (the default) or `"list"`. Sets when the page loads a row again. See [Refresh rules](#refresh-rules). |
 | `features` | Optional. Turns dashboard features off: `shipped`, `followups` and `herdr`, each `true` or `false`. A missing key means on. See [Turn features off](#turn-features-off). |
 | `limits` | Optional. Cost limits that the server enforces: `maxPeople`, `maxRepos`, `maxOrgs`, `maxBells` and `requestBudget`. See [Cost limits](#cost-limits). |
-| `ignoreParticipants` | Logins to leave out of Participants. Use it for bots and service accounts that appear as ordinary users. Logins ending in `[bot]` or `-bot` are always left out, and so is any actor that GitHub types as a `Bot` (a GitHub App such as `github-actions` has neither suffix), in Participants and in follow-ups. |
+| `ignoreParticipants` | Logins to leave out of Participants. Use it for bots and service accounts that appear as ordinary users. Logins ending in `[bot]` or `-bot` are always left out, and so is any actor that GitHub types as a `Bot` (a GitHub App such as `github-actions` has neither suffix), in Participants and in follow-ups. An approval from one of these logins does not count for the [no approval](dashboard.md#no-approval) label. |
 
 The server binds to `127.0.0.1` only. The MCP endpoint refuses browser requests from other origins.
 

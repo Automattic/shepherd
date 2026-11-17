@@ -537,6 +537,8 @@
 }
 .shepherd .followups-pill:hover { color: var(--accent); }
 .shepherd .followups-pill i { margin-right: 3px; }
+.shepherd #shipped-filter { display: inline-flex; flex-wrap: wrap; gap: 8px; }
+.shepherd .no-approval-pill { flex: none; padding: 1px 7px; border: 1px solid var(--line-strong); border-radius: 6px; color: var(--text-3); font-size: 11px; white-space: nowrap; }
 .shepherd .finding .f-meta .avatar { width: 14px; height: 14px; }
 .shepherd .shipped-list .ref, .shepherd .shipped-list time { font-family: var(--mono); font-size: 11px; color: var(--text-3); white-space: nowrap; }
 @media (max-width: 640px) {

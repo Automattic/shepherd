@@ -375,7 +375,7 @@ describe('merged_prs over MCP', () => {
 			rate: {},
 			async query<T>(_host: string, query: string, vars: Record<string, unknown> = {}) {
 				if (vars.q) {
-					const node = (n: number) => ({ number: n, title: `PR ${n}`, url: `https://github.com/example-org/app/pull/${n}`, mergedAt: now, author: { login: 'alice' }, repository: { name: 'app', owner: { login: 'example-org' } } });
+					const node = (n: number) => ({ number: n, title: `PR ${n}`, url: `https://github.com/example-org/app/pull/${n}`, mergedAt: now, author: { login: 'alice' }, mergedBy: { login: n === 1 ? 'bob' : 'alice' }, latestOpinionatedReviews: { nodes: n === 1 ? [{ state: 'APPROVED', submittedAt: now, author: { __typename: 'User', login: 'bob' } }] : [] }, repository: { name: 'app', owner: { login: 'example-org' } } });
 					return { search: { issueCount: 2, pageInfo: { hasNextPage: false, endCursor: null }, nodes: [node(1), node(2)] } } as T;
 				}
 				const numbers = [...query.matchAll(/pullRequest\(number:(\d+)\)/g)].map((m) => Number(m[1]));
@@ -405,6 +405,9 @@ describe('merged_prs over MCP', () => {
 		const counts = Object.fromEntries(out.pullRequests.map((p: { ref: string; followUps: number }) => [p.ref, p.followUps]));
 		expect(counts).toEqual({ 'app#1': 3, 'app#2': 0 });
 		expect(out.pullRequests[0].followUpItems).toBeUndefined();
+		// Who merged each PR, and whether a person other than its author approved it.
+		const approvals = out.pullRequests.map((p: { ref: string; mergedBy: string; approvedByHuman: boolean }) => [p.ref, p.mergedBy, p.approvedByHuman]);
+		expect(approvals.sort()).toEqual([['app#1', 'bob', true], ['app#2', 'Alice (alice)', false]]);
 
 		const withItems = await call({ range: 'last-30-days', include_follow_ups: true });
 		const one = withItems.pullRequests.find((p: { ref: string }) => p.ref === 'app#1');
