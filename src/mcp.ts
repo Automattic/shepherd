@@ -185,7 +185,16 @@ export function createMcpHandler(config: Config, prs: PrService, herdr: HerdrSer
 			reviewDecision: d.reviewDecision,
 			waitingOnAuthor: changesRequestedPending(d),
 			aiReview: d.bot
-				? { bot: d.bot.login, unresolved: d.bot.open, fix: d.bot.blocking, minor: d.bot.open - d.bot.blocking, onOutdatedCode: d.bot.outdated }
+				? {
+						bot: d.bot.login,
+						unresolved: d.bot.open,
+						fix: d.bot.blocking,
+						minor: d.bot.open - d.bot.blocking,
+						onOutdatedCode: d.bot.outdated,
+						current: d.bot.current,
+						reviewedAt: d.bot.reviewedAt,
+						headCommitAt: d.lastCommitAt,
+					}
 				: null,
 			participants: d.participants.map((p) => ({ who: nameOf(p.login), lastActive: p.lastActive })),
 			lastActivity: d.lastActivity
@@ -329,7 +338,7 @@ export function createMcpHandler(config: Config, prs: PrService, herdr: HerdrSer
 			name: 'list_prs',
 			title: 'List open team pull requests',
 			description:
-				`List open pull requests written by the team in ${scopeText}, plus every open PR in repos set to include all authors. Each result says whose review it waits on (and whether one of the configured review teams is requested), who approved, how many AI-review bot threads are unresolved, who has participated (most recently active first), any Linear tickets, any stacked parent PR, and pushPolicy (follow its instruction before changing the branch). Filter by author, repo, requested reviewer, or review-team request.`,
+				`List open pull requests written by the team in ${scopeText}, plus every open PR in repos set to include all authors. Each result says whose review it waits on (and whether one of the configured review teams is requested), who approved, how many AI-review bot threads are unresolved and whether the bot's last review covers the newest commit (aiReview.current: false means a new review may be on its way, null means the bot has not reviewed the PR), who has participated (most recently active first), any Linear tickets, any stacked parent PR, and pushPolicy (follow its instruction before changing the branch). Filter by author, repo, requested reviewer, or review-team request.`,
 			inputSchema: {
 				type: 'object',
 				properties: {
