@@ -39,8 +39,8 @@ A script, such as a cron job that starts a review for each PR that asks for your
 out=$(curl -sf http://127.0.0.1:5050/mcp -H 'content-type: application/json' \
   -H "Authorization: Bearer $SHEPHERD_TOKEN" \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"review_queue","arguments":{"reasons":["requested","team"]}}}') || exit 1
-# A failed tool call returns "Error: ..." as text, with isError set.
-if echo "$out" | jq -e '.result.isError' >/dev/null; then echo "$out" | jq -r '.result.content[0].text' >&2; exit 1; fi
+# A failed tool call returns "Error: ..." as text, with isError set. An unknown tool returns a JSON-RPC error.
+if echo "$out" | jq -e '.error or .result.isError' >/dev/null; then echo "$out" | jq -r '.error.message // .result.content[0].text' >&2; exit 1; fi
 # A host that does not answer is in errors, and its PRs are not in pullRequests.
 echo "$out" | jq -r '.result.content[0].text | fromjson | .errors[]' >&2
 echo "$out" | jq -r '.result.content[0].text | fromjson | .pullRequests[].url'
