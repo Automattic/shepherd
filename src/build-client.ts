@@ -1,12 +1,14 @@
 // Builds the browser client. The server calls buildClient() at startup.
 // `bun run build:client` runs this file and writes a minified copy of the client to dist/ for a host that embeds it,
-// plus queries.json (the GraphQL field sets) and contract/ (shaping fixtures) for a host that ports the data layer.
+// plus queries.json (the GraphQL field sets) and contract/ (shaping fixtures) for a host that ports the data layer,
+// and settings.schema.json (the settings rules) for a host that keeps settings in its own storage.
 
 import { copyFile, mkdir, rm, writeFile } from 'node:fs/promises';
 import { join, relative, resolve } from 'node:path';
 import { ROOT } from './config.ts';
 import { buildContracts } from './contract.ts';
 import { queriesJson } from './queries.ts';
+import { settingsSchemaJson } from './settings-schema.ts';
 
 export const PUBLIC_DIR = join(ROOT, 'public');
 const CLIENT_ENTRY = join(ROOT, 'web', 'app.ts');
@@ -84,7 +86,9 @@ async function writeDist(): Promise<void> {
 	const [styles] = await bundle({ entrypoints: [join(PUBLIC_DIR, 'styles.css')], minify: true });
 	await writeFile(join(outDir, 'styles.css'), await styles!.text());
 	await copyFile(join(PUBLIC_DIR, 'index.html'), join(outDir, 'index.html'));
-	console.log(`Wrote app.js, app.js.map, styles.css, index.html, queries.json and ${contracts.length} files in contract/ to ${outDir}`);
+	// The settings rulebook, for a host that validates PUT /api/settings itself (docs/embedding.md).
+	await writeFile(join(outDir, 'settings.schema.json'), settingsSchemaJson());
+	console.log(`Wrote app.js, app.js.map, styles.css, index.html, queries.json, settings.schema.json and ${contracts.length} files in contract/ to ${outDir}`);
 }
 
 if (import.meta.main) {

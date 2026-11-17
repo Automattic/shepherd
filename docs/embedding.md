@@ -25,7 +25,7 @@ The client reads the object one time, when it starts. Changes to the object afte
 | `headers` | An object of header names and string values. The client adds them to every API call. The browser does not send some headers that a page sets, for example `Cookie`, `Host`, `Origin`, `Referer` and the names that start with `Sec-` or `Proxy-`. Use other names. |
 | `mount` | The element that gets the dashboard: a CSS selector or an element. The default is `#shepherd`. The client replaces the content of the element. When no element matches, the client stops with an error in the browser console. |
 | `apiTrailingSlash` | `true` adds a `/` to the end of the path of each call to `apiBase`, before the query. For example, `/api/prs?reviewers=…` goes to `/my-app/api/shepherd/prs/?reviewers=…`. Use it when the host redirects a path without the slash: each redirect costs one more request, and a browser changes a redirected `POST` to a `GET`. It has no effect without `apiBase`. The default is `false`. |
-| `header` | `false` removes the brand header (the logo, the name and the line below it). The controls (the rate budget, the refresh interval, **Refresh now** and the theme button) stay in a bar at the top of the dashboard. This bar does not stick to the top of the window. The default is `true`. |
+| `header` | `false` removes the brand header (the logo, the name and the line below it). The controls (the rate budget, the refresh interval, **Refresh now**, the theme button, the settings button and the note of a team or member view) stay in a bar at the top of the dashboard. This bar does not stick to the top of the window. The default is `true`. |
 
 The host's API must give the same responses as the paths below on the local server:
 
@@ -35,6 +35,9 @@ The host's API must give the same responses as the paths below on the local serv
 - `/api/merged`
 - `/api/followups`
 - `/api/herdr/links` and `/api/herdr/focus` (only when herdr is on)
+- `/api/settings` (only when `/api/config` sends `"features": { "settings": true }`; see [Settings](#settings))
+
+`/api/config` must also send `mode` (see [Team and member views](#team-and-member-views)).
 
 The local server answers `POST /api/herdr/*` only for a page on `localhost`, `127.0.0.1` or `[::1]`, or for a request with no `Origin` header. A page on another origin that calls the local server directly gets an error for these two paths.
 
@@ -45,9 +48,9 @@ A host that gives the client its own API usually builds the `/api/pr` and `/api/
 - `queries.json` is `{ "format": 2, "apiVersion": <API_VERSION>, "fields": { "detailPr", "miniPr", "lightPr", "mergedPr" }, "queries": { "search", "merged", "batch", "examples" } }`. The `fields` are GraphQL field sets, and `queries` has the query texts and templates that this server sends. A host builds every query that it sends to GitHub from this file, and has no GraphQL text of its own. See [queries.json](#queriesjson) below.
 - `contract/<case>.json` is `{ name, context, input, expected }`. `input` has the `host`, `owner` and `repo`, the `prs` of the batch query (one PR: its `number`, `head` and `base`), and the `data` of the batch response for an invented PR: `data.repository.pr0`, `dn0`, `up0` and `defaultBranchRef`, and `data.rateLimit`. `expected` is the `PrDetail` that this server's `getDetail()` shapes from it. A host can test its own shaping against these files: shape `input.data` with `context`, and compare the result with `expected`.
 
-The `context` is the same in every file: the hosts `ghe` (hostname `github.example.com`, AI-review bot `review-bot`) and `github` (hostname `github.com`, no bot), and Linear workspace `example` with no keys, without review teams or ignored participants. `fetchedAt` is the fixed time `2000-01-01T00:00:00.000Z`. `baseAge` needs a compare call that the fixtures do not have, so for an open PR it is the "unknown" object with `error: "compare not available in contract"`, and for a merged or closed PR it is null. The contract covers the detail shape only, not the list or the merged shapes. See [Contributing](../CONTRIBUTING.md#queriesjson-and-contract) for how the files are made.
+The `context` is the same in every file: the hosts `ghe` (hostname `github.example.com`, AI-review bot `review-bot`) and `github` (hostname `github.com`, no bot, but `other-review-bot` for the org `example-other-org`, which the case `org-review-bot` uses), and Linear workspace `example` with no keys, without review teams or ignored participants. `fetchedAt` is the fixed time `2000-01-01T00:00:00.000Z`. `baseAge` needs a compare call that the fixtures do not have, so for an open PR it is the "unknown" object with `error: "compare not available in contract"`, and for a merged or closed PR it is null. The contract covers the detail shape only, not the list or the merged shapes. See [Contributing](../CONTRIBUTING.md#queriesjson-and-contract) for how the files are made.
 
-An actor is a bot when its `__typename` is `Bot`, or when its login has the suffix `[bot]` or `-bot`, starts with `app/`, or is the host's AI-review bot or an ignored participant. A GitHub App such as `github-actions` has no suffix, so only its type says that it is a bot. The shaping leaves a bot out of `participants` and `lastActivity`. The case `bot-typed-actor` has such an actor.
+An actor is a bot when its `__typename` is `Bot`, or when its login has the suffix `[bot]` or `-bot`, starts with `app/`, or is an AI-review bot of any host (a `bot` or a `botsByOwner` value) or an ignored participant. The AI-review summary (`bot`) counts the threads of the PR's own bot: the host's `botsByOwner` entry for the repo's owner, matched without case, or else the host's `bot` (`src/review-bot.ts`). A GitHub App such as `github-actions` has no suffix, so only its type says that it is a bot. The shaping leaves a bot out of `participants` and `lastActivity`. The case `bot-typed-actor` has such an actor.
 
 ### queries.json
 
@@ -96,6 +99,58 @@ Names, numbers and branches reach GitHub only as variables. They are never part 
 #### The examples
 
 Each entry of `queries.examples` is `{ name, input, query, variables }`. `input` is the input of step 1, and `query` and `variables` are the result of steps 2 to 6 for it. There are three: one PR into a default branch, one PR that is stacked on another PR (it has `dn` and `up`), and a batch of three PRs with a mix of default and other bases. A host expands each `input` with its own code, and checks that it gets the same `query` text byte for byte and the same `variables` (the numbers are JSON integers).
+
+## Settings
+
+A host can give each viewer their own settings: the team, repos, review teams, Linear and features. The client edits them in its settings panel, through two calls. The host keeps the settings in its own storage. `src/types.ts` has the shapes.
+
+- `GET /api/settings` sends a `SettingsResponse`: `personal` and `deployment` (the values), `version`, `mode`, `fields` and, optionally, `problems`.
+- `PUT /api/settings` gets a `SettingsPutRequest`: `{ "version": "…", "personal": { … }, "deployment"?: { "hosts": { … } } }`. `personal` has all six keys (`me`, `team`, `repos`, `reviewTeams`, `linear`, `features`); refuse a request that leaves one out, so a missing key never deletes a setting. The client sends `deployment.hosts` only when `fields` makes a host field editable; a host that locks `/deployment` refuses a change to it as `not_editable`. Each host in `deployment.hosts` can have `proxied: true` when it goes through proxychains; the path itself is never sent. It sends the new `SettingsResponse` when it saves. Otherwise it sends a `SettingsErrorResponse`: `{ "error", "errors": [ { "path", "code", "message" } ] }`.
+
+| Status | When |
+| --- | --- |
+| 400 | The body is not a settings request. |
+| 409 | `version` is not the current version, because another tab or another program saved first. Add the current settings as `settings`. The panel offers to load them. |
+| 422 | One or more fields are refused. Each entry of `errors` names its field with a JSON pointer into the request (`/personal/repos/2`), so the panel shows the message at that field. |
+
+The `code` of each error:
+
+- `invalid`: the value breaks the settings schema.
+- `not_editable`: the field is not editable for this viewer.
+- `limit`: the value is over a cost limit, for example too many repos.
+- `refused`: the host refuses a value with the right shape. For example, the viewer may not watch that repo. Use it for any check that the schema cannot make.
+
+`fields` maps JSON pointers to `{ "editable": boolean, "reason"?: string }`. A `*` segment matches any item, and the longest matching pointer wins. A pointer with no match is editable under `/personal` and not editable under `/deployment`. Check a lock at each place it names, not as a list of values: an item of `team` is the same item when its `id` is the same, wherever it is in the array, and an error names the concrete field (`/personal/team/1/pushPolicy`). Send `{ "editable": false }` for the whole of `/deployment` when the viewer cannot change it, and for each feature that the host does not have (for example `/personal/features/herdr`). The panel shows these fields read-only, with the `reason`. The host must also refuse a change to them in `PUT`, because a request can send it anyway.
+
+Push policies are personal settings like the others: a viewer can set the `pushPolicy` of anyone in their `team` and the `pushPolicyByAuthor` entries of their repos. A host that keeps each person's policy in one place, set only by that person, sends `{ "editable": false }` for `/personal/team/*/pushPolicy` and `/personal/repos/*/pushPolicyByAuthor`, and refuses a change to them.
+
+### Moving settings between servers
+
+The panel's **Export** and **Import** buttons work on any host that has the settings API: they need no other route. Export downloads a file with `format: "shepherd-settings"`, `version: 1`, the server's `hosts` (host name, label and bots, by key) and the viewer's `personal` settings (`src/settings-transfer.ts`). Import fits the file to the server in the browser, using `GET /api/settings`: host keys follow host names, `me` stays the server's when `/personal/me` is not editable (the file's entry that shares a login with the viewer takes that id; an entry with only the same id is renamed to `<id>-imported`), hosts are added only when `/deployment/hosts` is editable, and fields that are not editable keep their values. The viewer then saves with an ordinary `PUT`, so the host's checks apply as usual.
+
+### The settings schema
+
+`bun run build:client` writes `dist/settings.schema.json`. It is a JSON Schema (draft-07) of a `SettingsDocument`, `{ "personal": …, "deployment": … }`, and it is the same set of rules that this server uses for `config.json` and for `PUT /api/settings`. To check a `PUT`, validate `{ "personal": <the request's personal>, "deployment": <your deployment settings> }` and send each failure as an `invalid` error at its pointer. Then check the rules that the schema cannot have: `fields`, the limits and your own refusals.
+
+The schema uses only these keywords: `$ref` (to `#/definitions/…`), `type` (one or a list), `enum`, `minLength`, `pattern`, `minimum`, `exclusiveMinimum` (a number), `minItems`, `minProperties`, `required`, `properties`, `additionalProperties`, `propertyNames` and `items`. A number must also be finite. It adds these Shepherd keywords:
+
+| Keyword | Rule |
+| --- | --- |
+| `x-keyOf` | The value (or the property name, under `propertyNames`) is a key of the object at this JSON pointer in the document, for example `/deployment/hosts`. |
+| `x-memberOf` | The value is equal to one of the values at this pointer. A `*` segment matches every item, for example `/personal/team/*/id`. |
+| `x-uniqueBy` | No two items of the array have the same value of this property. Report the error at that property of the later item. |
+| `x-message` | The message of a failed check: a string for every check, or an object of keyword to message (`default` for the others). For a missing `required` property, use the message of that property's own schema. |
+| `x-label` | A name for an array item in messages, such as `{owner}/{name}`. |
+
+A message can have these placeholders: `{path}` (the path of the value, without its first segment: `team[0] (alice).pushPolicy`), `{parent}` (the path of its parent), `{item}` (the path of the nearest array item, or the parent), `{key}` (the last segment), `{value}`, `{enum}` (the allowed values, quoted, separated by commas) and `{options}` (the values of `x-keyOf` or `x-memberOf`). After an array item, a path adds its `x-label` in parentheses, when every field of the label is a non-empty string. The messages do not have to match this server's text exactly, but the pointers do.
+
+The schema allows an empty `repos`, for a host that finds PRs by author. This server refuses that itself, because it finds PRs in the listed repos.
+
+### Team and member views
+
+`/api/config` sends `mode`. `"personal"` is the viewer's own dashboard. `"team"` or `"member"` is a dashboard that the host defines for a team or one person, for example from a URL parameter. There, the viewer's personal settings do not apply, so the client hides the settings button and shows whose dashboard it is: `viewLabel` (the name of the team or person) and a link to `personalUrl` (the viewer's own dashboard), when the host sends them.
+
+In a team or member view, the client keeps the viewer's theme, refresh interval, sort order, drafts and dormant switches and Shipped range from the browser's storage. The bells and the person, repo, approval and tile filters start from the defaults there, and the client does not save them, so they do not change the viewer's own dashboard.
 
 ## What the host page must include
 

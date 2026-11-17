@@ -28,7 +28,10 @@ import { FOLLOWUPS_MAX_PRS, liveFollowUps, needingFollowUp } from '../src/follow
 import { countByAuthor, isMergedRange, MERGED_RANGE_LABELS, MERGED_RANGES, mergedInRange, type MergedRange } from '../src/merged.ts';
 import { apiHeaders, apiUrl, pageToken, readEmbedOptions, sendsToken } from '../src/embed.ts';
 import { PUSH_POLICY_LABELS, resolvePushPolicy } from '../src/push-policy.ts';
+import { createSettingsPanel } from './settings.ts';
+import { linearKeyRegExp } from '../src/linear.ts';
 import { parseRepoKey, repoChipLabels, repoKey, unknownSelectedRepos } from '../src/repo-chips.ts';
+import { reviewBot } from '../src/review-bot.ts';
 import { rowMaxAge } from '../src/row-refresh.ts';
 import { mountShell } from './shell.ts';
 import { changesRequestedPending, isTurnOf, WAIT_REASON_TEXT, waitReasons, type WaitReason } from '../src/waiting.ts';
@@ -152,7 +155,8 @@ function isPublicConfig(v: unknown): v is PublicConfig {
 		Array.isArray(v.repos) &&
 		isRecord(v.hosts) &&
 		(v.linear === null || isRecord(v.linear)) &&
-		typeof v.aiReviewLabel === 'string'
+		typeof v.aiReviewLabel === 'string' &&
+		(v.mode === 'personal' || v.mode === 'team' || v.mode === 'member')
 	);
 }
 
@@ -190,12 +194,15 @@ const MERGED_RANGE_TITLES: Record<MergedRange, string> = {
 
 /** Why a pull request waits on someone, for the tooltips. The rules live in src/waiting.ts. */
 const WAIT_REASONS_TITLE = 'as a requested reviewer, as the author with changes requested, or when someone else had the last word';
+/** The refresh interval that stops the automatic refresh. The refresh button still checks the list. */
+const PAUSED = 0;
+/** When the refresh is paused, a row counts as old after this long, as with the 1m interval. */
+const PAUSED_ROW_AGE_MS = 60_000;
 const INTERVALS: readonly { label: string; ms: number }[] = [
-	{ label: '5s', ms: 5_000 },
-	{ label: '30s', ms: 30_000 },
 	{ label: '1m', ms: 60_000 },
 	{ label: '5m', ms: 300_000 },
 	{ label: '15m', ms: 900_000 },
+	{ label: 'Pause', ms: PAUSED },
 ];
 /** In "list" mode, the page does not load a row from the list more often than this. */
 const LIST_ROW_RETRY_MS = 10_000;
@@ -245,13 +252,43 @@ function loadSettings(): Settings {
 
 const S: Settings = loadSettings();
 
+/**
+ * The settings that a team or member view keeps from the viewer's own dashboard. The others (bells and
+ * filters) name people and repos of the viewer's own settings, so such a view starts them from the defaults.
+ */
+const DISPLAY_KEYS = ['interval', 'theme', 'sort', 'drafts', 'dormant', 'mergedRange', 'shippedOpen'] as const;
+/** True in a team or member view: save only DISPLAY_KEYS, so the view does not change the viewer's filters. */
+let saveDisplayOnly = false;
+
 const save = (): void => {
 	try {
-		localStorage.setItem(SETTINGS_KEY, JSON.stringify(S));
+		let out: unknown = S;
+		if (saveDisplayOnly) {
+			const stored: unknown = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
+			out = { ...(isRecord(stored) ? stored : {}), ...Object.fromEntries(DISPLAY_KEYS.map((k) => [k, S[k]])) };
+		}
+		localStorage.setItem(SETTINGS_KEY, JSON.stringify(out));
 	} catch {
 		/* storage unavailable */
 	}
 };
+
+/** In a team or member view: the filters start from the defaults. */
+function resetFilters(): void {
+	const defaults: Pick<Settings, 'reviewers' | 'people' | 'waitingOn' | 'repos' | 'onlyApproved' | 'onlyPartial' | 'tile' | 'q' | 'shippedNeedsFollowUp'> = {
+		reviewers: null,
+		people: [],
+		waitingOn: [],
+		repos: [],
+		onlyApproved: false,
+		onlyPartial: false,
+		tile: null,
+		q: '',
+		shippedNeedsFollowUp: false,
+	};
+	Object.assign(S, defaults);
+	$<HTMLInputElement>('#q').value = '';
+}
 
 const reviewers = (): string[] => S.reviewers ?? [];
 
@@ -290,7 +327,7 @@ const api = (path: string, init: RequestInit = {}): Promise<Response> => {
 // Assigned in boot() before anything reads it.
 let cfg: PublicConfig;
 /** What the server supports. Until /api/config answers, every feature waits, so the page asks for none of them. */
-let features: Features = { shipped: false, followups: false, herdr: false };
+let features: Features = { shipped: false, followups: false, herdr: false, settings: false };
 // True after boot() sets cfg. While it is false (a banner stopped boot), nothing may load or render data.
 let booted = false;
 const memberByLogin = new Map<string, TeamMember>(); // lowercased login (either host) -> member
@@ -326,7 +363,8 @@ const repoShort = (host: string, owner: string, name: string): string =>
 // in the config, the full repo key, so that two repos with the same name get different chips.
 const repoFilterKey = (host: string, owner: string, name: string): string =>
 	cfg.repos.length ? repoShort(host, owner, name) : repoKey({ host, owner, name });
-const linearUrl = (key: string): string => `https://linear.app/${cfg.linear?.workspace ?? ''}/issue/${key}`;
+const linearUrl = (key: string): string =>
+	`https://linear.app/${encodeURIComponent(cfg.linear?.workspace ?? '')}/issue/${encodeURIComponent(key)}`;
 
 // ---------------------------------------------------------------------------
 // Small render helpers
@@ -398,8 +436,8 @@ function rowKeyOf(host: string, owner: string, repo: string, number: number): st
 
 function linearKeysLight(light: LightPr): Set<string> {
 	const keys = new Set<string>();
-	if (!cfg.linear?.keys.length) return keys;
-	const re = new RegExp(`\\b(${cfg.linear.keys.join('|')})-(\\d+)\\b`, 'gi');
+	const re = linearKeyRegExp(cfg.linear?.keys ?? []);
+	if (!re) return keys;
 	for (const [, prefix = '', num = ''] of `${light.title}\n${light.headRefName}`.matchAll(re)) keys.add(`${prefix.toUpperCase()}-${num}`);
 	return keys;
 }
@@ -541,7 +579,7 @@ function cellPr(row: Row): string {
 	}
 	meta.push(pushPolicyPill(l));
 	for (const k of linearKeys(row)) {
-		meta.push(`<a class="linear" href="${linearUrl(k)}" target="_blank" rel="noopener" title="Open ${k} in Linear"><i class="fa-solid fa-ticket"></i>${k}</a>`);
+		meta.push(`<a class="linear" href="${esc(linearUrl(k))}" target="_blank" rel="noopener" title="Open ${esc(k)} in Linear"><i class="fa-solid fa-ticket"></i>${esc(k)}</a>`);
 	}
 	meta.push(...herdrChips(row));
 	meta.push(...assocChips(row));
@@ -754,8 +792,8 @@ function cellApprovals(row: Row): string {
 }
 
 function cellBot(row: Row): string {
-	const hostCfg = cfg.hosts[row.light.host];
-	if (!hostCfg?.bot) return `<span class="muted" title="No ${esc(cfg.aiReviewLabel)} bot on ${esc(hostCfg?.hostname)}">n/a</span>`;
+	const { host, owner, repo } = row.light;
+	if (!reviewBot(cfg, host, owner)) return `<span class="muted" title="No ${esc(cfg.aiReviewLabel)} bot for ${esc(owner)} on ${esc(cfg.hosts[host]?.hostname)}">n/a</span>`;
 	const d = row.detail;
 	if (!d) return skel(48);
 	const b = d.bot;
@@ -1145,9 +1183,9 @@ function renderChrome(): void {
 			const bell = reviewers().includes(m.id);
 			const who = m.id === cfg.me ? 'you' : m.short;
 			return `<span class="person ${on ? 'on' : ''}">
-				<button class="p-main" data-person="${m.id}" title="Show only pull requests ${m.id === cfg.me ? 'you' : esc(m.name)} wrote">${avatar(Object.values(m.logins)[0] ?? '', Object.keys(m.logins)[0] ?? '')}${esc(m.short)} <span class="count">${n}</span></button>
-				<button class="p-wait ${waiting ? 'on' : ''}" data-wait="${m.id}" title="Show only pull requests waiting on ${esc(who)} (${waitN}): ${WAIT_REASONS_TITLE}"><i class="fa-${waiting ? 'solid' : 'regular'} fa-hourglass-half"></i>${waitN ? `<span class="count">${waitN}</span>` : ''}</button>
-				<button class="p-bell ${bell ? 'on' : ''}" data-bell="${m.id}" title="${bell ? 'Hide' : 'Include'} pull requests that request a review from ${esc(who)}"><i class="fa-${bell ? 'solid' : 'regular'} fa-bell"></i></button>
+				<button class="p-main" data-person="${esc(m.id)}" title="Show only pull requests ${m.id === cfg.me ? 'you' : esc(m.name)} wrote">${avatar(Object.values(m.logins)[0] ?? '', Object.keys(m.logins)[0] ?? '')}${esc(m.short)} <span class="count">${n}</span></button>
+				<button class="p-wait ${waiting ? 'on' : ''}" data-wait="${esc(m.id)}" title="Show only pull requests waiting on ${esc(who)} (${waitN}): ${WAIT_REASONS_TITLE}"><i class="fa-${waiting ? 'solid' : 'regular'} fa-hourglass-half"></i>${waitN ? `<span class="count">${waitN}</span>` : ''}</button>
+				<button class="p-bell ${bell ? 'on' : ''}" data-bell="${esc(m.id)}" title="${bell ? 'Hide' : 'Include'} pull requests that request a review from ${esc(who)}"><i class="fa-${bell ? 'solid' : 'regular'} fa-bell"></i></button>
 			</span>`;
 		})
 		.join('');
@@ -1205,7 +1243,7 @@ function renderChrome(): void {
 	const brandSub = ROOT.querySelector('#brand-sub'); // not there with `header: false`
 	if (brandSub) {
 		brandSub.textContent = lastList
-			? `${total} open PRs across ${cfg.repos.length || listedRepoCount()} repos · list checked ${new Date(lastList).toLocaleTimeString()}`
+			? `${total} open PRs across ${cfg.repos.length || listedRepoCount()} repos · list checked ${new Date(lastList).toLocaleTimeString()}${S.interval === PAUSED ? ' · auto-refresh paused' : ''}`
 			: 'Loading…';
 	}
 
@@ -1236,7 +1274,7 @@ function maxAge(row: Row): number {
 		lowBudgetMs: hostCfg?.rowRefreshLowBudgetMs,
 		metered: Boolean(hostRate) || isDotcom(row.light.host),
 		lowBudget: hostRate !== undefined && hostRate.remaining < 500,
-		intervalMs: S.interval,
+		intervalMs: S.interval === PAUSED ? PAUSED_ROW_AGE_MS : S.interval,
 	});
 }
 
@@ -1646,9 +1684,11 @@ async function focusHerdrPane(button: HTMLElement, paneId: string): Promise<void
 
 function schedule(): void {
 	clearTimeout(tickTimer);
-	tickTimer = setTimeout(tick, S.interval);
 	const bar = $('#tick');
 	bar.style.animation = 'none';
+	// Paused: no next check, so the bar under the header stays empty.
+	if (S.interval === PAUSED) return;
+	tickTimer = setTimeout(tick, S.interval);
 	void bar.offsetWidth;
 	bar.style.animation = `shepherd-tick ${S.interval}ms linear forwards`;
 }
@@ -1665,7 +1705,7 @@ function refreshNow(): void {
 }
 
 document.addEventListener('visibilitychange', () => {
-	if (!document.hidden && lastList && Date.now() - lastList > S.interval) tick();
+	if (S.interval !== PAUSED && !document.hidden && lastList && Date.now() - lastList > S.interval) tick();
 });
 
 // ---------------------------------------------------------------------------
@@ -1902,8 +1942,10 @@ $('#sort').addEventListener('click', (e) => {
 });
 
 function renderIntervals(): void {
-	$('#interval').innerHTML = INTERVALS.map(
-		(i) => `<button role="radio" aria-checked="${S.interval === i.ms}" data-interval="${i.ms}" title="Refresh every ${i.label}">${i.label}</button>`
+	$('#interval').innerHTML = INTERVALS.map((i) =>
+		i.ms === PAUSED
+			? `<button role="radio" aria-checked="${S.interval === i.ms}" data-interval="${i.ms}" aria-label="Pause" title="Pause the automatic refresh. The refresh button still checks the list."><i class="fa-solid fa-pause"></i></button>`
+			: `<button role="radio" aria-checked="${S.interval === i.ms}" data-interval="${i.ms}" title="Refresh every ${i.label}">${i.label}</button>`
 	).join('');
 }
 $('#interval').addEventListener('click', (e) => {
@@ -1911,10 +1953,14 @@ $('#interval').addEventListener('click', (e) => {
 	if (!(target instanceof Element)) return;
 	const b = target.closest('[data-interval]');
 	if (!(b instanceof HTMLElement)) return;
+	const wasPaused = S.interval === PAUSED;
 	S.interval = Number(b.dataset.interval);
 	save();
 	renderIntervals();
-	schedule();
+	renderChrome();
+	// Leaving pause checks at once if the list is already older than the new interval.
+	if (wasPaused && S.interval !== PAUSED && lastList && Date.now() - lastList > S.interval) tick();
+	else schedule();
 });
 
 // Keep relative times fresh without refetching.
@@ -1924,6 +1970,42 @@ setInterval(() => {
 
 // ---------------------------------------------------------------------------
 // Boot
+
+let settingsPanel: { open(): Promise<void> } | undefined;
+
+/** True for a link that is safe to put in an href: http, https, or a path on this site. Never `javascript:`. */
+function safeLink(url: string | undefined): url is string {
+	if (!url) return false;
+	try {
+		return ['http:', 'https:'].includes(new URL(url, location.href).protocol);
+	} catch {
+		return false;
+	}
+}
+
+/**
+ * Whose dashboard this is. A team or member view says so, links to the viewer's own dashboard, and has no
+ * settings button: the viewer's personal settings do not apply there.
+ */
+function renderView(): void {
+	const personal = cfg.mode === 'personal';
+	const note = $('#view-note');
+	note.hidden = personal;
+	if (!personal) {
+		saveDisplayOnly = true;
+		resetFilters();
+		const whose = cfg.viewLabel || (cfg.mode === 'team' ? 'a team' : 'one person');
+		const back = safeLink(cfg.personalUrl) ? ` <a href="${esc(cfg.personalUrl)}">Your dashboard</a>` : '';
+		note.innerHTML = `<i class="fa-solid fa-${cfg.mode === 'team' ? 'users' : 'user'}"></i> Viewing ${esc(whose)}'s dashboard.${back}`;
+		note.title = 'Your own settings do not apply here.';
+	}
+	const button = $('#settings-btn');
+	button.hidden = !(personal && features.settings);
+	if (!button.hidden && !settingsPanel) {
+		settingsPanel = createSettingsPanel({ root: ROOT, api, onSaved: () => setTimeout(() => location.reload(), 600) });
+		button.addEventListener('click', () => void settingsPanel!.open());
+	}
+}
 
 /** Shows why the dashboard did not start. `html` must be escaped already. */
 function bootBanner(icon: string, html: string): void {
@@ -1980,6 +2062,7 @@ void (async function boot(): Promise<void> {
 			for (const login of Object.values(m.logins)) memberByLogin.set(login.toLowerCase(), m);
 		}
 		$('#ai-review-label').textContent = cfg.aiReviewLabel;
+		renderView();
 		if (!Array.isArray(S.reviewers)) S.reviewers = [cfg.me];
 		if (!INTERVALS.some((i) => i.ms === S.interval)) S.interval = 60_000;
 		renderIntervals();

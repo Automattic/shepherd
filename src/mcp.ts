@@ -8,6 +8,7 @@ import type { HerdrService } from './herdr.ts';
 import { countByAuthor, isMergedRange, MERGED_RANGES, mergedInRange, rangeBounds } from './merged.ts';
 import { DORMANT_MS, type PrService } from './prs.ts';
 import { PUSH_POLICIES, PUSH_POLICY_INSTRUCTIONS, PUSH_POLICY_RULE, resolvePushPolicy } from './push-policy.ts';
+import { reviewBot } from './review-bot.ts';
 import type { Config, FollowUp, LightPr, MergedPr, PrDetail, RepoConfig, TeamMember } from './types.ts';
 import { changesRequestedPending, waitReasons, type WaitReason } from './waiting.ts';
 
@@ -287,6 +288,8 @@ export function createMcpHandler(config: Config, prs: PrService, herdr: HerdrSer
 					short: r.short,
 					repo: `${r.owner}/${r.name}`,
 					host: hostname(r.host),
+					// The repo's own bot, or its host's: the login whose review threads count as AI review here.
+					aiReviewBot: reviewBot(config, r.host, r.owner),
 					pushPolicy: r.pushPolicy ?? null,
 					...(r.pushPolicyByAuthor ? { pushPolicyByAuthor: r.pushPolicyByAuthor } : {}),
 				})),

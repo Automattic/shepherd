@@ -7,7 +7,7 @@ bun run dev         # restarts the server when a file changes
 bun run typecheck   # tsc --noEmit
 bun run check       # typecheck, plus a bundle of the browser client
 bun test            # unit tests (src/*.test.ts)
-bun run build:client  # writes a minified app.js, app.js.map, styles.css, index.html, queries.json and contract/ to dist/
+bun run build:client  # writes a minified app.js, app.js.map, styles.css, index.html, queries.json, settings.schema.json and contract/ to dist/
 ```
 
 Run `bun run check` and `bun test` before you open a pull request.
@@ -22,7 +22,15 @@ Run `bun run check` and `bun test` before you open a pull request.
 | `src/contract.ts` | Checks the cases in `contract/cases/` and shapes each one with `createPrService()`, for `dist/contract/` |
 | `contract/cases/` | One JSON file for each invented PR: the `data` of a batch detail query response (`pr0`, `dn0`, `up0`). The input of the contract fixtures |
 | `src/api-version.ts` | The client's check of the `apiVersion` that `/api/config` sends |
-| `src/config.ts` | Loads and checks `config.json` |
+| `src/config.ts` | Loads and checks `config.json`; `problems()` uses the settings schema |
+| `src/settings-schema.ts` | The settings schema: the one set of rules for `config.json` and `PUT /api/settings`, written to `dist/settings.schema.json` |
+| `src/schema.ts` | A small validator for the JSON Schema subset that the settings schema uses |
+| `src/settings.ts` | The settings model: `config.json` to personal and deployment settings, field metadata, and the checks of `PUT /api/settings` |
+| `src/settings-store.ts` | `config.json` as settings storage: reload on change, conflict check, and safe writes |
+| `src/settings-api.ts` | `GET` and `PUT /api/settings` on the local server |
+| `src/settings-transfer.ts` | The settings file of the panel's Export and Import, and how an import fits it to another server |
+| `src/review-bot.ts` | Which login is the AI-review bot of a PR: the host's `botsByOwner` entry for the owner, or the host's `bot` |
+| `src/linear.ts` | The pattern for Linear ticket keys, with each key matched as plain text |
 | `src/gh.ts` | Runs `gh api` (GraphQL, plus REST GETs) with per-host concurrency caps and optional proxychains |
 | `src/prs.ts` | The follow-up query, shaping of the list, detail and follow-up data (AI-review findings, Linear keys, participants), caches, and the batched fetching of details (`getDetails()`, `prefetchDetails()`) |
 | `src/mcp.ts` | The MCP endpoint and its tools |
@@ -36,17 +44,20 @@ Run `bun run check` and `bun test` before you open a pull request.
 | `src/types.ts` | Types shared by the server, the MCP endpoint and the browser client |
 | `web/app.ts` | The dashboard client: no framework, bundled by Bun into `/app.js` |
 | `web/shell.ts` | The markup of the dashboard, which the client renders into the mount element |
+| `web/settings.ts` | The settings panel, which edits the personal settings through `/api/settings` |
 | `public/` | `index.html` (only the mount element) and `styles.css` (scoped to `.shepherd`) |
 
 The page loads Font Awesome 6.5.2 from cdnjs and the Geist fonts from Google Fonts. Everything else is local.
 
 ## Build the client for another host
 
-A host that embeds the client can pin one Shepherd commit and run `bun run build:client`. The command writes `app.js`, `app.js.map`, `styles.css`, `index.html`, `queries.json` and a `contract/` folder to `dist/`. It uses the same `buildClient()` as the server, with the `minify` option. `app.js` and `styles.css` are minified, and `app.js` points to its source map in `app.js.map`. The server does not minify the client that it sends, and it puts the source map inline.
+A host that embeds the client can pin one Shepherd commit and run `bun run build:client`. The command writes `app.js`, `app.js.map`, `styles.css`, `index.html`, `queries.json`, `settings.schema.json` and a `contract/` folder to `dist/`. It uses the same `buildClient()` as the server, with the `minify` option. `app.js` and `styles.css` are minified, and `app.js` points to its source map in `app.js.map`. The server does not minify the client that it sends, and it puts the source map inline.
 
-`index.html` loads `app.js` and `styles.css` with relative paths, so a host can serve `dist/` from any folder. By default, the client sends its requests to absolute paths on the same origin: `/api/config`, `/api/prs`, `/api/pr`, `/api/merged`, `/api/followups`, `/api/herdr/links` and `/api/herdr/focus`. A host page can send them to another path or URL with `apiBase` (see [Embedding](docs/embedding.md)). When the page has a token, each request to the same origin has an `Authorization: Bearer <token>` header.
+`index.html` loads `app.js` and `styles.css` with relative paths, so a host can serve `dist/` from any folder. By default, the client sends its requests to absolute paths on the same origin: `/api/config`, `/api/prs`, `/api/pr`, `/api/merged`, `/api/followups`, `/api/herdr/links`, `/api/herdr/focus` and `/api/settings`. A host page can send them to another path or URL with `apiBase` (see [Embedding](docs/embedding.md)). When the page has a token, each request to the same origin has an `Authorization: Bearer <token>` header.
 
 The host's API must send the same JSON shapes as `src/types.ts`, and `/api/config` must send the `apiVersion` of that commit. When `apiVersion` is missing or different, the page shows an error and no rows.
+
+`dist/settings.schema.json` is the settings schema from `src/settings-schema.ts`. A host that keeps settings in its own storage checks each `PUT /api/settings` with it, so its rules stay the same as this server's. See [Settings](docs/embedding.md#settings).
 
 ### `queries.json` and `contract/`
 
@@ -57,7 +68,7 @@ A host that does not run this server's data layer, but ports it to another langu
 
 The batch detail query has one `pr<i>` alias for each PR, a `dn<i>` alias (the PRs stacked on it) when the PR has a head branch, and an `up<i>` alias (the PR it is stacked on) when its base is not a default branch. `src/queries.ts` has the template and the builder, and nothing else builds a detail query: `getDetail()` in `src/prs.ts` sends a batch of one, `getDetails()` sends the PRs of a repository `BATCH_MAX` (10) to a query for the MCP tools, and `prefetchDetails()` does the same in the background for the PRs of a list call (see [Fetching details in batches](docs/refreshing.md#fetching-details-in-batches)). Names, numbers and branches reach GitHub only as variables, and the query text depends only on the number of PRs and on which PRs have a head and a stacked base. To change the query, change `BATCH_TEMPLATE` or a field set, and run `bun test`: the goldens in `src/queries.test.ts` are the same text as `queries.examples`, so they show the change.
 
-Every file has the same `context`, which is also the config that produced `expected`: the hosts `ghe` (hostname `github.example.com`, AI-review bot `review-bot`) and `github` (hostname `github.com`, no bot), and Linear workspace `example` with no keys. There are no review teams and no ignored participants. A host has to map these hostnames and the bot login to its own before it compares.
+Every file has the same `context`, which is also the config that produced `expected`: the hosts `ghe` (hostname `github.example.com`, AI-review bot `review-bot`) and `github` (hostname `github.com`, no default bot, but `other-review-bot` for the org `example-other-org` through `botsByOwner`), and Linear workspace `example` with no keys. There are no review teams and no ignored participants. A host has to map these hostnames, the org and the bot logins to its own before it compares.
 
 Things in `expected` that a host does not shape from `input`:
 

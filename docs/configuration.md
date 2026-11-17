@@ -7,16 +7,43 @@
 | `port` | Port to listen on. `PORT` in the environment wins. Defaults to `5050`. |
 | `me` | The `id` of the team member the dashboard treats as "you". |
 | `team[]` | `id`, `name`, `short` (the label on screen), and `logins`: one login per host key, for example `{ "github": "octocat", "work": "ocat" }`. Optional `pushPolicy`: how this person wants to receive changes on their PRs (`review-only`, `stacked-pr` or `push`; see [Push policies](push-policy.md)). |
-| `hosts.<key>` | `hostname`, `label`, `concurrency` (the cap on parallel `gh` processes, default 4), `bot` (the AI-review bot's login, or `null`; see [AI-review bots](#ai-review-bots)), optional `proxychains` (a proxychains config path; see [GitHub Enterprise and proxies](github-enterprise.md)), optional `reviewTeams` (see [Review teams](review-teams.md)), and optional `rowRefreshFloorMs` and `rowRefreshLowBudgetMs` (see [Refresh rules](#refresh-rules)). |
+| `hosts.<key>` | `hostname`, `label`, `concurrency` (the cap on parallel `gh` processes, default 4), `bot` (the AI-review bot's login, or `null`; see [AI-review bots](#ai-review-bots)), optional `botsByOwner` (another bot for the repos of some orgs; same section), optional `proxychains` (a proxychains config path; see [GitHub Enterprise and proxies](github-enterprise.md)), optional `reviewTeams` (see [Review teams](review-teams.md)), and optional `rowRefreshFloorMs` and `rowRefreshLowBudgetMs` (see [Refresh rules](#refresh-rules)). |
 | `repos[]` | `host` (a key from `hosts`), `owner`, `name`, and `short` (the label on screen). Optional `maxBaseAgeHours`: flag PRs whose base is older than this many hours. Optional `allAuthors`: `true` lists every open PR in the repo, including PRs by people outside `team` (see [PRs from outside the team](#prs-from-outside-the-team)). Optional `pushPolicy` and `pushPolicyByAuthor` (keyed by team `id` or login): how authors in this repo want to receive changes (see [Push policies](push-policy.md)). |
 | `linear` | Optional. `workspace` (the slug in Linear URLs) and `keys` (team prefixes to find in titles and branch names). Use `null` to turn ticket links off. |
 | `aiReviewLabel` | Optional. The name shown for the AI-review column and tile. Defaults to `AI review`. |
 | `herdr` | Optional. See [herdr terminal panes](herdr.md). `enabled` (default `true`; used only when herdr is installed and running) and `transcriptTailKb` (how much of each agent transcript to search, default 192). |
 | `refresh` | Optional. `"rows"` (the default) or `"list"`. Sets when the page loads a row again. See [Refresh rules](#refresh-rules). |
 | `features` | Optional. Turns dashboard features off: `shipped`, `followups` and `herdr`, each `true` or `false`. A missing key means on. See [Turn features off](#turn-features-off). |
+| `limits` | Optional. Cost limits that the server enforces: `maxPeople`, `maxRepos`, `maxBells` and `requestBudget`. See [Cost limits](#cost-limits). |
 | `ignoreParticipants` | Logins to leave out of Participants. Use it for bots and service accounts that appear as ordinary users. Logins ending in `[bot]` or `-bot` are always left out, and so is any actor that GitHub types as a `Bot` (a GitHub App such as `github-actions` has neither suffix), in Participants and in follow-ups. |
 
 The server binds to `127.0.0.1` only. The MCP endpoint refuses browser requests from other origins.
+
+## Settings in the dashboard
+
+The gear button opens the settings panel. It edits `config.json` through `GET` and `PUT /api/settings`, so you can change the team and the repos without opening the file. The settings come in two groups:
+
+| Group | Settings | Who changes them |
+| --- | --- | --- |
+| Personal | `team` and each person's `logins`, `repos` (with `allAuthors`, `maxBaseAgeHours`, `pushPolicy` and `pushPolicyByAuthor`), the review teams (`hosts.<key>.reviewTeams`), `linear` and `features` | You, in the panel or in `config.json` |
+| Hosts | Each host's `hostname`, `label`, `bot` and `botsByOwner`; adding and removing hosts | You, in the panel's Server section or in `config.json` |
+| Deployment | The other host fields (`concurrency`, `proxychains`, `rowRefreshFloorMs`, `rowRefreshLowBudgetMs`), `port`, `herdr`, `refresh`, `aiReviewLabel`, `ignoreParticipants`, `limits`, and the token | The person who runs the server, in `config.json` |
+
+The panel lists its sections on the left: You, People, Repos, Review teams, Linear, Features and Server. It shows one section at a time. People and repos are rows with their logins and push policy; click a row to edit it. The Server section edits the GitHub hosts and their AI-review bots, and shows the other server settings. When a save is refused, the panel opens the section and the row of the first refused field, and the list of sections shows how many fields to fix in each one. On a narrow screen, the sections are tabs above the panel.
+
+Each field in the settings has an `editable` flag. The panel shows a field that is not editable read-only, with the reason. On this server, `me` and the deployment settings are not editable in the panel, apart from the host fields in the table above, and `features.herdr` is not editable when `"herdr": { "enabled": false }`. When the server runs with `GH_ENTERPRISE_TOKEN` or `GITHUB_ENTERPRISE_TOKEN` set, the panel cannot add or remove hosts or change a host name, because `gh` sends that token to any GitHub Enterprise host; a host's label and bots stay editable. `GH_TOKEN` and `GITHUB_TOKEN` are safe either way: the server gives them to `gh` only for `github.com`, so a host that the panel or an import adds never receives them. A host other than `github.com` uses the login that `gh auth login --hostname <host>` stored for it. A `PUT /api/settings` that changes a field that is not editable is refused, also when it is sent on purpose.
+
+**Export** in the panel downloads your saved settings as a file, and **Import** reads such a file into the panel; nothing is saved until you click Save. Use them to move your settings to another Shepherd, such as one embedded in another app, or back. The file lists each host by host name, so an import moves logins, repos and review teams to the host with the same name, whatever its key. A host that the server lacks is added when the server lets you add hosts, as this one does; otherwise its logins and repos are left out, and the panel says so. You stay who you are on the server you import into: the file's entry with one of your logins becomes yours. An entry that has only your id, and none of your logins, is someone else, so it gets another id (`<id>-imported`) and the panel says so. A file with values of the wrong type is refused. When an import adds a host, the panel lists the AI-review bots that come with it. A setting that the server does not let you change keeps its value there.
+
+Push policies are personal settings too. In the panel you can set the `pushPolicy` of anyone on your team, a repo's default `pushPolicy`, and a repo's `pushPolicyByAuthor` entries (add an author by team id or login). They record how each person wants to receive changes, so set them to what that person asked for.
+
+A save writes a new `config.json` (a temp file with the same permissions, then a rename), so the old file stays when a write fails. When `config.json` is a symlink, the save writes to the file it points to. It keeps the keys that the panel does not show, such as `port`, and each kept host's `proxychains`, `concurrency` and refresh floors (removing a host, or giving a new host another key, removes them for that host), but it writes the file again with two-space indents. The server applies a save at once, without a restart.
+
+The server also reads `config.json` again when it changes on disk, at most once a second, on the next API or MCP request. A change to a personal setting or to `hosts` applies without a restart. A change to another deployment setting applies only after a restart; until then, the panel says so. When the file on disk has a problem, the server keeps the last good settings and the panel lists the problems. At startup, a file with a problem still stops the server.
+
+When two tabs, or a tab and an edit on disk, change the settings at the same time, the second save is refused, and the panel offers to load the current settings. Each settings response has a `version`, and a `PUT` sends the `version` that it started from.
+
+Bells, the filters, the sort order, the refresh interval and the theme are not in `config.json`. They stay in the browser's storage (`shepherd.settings`), one copy for each browser.
 
 ## PRs from outside the team
 
@@ -65,7 +92,24 @@ Set a feature to `false` to remove it from the dashboard:
 
 When a feature is off, the page sends no request for it and shows no error for it. The server answers 404 on the endpoint of that feature (`/api/merged`, `/api/followups`, or `/api/herdr/*`). The page keeps your saved choices for a feature that is off, such as the range or the **Needs follow-up** chip, and uses them again when the feature is on. The MCP tools do not change.
 
-`GET /api/config` sends the result as `features`, with all three keys. A different server that has only the open-PR endpoints can send the same object with `false` values. When a server sends no `features` object, or leaves a key out, the page treats that feature as on.
+`GET /api/config` sends the result as `features`, with all three keys, plus `settings: true` (this server has the settings API). A different server that has only the open-PR endpoints can send the same object with `false` values. When a server sends no `features` object, or leaves a key out, the page treats that feature as on. `settings` is the exception: the page uses the settings API only when the server sends `"settings": true`.
+
+## Cost limits
+
+`limits` caps what one person's settings can cost the server's GitHub logins:
+
+```json
+"limits": { "maxPeople": 12, "maxRepos": 20, "maxBells": 6, "requestBudget": { "requests": 600, "perSeconds": 3600 } }
+```
+
+| Key | What the server does |
+| --- | --- |
+| `maxPeople` | Refuses a settings save with more people in `team`. |
+| `maxRepos` | Refuses a settings save with more `repos`. |
+| `maxBells` | Uses only this many bells in one list request. |
+| `requestBudget` | The most API requests one viewer can make in `perSeconds` seconds. This server has one user and does not enforce it; a host with many viewers does. |
+
+Each value is a whole number, 1 or more. A missing key means no limit. The settings panel shows the limits. Only the server enforces them.
 
 ## Token (optional)
 
@@ -84,6 +128,12 @@ Set `bot` on a host to the login of a bot that leaves inline review comments. Sh
 
 ```text
 **Throttle check is not atomic** · fix here · medium
+```
+
+When the orgs on one host use different bots, give the host `botsByOwner`: the bot login for each org (or user) whose repos have another bot, or `null` for none. The host's `bot` stays the bot of every other owner:
+
+```json
+"github": { "hostname": "github.com", "label": "GitHub", "bot": null, "botsByOwner": { "example-org": "example-review-bot", "other-org": "other-review-bot" } }
 ```
 
 Severities are `critical`, `high`, `medium`, `low` and `info`. A tag of `nit`, or a tail that starts with `below`, marks a finding as minor. Comments in any other shape still count, as `info`.

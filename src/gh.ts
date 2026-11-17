@@ -39,16 +39,28 @@ export interface GhRunner {
 	readonly rate: Record<string, RateLimit>;
 }
 
+/**
+ * The environment of a `gh` call for one host name. An inherited GH_HOST could send the call to another host, so it goes.
+ * gh sends GH_TOKEN and GITHUB_TOKEN to github.com and also to `github.localhost` and `*.ghe.com` (over plain HTTP for
+ * github.localhost), so those tokens go only to github.com. A host that the settings panel adds can then never receive them.
+ * Other hosts use gh's stored login for that host, or GH_ENTERPRISE_TOKEN (the panel locks host names when that is set).
+ */
+export function ghEnv(hostname: string, base: Record<string, string | undefined> = process.env): Record<string, string | undefined> {
+	const env: Record<string, string | undefined> = { ...base, GH_PROMPT_DISABLED: '1', NO_COLOR: '1' };
+	delete env.GH_HOST;
+	delete env.GH_ENTERPRISE_TOKEN_HOST;
+	if (hostname.toLowerCase() !== 'github.com') {
+		delete env.GH_TOKEN;
+		delete env.GITHUB_TOKEN;
+	}
+	return env;
+}
+
 export function createGh(config: Config): GhRunner {
 	const rate: Record<string, RateLimit> = {};
 	const semaphores = new Map(
 		Object.entries(config.hosts).map(([k, h]) => [k, new Semaphore(h.concurrency ?? 4)] as const)
 	);
-
-	// Never let an inherited GH_HOST send a call to the wrong host.
-	const env: Record<string, string | undefined> = { ...process.env, GH_PROMPT_DISABLED: '1', NO_COLOR: '1' };
-	delete env.GH_HOST;
-	delete env.GH_ENTERPRISE_TOKEN_HOST;
 
 	/** Runs `gh api <args>` for a host and returns stdout, stderr and the exit code. */
 	async function spawnGh(hostKey: string, args: string[], stdin?: string): Promise<{ out: string; err: string; code: number }> {
@@ -58,7 +70,7 @@ export function createGh(config: Config): GhRunner {
 		const cmd = host.proxychains ? ['proxychains4', '-q', '-f', expandHome(host.proxychains), ...ghArgs] : ghArgs;
 
 		const proc = Bun.spawn(cmd, {
-			env,
+			env: ghEnv(host.hostname),
 			stdin: stdin === undefined ? 'ignore' : new Blob([stdin]),
 			stdout: 'pipe',
 			stderr: 'pipe',

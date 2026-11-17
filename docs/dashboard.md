@@ -7,7 +7,7 @@
 | **Pull request** | State icon, title and number, repo, author, the [push policy](push-policy.md) that applies to the PR (from the author, the repo or a fork; none on your own PRs), Linear tickets, and related PRs. A stacked PR sits under its parent in smaller, inset text. Click the state icon to copy the PR's URL. On the top PR of a stack, a click copies every URL in the stack, one per line; ⌘+click or Ctrl+click copies only that PR's URL. |
 | **Waiting on** | Reviewers asked directly, plus an orange **You** pill whenever the PR is waiting on you for any reason (hover it for why). A red **Author** pill means changes were requested and the author hasn't pushed since. Teammates whose bell is on get an orange ring. Team requests (for example from CODEOWNERS) are grey chips. When the team is one of your `reviewTeams`, the **You** pill gets a team icon. |
 | **Approvals** | Who approved (green check) and who asked for changes (red cross), with names. |
-| **AI review** | Unresolved review threads opened by the host's AI-review `bot`. **fix** means severity medium or higher and not a nit; **minor** covers everything else. Click the count to list every finding with its file and a link. Shows "n/a" on hosts with no bot. The column name comes from `aiReviewLabel`. |
+| **AI review** | Unresolved review threads opened by the AI-review bot of the PR's org: the host's `botsByOwner` entry for the org, or else its `bot`. **fix** means severity medium or higher and not a nit; **minor** covers everything else. Click the count to list every finding with its file and a link. Shows "n/a" when the org has no bot. The column name comes from `aiReviewLabel`. |
 | **Participants** | Everyone who commented, reviewed or committed, except the author and bots, most recently active first. Hover an avatar to see when that person was last active. Below them, a small line shows who acted last (author included) and how: comment, review or push. It turns orange as **your turn** when someone else had the last word on a PR you wrote or took part in, unless your approval still stands. |
 | **Status** | Draft, checks, merge conflicts, a thumbs-up when the review decision is approved, how old the base is (see below), and lines added and removed. |
 | **Updated** | When the PR last changed. Hover the row for a refresh button that reloads just that row. |
@@ -60,7 +60,7 @@ What counts as a follow-up:
 
 A line that ends in a colon introduces what follows, so it never counts on its own. "Out of scope" never counts: it explains why something isn't part of the work.
 
-Shepherd reads the description, the last 50 reviews, the last 100 comments and the first 10 comments of the first 100 inline threads. It skips the host's AI-review `bot` (its findings have their own column), other bots, comments addressed to the bot, resolved inline threads, quoted text, tables and code blocks. Without any matching text, the row has no pill.
+Shepherd reads the description, the last 50 reviews, the last 100 comments and the first 10 comments of the first 100 inline threads. It skips the AI-review bot of the PR's org (its findings have their own column), other bots, comments addressed to the bot, resolved inline threads, quoted text, tables and code blocks. Without any matching text, the row has no pill.
 
 A wrong flag costs more than a missed one, so an ask the code may have handled since doesn't count: one from a review of an older commit, a comment written before the last commit, or an outdated inline thread. Nothing in GitHub's data says which ask a commit handled, so some real asks drop out too. The popover lists them dimmed under **May be done**, after the ones that count. A PR with only such asks has no pill. The description always counts, since it describes the final code.
 
@@ -87,9 +87,10 @@ A PR counts as approved when GitHub's review decision is approved, or when at le
 
 ## Controls
 
-- **Refresh interval.** 5s, 30s, 1m (default), 5m or 15m. The thin bar under the header shows the time until the next check.
+- **Refresh interval.** 1m (default), 5m or 15m, or the pause button. The thin bar under the header shows the time until the next check. When the refresh is paused, the page checks the list only when it loads and when you click refresh (or press `r`), and the line under the title says so. A page that had 5s or 30s set goes back to 1m.
 - **Refresh now.** The button in the header, or press `R`. It reloads every row.
 - **Theme.** Light or dark. It follows your system until you choose.
+- **Settings.** The gear button opens the settings panel: the team, repos, review teams, Linear and features. See [Settings in the dashboard](configuration.md#settings-in-the-dashboard). A server without a settings API has no gear. In a team or member view, the bar says whose dashboard it is instead, with a link to your own.
 - **Summary tiles.** Click one to filter: Waiting on you, Approved, Changes requested, AI review open. **Open PRs** clears the filter.
 - **People.** Each person has three buttons:
   - **Name** (with their PR count): show only PRs they wrote.
