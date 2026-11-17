@@ -42,17 +42,20 @@ export function documentFromConfig(c: Partial<Config>): SettingsDocument {
 	const deployment: Record<string, unknown> = {};
 	if (isObject(raw.hosts)) {
 		const reviewTeams: Record<string, unknown> = {};
+		const anyRepo: Record<string, unknown> = {};
 		const hosts: Record<string, unknown> = {};
 		for (const [key, h] of Object.entries(raw.hosts)) {
 			if (!isObject(h)) {
 				own(hosts, key, h);
 				continue;
 			}
-			const { reviewTeams: teams, proxychains: _proxychains, ...rest } = h;
+			const { reviewTeams: teams, anyRepo: scope, proxychains: _proxychains, ...rest } = h;
 			own(hosts, key, rest);
 			if (teams !== undefined) own(reviewTeams, key, teams);
+			if (scope !== undefined) own(anyRepo, key, scope);
 		}
 		personal.reviewTeams = reviewTeams;
+		personal.anyRepo = anyRepo;
 		deployment.hosts = hosts;
 	} else {
 		copy(deployment, raw, 'hosts');
@@ -73,6 +76,7 @@ export function settingsFromConfig(source: Config): SettingsDocument {
 		team: config.team,
 		repos: config.repos,
 		reviewTeams: doc.personal.reviewTeams ?? {},
+		anyRepo: doc.personal.anyRepo ?? {},
 		linear: config.linear ?? null,
 		features: config.features ?? {},
 	};
@@ -89,6 +93,7 @@ export function settingsFromConfig(source: Config): SettingsDocument {
 					...(h.concurrency !== undefined ? { concurrency: h.concurrency } : {}),
 					...(h.rowRefreshFloorMs !== undefined ? { rowRefreshFloorMs: h.rowRefreshFloorMs } : {}),
 					...(h.rowRefreshLowBudgetMs !== undefined ? { rowRefreshLowBudgetMs: h.rowRefreshLowBudgetMs } : {}),
+					...(h.defaultOrgs !== undefined ? { defaultOrgs: h.defaultOrgs } : {}),
 				},
 			])
 		),
@@ -112,9 +117,13 @@ export function mergePersonal(onDisk: Record<string, unknown>, personal: Persona
 		out.hosts = Object.fromEntries(
 			Object.entries(onDisk.hosts).map(([key, h]) => {
 				if (!isObject(h)) return [key, h];
-				const { reviewTeams: _old, ...rest } = h;
+				const { reviewTeams: _old, anyRepo: oldScope, ...rest } = h;
 				const teams = personal.reviewTeams[key];
-				return [key, teams?.length ? { ...rest, reviewTeams: teams } : rest];
+				const out: Record<string, unknown> = teams?.length ? { ...rest, reviewTeams: teams } : rest;
+				// Without `anyRepo` in the settings, each host keeps what it has on disk.
+				const scope = personal.anyRepo ? (Object.hasOwn(personal.anyRepo, key) ? personal.anyRepo[key] : undefined) : oldScope;
+				if (scope !== undefined) out.anyRepo = scope;
+				return [key, out];
 			})
 		);
 	}
@@ -164,13 +173,6 @@ export function fieldMeta(fields: Record<string, FieldMeta>, pointer: string): F
 
 // ---------------------------------------------------------------------------
 // PUT /api/settings
-
-/** The rules of the local server that the shared schema does not have: it finds PRs only in the listed repos. */
-export function localRules(personal: Pick<PersonalSettings, 'repos'>): SettingsFieldError[] {
-	return Array.isArray(personal.repos) && personal.repos.length === 0
-		? [{ path: '/personal/repos', code: 'refused', message: '`repos` must be a non-empty array' }]
-		: [];
-}
 
 /** The cost limits that apply to the personal settings. */
 function limitErrors(next: PersonalSettings, current: SettingsResponse): SettingsFieldError[] {
@@ -363,7 +365,8 @@ export function checkSettingsPut(body: unknown, { current, refuse }: PutContext)
 	if (body.version !== current.version) {
 		return refused(409, 'The settings changed since you loaded them (in another tab, or on the server). Load them again and repeat your change.', [], current);
 	}
-	const personal = body.personal;
+	// `anyRepo` is newer than the other keys, so a request without it keeps the current value instead of deleting it.
+	const personal = Object.hasOwn(body.personal, 'anyRepo') ? body.personal : { ...body.personal, anyRepo: structuredClone(current.personal.anyRepo ?? {}) };
 	const missing = PERSONAL_KEYS.filter((k) => !Object.hasOwn(personal, k)).map(
 		(k): SettingsFieldError => ({ path: toPointer(['personal', k]), code: 'invalid', message: `send \`${k}\` too: a settings request has every personal setting, so a missing one is never deleted` })
 	);

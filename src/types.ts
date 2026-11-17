@@ -42,12 +42,27 @@ export interface HostConfig {
 	 */
 	reviewTeams?: string[];
 	/**
+	 * Optional: find the team's PRs in any repo of these orgs (or users) on this host, plus the listed repos. Without this
+	 * key, the host searches only the listed repos, or `defaultOrgs` when it has none.
+	 */
+	anyRepo?: AnyRepoScope;
+	/**
+	 * Optional, set in config.json: the orgs that a host with no listed repos and no `anyRepo` searches. Without it, such
+	 * a host is not searched. The settings panel also fills these in when someone turns "Any repo" on.
+	 */
+	defaultOrgs?: string[];
+	/**
 	 * Optional: the shortest time (ms) before the page loads a row on this host again.
 	 * Defaults to 2 minutes on github.com and on hosts that report a GraphQL budget, and 20 seconds on other hosts.
 	 */
 	rowRefreshFloorMs?: number;
 	/** Optional: the time (ms) between row loads on this host when its GraphQL budget is low. Defaults to 10 minutes. */
 	rowRefreshLowBudgetMs?: number;
+}
+
+/** See `HostConfig.anyRepo`. `orgs` has at least one org: there is no "every repo on the host". */
+export interface AnyRepoScope {
+	orgs: string[];
 }
 
 export interface RepoConfig {
@@ -112,7 +127,8 @@ export interface PublicConfig {
 	team: TeamMember[];
 	/** Empty when the server has no fixed list of repos. The page then makes the repo chips from the listed PRs. */
 	repos: RepoConfig[];
-	hosts: Record<string, Pick<HostConfig, 'hostname' | 'label' | 'bot' | 'botsByOwner' | 'rowRefreshFloorMs' | 'rowRefreshLowBudgetMs'>>;
+	/** `anyRepo`: the host finds PRs outside `repos` too, so the page adds chips for the repos of the listed rows. */
+	hosts: Record<string, Pick<HostConfig, 'hostname' | 'label' | 'bot' | 'botsByOwner' | 'rowRefreshFloorMs' | 'rowRefreshLowBudgetMs' | 'anyRepo'>>;
 	linear: LinearConfig | null;
 	aiReviewLabel: string;
 	/**
@@ -145,10 +161,15 @@ export interface PersonalSettings {
 	/** The team id of the viewer. */
 	me: string;
 	team: TeamMember[];
-	/** Can be empty on a host that finds PRs by author. The local server needs at least one. */
+	/** Can be empty: a host with no listed repos finds PRs in any repo (or, on another host, by author). */
 	repos: RepoConfig[];
 	/** "org/team" names per host key; see `HostConfig.reviewTeams`. config.json keeps them under `hosts`. */
 	reviewTeams: Record<string, string[]>;
+	/**
+	 * Optional: the hosts that find PRs in any repo, by host key; see `HostConfig.anyRepo`. config.json keeps them under
+	 * `hosts`. A PUT that leaves it out keeps the current value, so an older client never turns it off.
+	 */
+	anyRepo?: Record<string, AnyRepoScope>;
 	linear: LinearConfig | null;
 	/** Features to turn off. A host marks a feature that it does not have as not editable. */
 	features: Partial<Record<Feature, boolean>>;
@@ -157,7 +178,7 @@ export interface PersonalSettings {
 /** The settings of the server. The page shows them; a host marks them not editable. */
 export interface DeploymentSettings {
 	/** `proxied`: the host goes through proxychains (set in config.json; the path is never sent). */
-	hosts: Record<string, Pick<HostConfig, 'hostname' | 'label' | 'bot' | 'botsByOwner' | 'concurrency' | 'rowRefreshFloorMs' | 'rowRefreshLowBudgetMs'> & { proxied?: boolean }>;
+	hosts: Record<string, Pick<HostConfig, 'hostname' | 'label' | 'bot' | 'botsByOwner' | 'concurrency' | 'rowRefreshFloorMs' | 'rowRefreshLowBudgetMs' | 'defaultOrgs'> & { proxied?: boolean }>;
 	refresh: RefreshMode;
 	aiReviewLabel: string;
 	ignoreParticipants: string[];

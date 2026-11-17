@@ -30,7 +30,7 @@ import { apiHeaders, apiUrl, pageToken, readEmbedOptions, sendsToken } from '../
 import { PUSH_POLICY_LABELS, resolvePushPolicy } from '../src/push-policy.ts';
 import { createSettingsPanel } from './settings.ts';
 import { linearKeyRegExp } from '../src/linear.ts';
-import { parseRepoKey, repoChipLabels, repoKey, unknownSelectedRepos } from '../src/repo-chips.ts';
+import { findListed, parseRepoKey, repoChipLabels, repoKey, unknownSelectedRepos, unlistedRepos, type RepoId } from '../src/repo-chips.ts';
 import { reviewBot } from '../src/review-bot.ts';
 import { rowMaxAge } from '../src/row-refresh.ts';
 import { mountShell } from './shell.ts';
@@ -356,13 +356,20 @@ const meMember = (): TeamMember | undefined => cfg.team.find((m) => m.id === cfg
 const isMe = (login: string | null | undefined, host: string): boolean =>
 	(login || '').toLowerCase() === (loginOn(meMember(), host) || '').toLowerCase();
 const member = (login: string | null | undefined): TeamMember | null => memberByLogin.get((login || '').toLowerCase()) || null;
-// With no repos in the config, the short name is the repo name.
-const repoShort = (host: string, owner: string, name: string): string =>
-	cfg.repos.find((r) => r.host === host && r.owner === owner && r.name === name)?.short || name;
-// The value that the repo filter (S.repos) holds for a repo: the short name from the config, or, with no repos
-// in the config, the full repo key, so that two repos with the same name get different chips.
+// For a repo that the config does not list, the short name is the repo name.
+const repoShort = (host: string, owner: string, name: string): string => findListed(cfg.repos, { host, owner, name })?.short || name;
+// The value that the repo filter (S.repos) holds for a repo: the short name of a listed repo, or the full repo key of
+// any other repo (no repos in the config, or a host in any-repo mode), so that two repos with the same name get different chips.
 const repoFilterKey = (host: string, owner: string, name: string): string =>
-	cfg.repos.length ? repoShort(host, owner, name) : repoKey({ host, owner, name });
+	findListed(cfg.repos, { host, owner, name })?.short ?? repoKey({ host, owner, name });
+/** True when a host finds PRs outside the listed repos, so the page shows chips for the repos of the rows too. */
+const anyRepoMode = (): boolean => Object.values(cfg.hosts).some((h) => Boolean(h.anyRepo));
+/** The repos of the listed rows that the config does not list. The settings panel offers them under "Add more repos". */
+const rowsUnlisted = (): RepoId[] =>
+	unlistedRepos(
+		[...rows.values()].filter((r) => !r.gone).map((r) => ({ host: r.light.host, owner: r.light.owner, name: r.light.repo })),
+		cfg.repos,
+	);
 const linearUrl = (key: string): string =>
 	`https://linear.app/${encodeURIComponent(cfg.linear?.workspace ?? '')}/issue/${encodeURIComponent(key)}`;
 
@@ -1101,53 +1108,44 @@ function layout(): void {
 // ---------------------------------------------------------------------------
 // Header, tiles, filter chips
 
+type RepoChip = { key: string; label: string; icon: string; n: number };
+
 /**
- * The repo chips when the config has no repos, for a server that finds PRs another way (for example by author).
- * One chip for each repo (host, owner and name) of the listed rows, plus a chip for each selected repo with no rows,
- * so that a saved selection stays visible and the user can clear it. The label is the repo name, or `owner/name`
- * when two chips have the same name. The chips are in label order.
+ * The repo chips: one for each repo of the config, then one for each other repo of the listed rows (when the config has
+ * no repos, or a host is in any-repo mode), then a chip with a count of 0 for each selected repo with no chip (from a
+ * saved filter), so that the user can clear it. Listed repos keep the config's order and short names. The other chips
+ * are in label order; the label is the repo name, or `owner/name` when two of them have the same name.
  */
-function listedRepoChips(inScopeRows: Row[]): { key: string; label: string; icon: string; n: number }[] {
-	const chips = new Map<string, { key: string; label: string; icon: string; n: number }>();
-	for (const r of rows.values()) {
-		if (r.gone) continue;
-		const key = repoKey({ host: r.light.host, owner: r.light.owner, name: r.light.repo });
-		if (!chips.has(key)) chips.set(key, { key, label: '', icon: hostIcon(r.light.host), n: 0 });
+function repoChips(inScopeRows: Row[]): RepoChip[] {
+	const listed = cfg.repos.map((r) => ({
+		key: r.short,
+		label: r.short,
+		icon: hostIcon(r.host),
+		n: inScopeRows.filter((x) => findListed([r], { host: x.light.host, owner: x.light.owner, name: x.light.repo })).length,
+	}));
+	const others = new Map<string, RepoChip>();
+	if (!cfg.repos.length || anyRepoMode()) {
+		for (const id of rowsUnlisted()) others.set(repoKey(id), { key: repoKey(id), label: '', icon: hostIcon(id.host), n: 0 });
+		for (const r of inScopeRows) {
+			const chip = others.get(repoKey({ host: r.light.host, owner: r.light.owner, name: r.light.repo }));
+			if (chip) chip.n++;
+		}
 	}
-	for (const key of S.repos) if (!chips.has(key)) chips.set(key, { key, label: '', icon: 'fa-solid fa-code-branch', n: 0 });
-	for (const r of inScopeRows) {
-		const chip = chips.get(repoKey({ host: r.light.host, owner: r.light.owner, name: r.light.repo }));
-		if (chip) chip.n++;
-	}
-	const list = [...chips.values()];
+	const unknown = unknownSelectedRepos(S.repos, [...listed.map((c) => c.key), ...others.keys()]);
+	// A saved key in the form host:owner/name gets a label like the other chips; an old short name keeps its text.
+	for (const key of unknown) if (parseRepoKey(key).host) others.set(key, { key, label: '', icon: 'fa-solid fa-code-branch', n: 0 });
+	const list = [...others.values()];
 	const labels = repoChipLabels(
 		list.map((c) => parseRepoKey(c.key)),
 		(host) => cfg.hosts[host]?.label || cfg.hosts[host]?.hostname || host,
 	);
 	list.forEach((c, i) => (c.label = labels[i]!));
-	return list.sort((a, b) => a.label.localeCompare(b.label));
+	const oldShort = unknown.filter((key) => !parseRepoKey(key).host).map((key) => ({ key, label: key, icon: 'fa-solid fa-code-branch', n: 0 }));
+	return [...listed, ...list.sort((a, b) => a.label.localeCompare(b.label)), ...oldShort];
 }
 
-/**
- * The repo chips when the config has repos: one chip for each repo of the config, plus a chip with a count
- * of 0 for each selected repo that the config no longer has (from a saved filter), so that the user can clear it.
- */
-function configRepoChips(inScopeRows: Row[]): { key: string; label: string; icon: string; n: number }[] {
-	const chips = cfg.repos.map((r) => ({
-		key: r.short,
-		label: r.short,
-		icon: hostIcon(r.host),
-		n: inScopeRows.filter((x) => x.light.host === r.host && x.light.repo === r.name && x.light.owner === r.owner).length,
-	}));
-	const unknown = unknownSelectedRepos(S.repos, chips.map((c) => c.key));
-	return [...chips, ...unknown.map((key) => ({ key, label: key, icon: 'fa-solid fa-code-branch', n: 0 }))];
-}
-
-/** The number of different repos of the listed rows: the same as the number of repo chips that have rows. */
-const listedRepoCount = (): number =>
-	new Set(
-		[...rows.values()].filter((r) => !r.gone).map((r) => repoKey({ host: r.light.host, owner: r.light.owner, name: r.light.repo })),
-	).size;
+/** The number of repos the dashboard covers: the listed repos plus the other repos of the listed rows. */
+const repoCount = (): number => cfg.repos.length + (!cfg.repos.length || anyRepoMode() ? rowsUnlisted().length : 0);
 
 function renderChrome(): void {
 	if (!booted) return;
@@ -1192,8 +1190,7 @@ function renderChrome(): void {
 	const peopleEl = $('#people');
 	if (peopleEl.innerHTML !== people) peopleEl.innerHTML = people;
 
-	const repoChips = cfg.repos.length ? configRepoChips(inScopeRows) : listedRepoChips(inScopeRows);
-	const repos = repoChips
+	const repos = repoChips(inScopeRows)
 		.map(({ key, label, icon, n }) => {
 			const on = S.repos.includes(key);
 			return `<button class="chip-btn ${on ? 'on' : ''}" data-repo="${esc(key)}" title="Show only pull requests in ${esc(label)}"><i class="${icon}"></i>${esc(label)} <span class="count">${n}</span></button>`;
@@ -1243,7 +1240,7 @@ function renderChrome(): void {
 	const brandSub = ROOT.querySelector('#brand-sub'); // not there with `header: false`
 	if (brandSub) {
 		brandSub.textContent = lastList
-			? `${total} open PRs across ${cfg.repos.length || listedRepoCount()} repos · list checked ${new Date(lastList).toLocaleTimeString()}${S.interval === PAUSED ? ' · auto-refresh paused' : ''}`
+			? `${total} open PRs across ${repoCount()} repos · list checked ${new Date(lastList).toLocaleTimeString()}${S.interval === PAUSED ? ' · auto-refresh paused' : ''}`
 			: 'Loading…';
 	}
 
@@ -2002,7 +1999,7 @@ function renderView(): void {
 	const button = $('#settings-btn');
 	button.hidden = !(personal && features.settings);
 	if (!button.hidden && !settingsPanel) {
-		settingsPanel = createSettingsPanel({ root: ROOT, api, onSaved: () => setTimeout(() => location.reload(), 600) });
+		settingsPanel = createSettingsPanel({ root: ROOT, api, onSaved: () => setTimeout(() => location.reload(), 600), seenRepos: () => (anyRepoMode() ? rowsUnlisted() : []) });
 		button.addEventListener('click', () => void settingsPanel!.open());
 	}
 }

@@ -95,6 +95,11 @@ const host: SchemaNode = {
 		proxied: { type: 'boolean', 'x-message': '{path} must be true or false, or no such field' },
 		rowRefreshFloorMs: { type: 'number', minimum: MIN_ROW_REFRESH_MS, 'x-message': `{path} ${MS}` },
 		rowRefreshLowBudgetMs: { type: 'number', minimum: MIN_ROW_REFRESH_MS, 'x-message': `{path} ${MS}` },
+		defaultOrgs: {
+			type: 'array',
+			items: { type: 'string', pattern: OWNER, 'x-message': '{parent} must be a list of org or user names, such as example-org' },
+			'x-message': '{path} must be a list of org or user names, or no such field',
+		},
 	},
 };
 
@@ -137,6 +142,29 @@ export const SETTINGS_SCHEMA: SchemaNode = {
 						type: 'array',
 						items: { type: 'string', pattern: '^[\\w.-]+/[\\w.-]+$', 'x-message': '{parent} must be a list of "org/team" names, or no such field' },
 						'x-message': '{path} must be a list of "org/team" names, or no such field',
+					},
+				},
+				anyRepo: {
+					type: 'object',
+					'x-message': '`anyRepo` must be an object of host key to { "orgs": [ … ] }, or no such field',
+					propertyNames: { 'x-keyOf': '/deployment/hosts', 'x-message': '{path} is for unknown host "{key}"' },
+					additionalProperties: {
+						type: 'object',
+						required: ['orgs'],
+						additionalProperties: false,
+						'x-message': '{path} must be { "orgs": [ … ] }',
+						properties: {
+							orgs: {
+								type: 'array',
+								minItems: 1,
+								items: { type: 'string', pattern: OWNER, 'x-message': '{parent} must be a list of org or user names, such as example-org' },
+								'x-message': {
+									default: '{path} must be a list of org or user names',
+									minItems: '{path} needs at least one org: any repo means any repo in these orgs',
+									required: '{path} needs at least one org: any repo means any repo in these orgs',
+								},
+							},
+						},
 					},
 				},
 				linear: {

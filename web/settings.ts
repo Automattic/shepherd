@@ -8,10 +8,12 @@
 
 import { FEATURES, type Feature } from '../src/features.ts';
 import { PUSH_POLICIES, PUSH_POLICY_LABELS } from '../src/push-policy.ts';
+import { findListed, newRepoEntry, repoChipLabels, repoKey, type RepoId } from '../src/repo-chips.ts';
+import { anyRepoAfterAdding, defaultScope } from '../src/repo-scope.ts';
 import { fromPointer, toPointer } from '../src/schema.ts';
 import { fieldMeta } from '../src/settings.ts';
 import { exportSettings, importSettings } from '../src/settings-transfer.ts';
-import type { DeploymentSettings, PersonalSettings, PushPolicy, SettingsErrorResponse, SettingsFieldError, SettingsResponse, TeamMember } from '../src/types.ts';
+import type { Config, DeploymentSettings, PersonalSettings, PushPolicy, SettingsErrorResponse, SettingsFieldError, SettingsResponse, TeamMember } from '../src/types.ts';
 
 export interface SettingsPanelDeps {
 	/** The mount element. The panel renders into a <dialog> inside it, so the dashboard styles apply. */
@@ -19,6 +21,11 @@ export interface SettingsPanelDeps {
 	api: (path: string, init?: RequestInit) => Promise<Response>;
 	/** Called after a save. The page loads again with the new settings. */
 	onSaved: () => void;
+	/**
+	 * Optional: the repos of the dashboard's rows that the settings do not list (a host in any-repo mode finds them).
+	 * The Repos section offers each one under "Add more repos"; a click adds it to the repos.
+	 */
+	seenRepos?: () => RepoId[];
 }
 
 const ESCAPES: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
@@ -56,7 +63,7 @@ const SECTIONS: [key: Section, label: string, icon: string, blurb: string][] = [
 function sectionOf(pointer: string): Section {
 	if (pointer.startsWith('/deployment')) return 'server';
 	const seg = fromPointer(pointer)[1];
-	const map: Record<string, Section> = { me: 'you', team: 'people', repos: 'repos', reviewTeams: 'review', linear: 'linear', features: 'features' };
+	const map: Record<string, Section> = { me: 'you', team: 'people', repos: 'repos', anyRepo: 'repos', reviewTeams: 'review', linear: 'linear', features: 'features' };
 	return (seg && map[seg]) || 'you';
 }
 
@@ -106,7 +113,7 @@ const pill = (p: PushPolicy | undefined, unset: string): string => {
 	return `<span class="s-pill ${known ? `s-tone-${known}` : 's-tone-unset'}">${esc(known ? PUSH_POLICY_LABELS[known] : unset)}</span>`;
 };
 
-export function createSettingsPanel({ root, api, onSaved }: SettingsPanelDeps): { open(): Promise<void> } {
+export function createSettingsPanel({ root, api, onSaved, seenRepos }: SettingsPanelDeps): { open(): Promise<void> } {
 	const dialog = document.createElement('dialog');
 	dialog.className = 'settings';
 	dialog.setAttribute('aria-labelledby', 'settings-title');
@@ -320,6 +327,7 @@ export function createSettingsPanel({ root, api, onSaved }: SettingsPanelDeps): 
 			h.concurrency !== undefined ? `up to ${esc(h.concurrency)} gh processes` : '',
 			h.rowRefreshFloorMs ? `rows refresh at most every ${esc(Math.round(h.rowRefreshFloorMs / 1000))}s` : '',
 			h.proxied ? 'goes through proxychains (removing the host, or giving it another key, removes that setting)' : '',
+			h.defaultOrgs?.length ? `default orgs for any repo: ${esc(h.defaultOrgs.join(', '))}` : '',
 		].filter(Boolean);
 		return `<div class="s-card s-host" data-field="${esc(base)}">
 			<div class="s-grid">
@@ -367,7 +375,7 @@ export function createSettingsPanel({ root, api, onSaved }: SettingsPanelDeps): 
 						<div class="s-card-title">${esc(h.label || k)} <code>${esc(k)}</code></div>
 						<dl class="s-dl"><dt>Hostname</dt><dd>${esc(h.hostname)}</dd><dt>AI-review bot</dt><dd>${esc(h.bot ?? '—')}</dd>${Object.entries(h.botsByOwner ?? {})
 							.map(([owner, bot]) => `<dt>Bot for ${esc(owner)}</dt><dd>${esc(bot ?? 'none')}</dd>`)
-							.join('')}<dt>Row refresh floor</dt><dd>${h.rowRefreshFloorMs ? `${esc(Math.round(h.rowRefreshFloorMs / 1000))}s` : 'default'}</dd></dl>
+							.join('')}<dt>Row refresh floor</dt><dd>${h.rowRefreshFloorMs ? `${esc(Math.round(h.rowRefreshFloorMs / 1000))}s` : 'default'}</dd>${h.defaultOrgs?.length ? `<dt>Default orgs</dt><dd>${esc(h.defaultOrgs.join(', '))}</dd>` : ''}</dl>
 					</div>`
 					)
 					.join('')}</div>`;
@@ -386,6 +394,61 @@ export function createSettingsPanel({ root, api, onSaved }: SettingsPanelDeps): 
 		</dl>`;
 	}
 
+	/** The repos of the dashboard that the draft does not list, on hosts that the draft still has. */
+	const suggestions = (): RepoId[] => (seenRepos?.() ?? []).filter((id) => Object.hasOwn(draft!.deployment.hosts, id.host) && !findListed(draft!.personal.repos, id));
+
+	/** "Add more repos": a chip for each repo that an any-repo host found and the draft does not list. A click adds it to the repos. */
+	function suggestedRepos(): string {
+		const ids = suggestions();
+		if (!ids.length) return '';
+		const labels = repoChipLabels(ids, hostLabel);
+		return `<div class="s-suggest"><span class="s-hint">Add more repos:</span>${ids
+			.map((id, i) => `<button type="button" class="chip-btn add" data-s-add-repo="${esc(repoKey(id))}" title="Track ${esc(`${id.owner}/${id.name}`)} on ${esc(hostLabel(id.host))}"><i class="fa-solid fa-plus"></i>${esc(labels[i]!)}</button>`)
+			.join('')}</div>`;
+	}
+
+	/** Per host: find PRs only in the listed repos, or in any repo (optionally only in some orgs). */
+	/** The draft as the scope rules read it: the hosts (with their `defaultOrgs`), the repos and the team. */
+	const scopeConfig = () => ({ hosts: draft!.deployment.hosts as unknown as Config['hosts'], repos: draft!.personal.repos, team: draft!.personal.team });
+	const defaultOrgsOf = (h: string): string[] => (Object.hasOwn(draft!.deployment.hosts, h) ? (draft!.deployment.hosts[h]!.defaultOrgs ?? []) : []);
+
+	/** Per host: find PRs only in the listed repos, or in any repo of some orgs. */
+	function scopeSection(): string {
+		const scopes = draft!.personal.anyRepo ?? {};
+		const lock = disabled('/personal/anyRepo');
+		const rowsHtml = hostKeys()
+			.map((h) => {
+				const explicit = Object.hasOwn(scopes, h);
+				// A host with no listed repos searches its default orgs, when someone on the team has a login there.
+				const byDefault = explicit ? null : defaultScope(scopeConfig(), h);
+				const on = explicit || byDefault !== null;
+				const base = toPointer(['personal', 'anyRepo', h]);
+				const orgsPtr = `${base}/orgs`;
+				// An error on one org of the list (…/orgs/<i>) shows under the list.
+				const items = errors.filter((e) => e.path.startsWith(`${orgsPtr}/`));
+				items.forEach((e) => placed.add(e.path));
+				const label = `Any repo on ${hostLabel(h)}`;
+				const defaults = defaultOrgsOf(h);
+				const control = `<label class="s-switch"><input type="checkbox" role="switch" aria-label="${esc(label)}" data-s-anyrepo="${esc(h)}" ${on ? 'checked' : ''}${byDefault ? ' disabled' : lock}><span class="s-track"></span></label>`;
+				const hint = byDefault
+					? `No repos are listed on this host, so it finds your team's PRs in its default orgs: ${byDefault.join(', ')}. Add a repo on this host to search only the listed repos.`
+					: "Find your team's PRs in any repo of the orgs you name, not only in the repos below. The repos below keep their settings.";
+				return `${toggleRow(control, label, hint, fieldErrors(base))}
+					${
+						explicit
+							? field(
+									'In these orgs',
+									input(orgsPtr, (scopes[h]?.orgs ?? []).join(', '), { kind: 'list', placeholder: defaults.join(', ') || 'example-org, other-org' }),
+									fieldErrors(orgsPtr) + items.map((e) => `<p class="s-err" role="alert"><i class="fa-solid fa-circle-exclamation"></i>${esc(e.message)}</p>`).join(''),
+									`Org or user names, separated by commas. At least one.${defaults.length ? ` This server's defaults: ${defaults.join(', ')}.` : ''}`
+								)
+							: ''
+					}`;
+			})
+			.join('');
+		return `<h3 class="s-subhead">Where to find PRs</h3><div class="s-toggles">${rowsHtml}</div>${fieldErrors('/personal/anyRepo')}<h3 class="s-subhead">Repos</h3>`;
+	}
+
 	function section(key: Section): string {
 		const p = draft!.personal;
 		switch (key) {
@@ -395,8 +458,9 @@ export function createSettingsPanel({ root, api, onSaved }: SettingsPanelDeps): 
 				return `${fieldErrors('/personal/team')}<div class="s-rows">${p.team.map(personRow).join('')}</div>
 					${meta('/personal/team').editable ? '<button type="button" class="s-add" data-s-add="team"><i class="fa-solid fa-plus"></i> Add a person</button>' : ''}`;
 			case 'repos':
-				return `${fieldErrors('/personal/repos')}${p.repos.length ? `<div class="s-rows">${p.repos.map(repoRow).join('')}</div>` : '<p class="s-muted">No repos: PRs are found by author.</p>'}
-					${meta('/personal/repos').editable ? '<button type="button" class="s-add" data-s-add="repos"><i class="fa-solid fa-plus"></i> Add a repo</button>' : ''}`;
+				// A server without the any-repo setting sends no `anyRepo`; it gets no switches.
+				return `${loaded!.personal.anyRepo !== undefined ? scopeSection() : ''}${fieldErrors('/personal/repos')}${p.repos.length ? `<div class="s-rows">${p.repos.map(repoRow).join('')}</div>` : '<p class="s-muted">No repos listed: each host finds your team\'s PRs in any repo.</p>'}
+					${meta('/personal/repos').editable ? `<button type="button" class="s-add" data-s-add="repos"><i class="fa-solid fa-plus"></i> Add a repo</button>${suggestedRepos()}` : ''}`;
 			case 'review':
 				return hostKeys()
 					.map((h) => {
@@ -654,6 +718,14 @@ export function createSettingsPanel({ root, api, onSaved }: SettingsPanelDeps): 
 			draft.personal.linear = el.checked ? { workspace: '', keys: [] } : null;
 			renderFocus('[data-s-linear]');
 		}
+		const host = el.dataset.sAnyrepo;
+		if (host !== undefined) {
+			const scopes = (draft.personal.anyRepo ??= {});
+			// The orgs start as the server's defaults; an empty list is refused on save.
+			if (el.checked) scopes[host] = { orgs: [...defaultOrgsOf(host)] };
+			else delete scopes[host];
+			renderFocus(`[data-s-anyrepo="${CSS.escape(host)}"]`);
+		}
 	});
 	// A new host's key, and an org of a host's bots per org: renaming moves the entry to the new key, in the same place.
 	dialog.addEventListener('change', (e) => {
@@ -673,6 +745,7 @@ export function createSettingsPanel({ root, api, onSaved }: SettingsPanelDeps): 
 			if (!to || Object.hasOwn(hosts, to)) return refuse(toPointer(['deployment', 'hosts', from]), to ? `There is already a host "${to}".` : 'A host needs a key.');
 			draft.deployment.hosts = rename(hosts, from, to);
 			if (Object.hasOwn(draft.personal.reviewTeams, from)) draft.personal.reviewTeams = rename(draft.personal.reviewTeams, from, to);
+			if (draft.personal.anyRepo && Object.hasOwn(draft.personal.anyRepo, from)) draft.personal.anyRepo = rename(draft.personal.anyRepo, from, to);
 			for (const m of draft.personal.team) if (Object.hasOwn(m.logins, from)) m.logins = rename(m.logins, from, to);
 			renderFocus(`[data-s-host-key="${CSS.escape(to)}"]`);
 		} else if (el.dataset.sOrgKey !== undefined && el.dataset.host !== undefined) {
@@ -742,6 +815,14 @@ export function createSettingsPanel({ root, api, onSaved }: SettingsPanelDeps): 
 			draft.personal.repos.push({ host: hostKeys()[0] ?? '', owner: '', name: '', short: '' });
 			view.repo = draft.personal.repos.length - 1;
 			renderFocus(`[data-path="/personal/repos/${view.repo}/owner"]`);
+		} else if (ds.sAddRepo !== undefined) {
+			const id = suggestions().find((x) => repoKey(x) === ds.sAddRepo);
+			if (!id) return;
+			// A host that is in any-repo mode only because it has no repos stays in it: the chip means "track this one too".
+			draft.personal.anyRepo = anyRepoAfterAdding({ ...scopeConfig(), anyRepo: draft.personal.anyRepo }, id.host);
+			draft.personal.repos.push(newRepoEntry(id, draft.personal.repos));
+			const next = dialog.querySelector<HTMLElement>(`[data-s-add-repo]:not([data-s-add-repo="${CSS.escape(ds.sAddRepo)}"])`)?.dataset.sAddRepo;
+			renderFocus(next ? `[data-s-add-repo="${CSS.escape(next)}"]` : '[data-s-add="repos"]');
 		} else if (ds.sRemove) {
 			const [, kind, index] = fromPointer(ds.sRemove);
 			if (kind === 'team') draft.personal.team.splice(Number(index), 1);
@@ -786,9 +867,10 @@ export function createSettingsPanel({ root, api, onSaved }: SettingsPanelDeps): 
 				return;
 			}
 			delete draft.deployment.hosts[key];
-			// The logins and review teams on the host go with it, since the panel has no field left for them.
+			// The logins, review teams and any-repo setting of the host go with it, since the panel has no field left for them.
 			for (const m of draft.personal.team) if (Object.hasOwn(m.logins, key)) delete m.logins[key];
 			if (Object.hasOwn(draft.personal.reviewTeams, key)) delete draft.personal.reviewTeams[key];
+			if (draft.personal.anyRepo && Object.hasOwn(draft.personal.anyRepo, key)) delete draft.personal.anyRepo[key];
 			errors = [];
 			render();
 		} else if (ds.sOrgAdd !== undefined) {

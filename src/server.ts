@@ -10,6 +10,7 @@ import { createHerdr } from './herdr.ts';
 import { createMcpHandler } from './mcp.ts';
 import { FOLLOWUPS_MAX_PRS } from './followups.ts';
 import { createPrService, NotFoundError, parsePrKey } from './prs.ts';
+import { inScope } from './repo-scope.ts';
 import { createSettingsHandler } from './settings-api.ts';
 import { createConfigStore } from './settings-store.ts';
 import type { DetailResponse, ErrorResponse, FollowUpsResponse, HerdrLinksResponse, LightPr, ListResponse, MergedPr, MergedResponse, PaneMatchPr } from './types.ts';
@@ -27,9 +28,9 @@ let herdr = createHerdr(config);
 let prs = createPrService(config, gh);
 let handleMcp = createMcpHandler(config, prs, herdr);
 let features = configFeatures(config);
-/** The hosts as the gh runner and herdr see them: review teams are personal settings and change neither. */
+/** The hosts as the gh runner and herdr see them: review teams and any-repo scopes are personal settings and change neither. */
 const runnerHosts = (c: typeof config): string =>
-	JSON.stringify(Object.entries(c.hosts).map(([k, { reviewTeams: _teams, ...h }]) => [k, h]));
+	JSON.stringify(Object.entries(c.hosts).map(([k, { reviewTeams: _teams, anyRepo: _scope, ...h }]) => [k, h]));
 store.onChange((next) => {
 	const hostsBefore = runnerHosts(config);
 	for (const key of Object.keys(config)) if (!(key in next)) delete (config as unknown as Record<string, unknown>)[key];
@@ -127,8 +128,9 @@ async function getFollowUps(url: URL): Promise<Response> {
 	const targets = [];
 	for (const key of keys) {
 		const t = parsePrKey(key);
-		// Only tracked repos, so the endpoint can't be used to read arbitrary PRs through the server's gh login.
-		const tracked = t && config.repos.some((r) => r.host === t.host && r.owner.toLowerCase() === t.owner.toLowerCase() && r.name.toLowerCase() === t.repo.toLowerCase());
+		// Only repos in a host's scope (listed, or in its any-repo orgs), so the endpoint can't be used to read arbitrary PRs
+		// through the server's gh login.
+		const tracked = t && inScope(config, t.host, t.owner, t.repo);
 		if (!t || !tracked) return json<ErrorResponse>(400, { error: `bad request: not a PR key in a tracked repo: ${key.slice(0, 200)}` });
 		targets.push(t);
 	}

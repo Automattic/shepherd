@@ -114,7 +114,7 @@ claude mcp list
 | `me` | The `id` of the team member the dashboard treats as "you". |
 | `team[]` | `id`, `name`, `short` (the label on screen), and `logins`: one login per host key. |
 | `hosts.<key>` | Each GitHub host: `hostname`, `label`, and `bot` (the AI-review bot's login, or `null`). |
-| `repos[]` | `host` (a key from `hosts`), `owner`, `name`, and `short` (the label on screen). |
+| `repos[]` | `host` (a key from `hosts`), `owner`, `name`, and `short` (the label on screen). To find the team's PRs in any repo of some orgs, see [PRs in any repo](docs/configuration.md#prs-in-any-repo). |
 | `linear` | Optional. Your Linear workspace and team keys, for ticket links. |
 
 The server binds to `127.0.0.1` only. On a shared machine, set `SHEPHERD_TOKEN` to lock `/mcp` and `/api/*`; see [Token](docs/configuration.md#token-optional).

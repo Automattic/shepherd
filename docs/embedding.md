@@ -105,7 +105,7 @@ Each entry of `queries.examples` is `{ name, input, query, variables }`. `input`
 A host can give each viewer their own settings: the team, repos, review teams, Linear and features. The client edits them in its settings panel, through two calls. The host keeps the settings in its own storage. `src/types.ts` has the shapes.
 
 - `GET /api/settings` sends a `SettingsResponse`: `personal` and `deployment` (the values), `version`, `mode`, `fields` and, optionally, `problems`.
-- `PUT /api/settings` gets a `SettingsPutRequest`: `{ "version": "…", "personal": { … }, "deployment"?: { "hosts": { … } } }`. `personal` has all six keys (`me`, `team`, `repos`, `reviewTeams`, `linear`, `features`); refuse a request that leaves one out, so a missing key never deletes a setting. The client sends `deployment.hosts` only when `fields` makes a host field editable; a host that locks `/deployment` refuses a change to it as `not_editable`. Each host in `deployment.hosts` can have `proxied: true` when it goes through proxychains; the path itself is never sent. It sends the new `SettingsResponse` when it saves. Otherwise it sends a `SettingsErrorResponse`: `{ "error", "errors": [ { "path", "code", "message" } ] }`.
+- `PUT /api/settings` gets a `SettingsPutRequest`: `{ "version": "…", "personal": { … }, "deployment"?: { "hosts": { … } } }`. `personal` has all six keys (`me`, `team`, `repos`, `reviewTeams`, `linear`, `features`); refuse a request that leaves one out, so a missing key never deletes a setting. It can also have `anyRepo`, the hosts that find PRs in any repo of some orgs (host key to `{ "orgs": [...] }`, at least one org); it is newer than the six keys, so a request without it keeps the current value instead of deleting it. The client sends `deployment.hosts` only when `fields` makes a host field editable; a host that locks `/deployment` refuses a change to it as `not_editable`. Each host in `deployment.hosts` can have `proxied: true` when it goes through proxychains; the path itself is never sent. It sends the new `SettingsResponse` when it saves. Otherwise it sends a `SettingsErrorResponse`: `{ "error", "errors": [ { "path", "code", "message" } ] }`.
 
 | Status | When |
 | --- | --- |
@@ -144,7 +144,7 @@ The schema uses only these keywords: `$ref` (to `#/definitions/…`), `type` (on
 
 A message can have these placeholders: `{path}` (the path of the value, without its first segment: `team[0] (alice).pushPolicy`), `{parent}` (the path of its parent), `{item}` (the path of the nearest array item, or the parent), `{key}` (the last segment), `{value}`, `{enum}` (the allowed values, quoted, separated by commas) and `{options}` (the values of `x-keyOf` or `x-memberOf`). After an array item, a path adds its `x-label` in parentheses, when every field of the label is a non-empty string. The messages do not have to match this server's text exactly, but the pointers do.
 
-The schema allows an empty `repos`, for a host that finds PRs by author. This server refuses that itself, because it finds PRs in the listed repos.
+The schema allows an empty `repos`, for a host that finds PRs by author. This server allows it too: a host with no listed repos searches its `defaultOrgs` (see [PRs in any repo](configuration.md#prs-in-any-repo)). Send `defaultOrgs` with the other host fields in `deployment.hosts`, and mark `/deployment/hosts/*/defaultOrgs` not editable. To show repo chips for repos outside `repos`, send `anyRepo` (the orgs that apply) on those hosts in `/api/config`.
 
 ### Team and member views
 

@@ -2,7 +2,7 @@
 // A host that embeds the client gives the same responses from its own storage (see docs/embedding.md).
 
 import { configFeatures } from './config.ts';
-import { checkSettingsPut, localRules, settingsFromConfig } from './settings.ts';
+import { checkSettingsPut, settingsFromConfig } from './settings.ts';
 import { SettingsConflictError, SettingsWriteError, type ConfigStore } from './settings-store.ts';
 import type { ErrorResponse, FieldMeta, SettingsErrorResponse, SettingsResponse } from './types.ts';
 
@@ -27,6 +27,7 @@ export function localSettings(store: ConfigStore, env: Record<string, string | u
 		'/deployment/hosts/*/proxied': { editable: false, reason: HOST_FILE_REASON },
 		'/deployment/hosts/*/rowRefreshFloorMs': { editable: false, reason: HOST_FILE_REASON },
 		'/deployment/hosts/*/rowRefreshLowBudgetMs': { editable: false, reason: HOST_FILE_REASON },
+		'/deployment/hosts/*/defaultOrgs': { editable: false, reason: HOST_FILE_REASON },
 		'/deployment/refresh': { editable: false, reason: DEPLOYMENT_REASON },
 		'/deployment/aiReviewLabel': { editable: false, reason: DEPLOYMENT_REASON },
 		'/deployment/ignoreParticipants': { editable: false, reason: DEPLOYMENT_REASON },
@@ -70,7 +71,7 @@ export function createSettingsHandler(store: ConfigStore, { sameOrigin }: Settin
 		}
 		const body: unknown = await req.json().catch(() => undefined);
 		const current = localSettings(store);
-		const result = checkSettingsPut(body, { current, refuse: (next) => localRules(next) });
+		const result = checkSettingsPut(body, { current });
 		if (!result.ok) return json<SettingsErrorResponse>(result.status, result.body);
 		try {
 			await store.save(result.personal, current.version, result.deployment.hosts);

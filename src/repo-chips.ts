@@ -1,4 +1,5 @@
-// The repo chips when the config has no repos: keys and labels. Shared by the browser client and its tests.
+// The repo chips (keys and labels) for repos the config does not list, and the repos the page offers to add.
+// Shared by the browser client and its tests.
 
 export interface RepoId {
 	host: string;
@@ -45,4 +46,28 @@ export function repoChipLabels(ids: RepoId[], hostLabel: (host: string) => strin
  */
 export function unknownSelectedRepos(selected: string[], shown: string[]): string[] {
 	return selected.filter((key) => !shown.includes(key));
+}
+
+/** The listed repo for a repo id, matched without case, or undefined. */
+export function findListed<T extends RepoId>(listed: T[], id: RepoId): T | undefined {
+	const l = (s: string) => s.toLowerCase();
+	return listed.find((r) => r.host === id.host && l(r.owner) === l(id.owner) && l(r.name) === l(id.name));
+}
+
+/**
+ * The repos of `ids` that `listed` lacks, once each, in label order. With a host in any-repo mode the list finds PRs
+ * outside the listed repos; the page offers each of these repos as one to add ("Add more repos").
+ */
+export function unlistedRepos(ids: RepoId[], listed: RepoId[]): RepoId[] {
+	const seen = new Map<string, RepoId>();
+	for (const id of ids) if (!findListed(listed, id) && !seen.has(repoKey(id))) seen.set(repoKey(id), { host: id.host, owner: id.owner, name: id.name });
+	return [...seen.values()].sort((a, b) => `${a.name}/${a.owner}`.localeCompare(`${b.name}/${b.owner}`));
+}
+
+/** The entry for a repo to add to `repos`: its short name is the repo name, or `owner/name` when a listed repo already has that short name. */
+export function newRepoEntry(id: RepoId, listed: { short: string }[]): { host: string; owner: string; name: string; short: string } {
+	const taken = (s: string) => listed.some((r) => r.short.toLowerCase() === s.toLowerCase());
+	let short = taken(id.name) ? `${id.owner}/${id.name}` : id.name;
+	for (let n = 2; taken(short); n++) short = `${id.owner}/${id.name} (${n})`;
+	return { host: id.host, owner: id.owner, name: id.name, short };
 }

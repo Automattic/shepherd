@@ -7,8 +7,8 @@
 | `port` | Port to listen on. `PORT` in the environment wins. Defaults to `5050`. |
 | `me` | The `id` of the team member the dashboard treats as "you". |
 | `team[]` | `id`, `name`, `short` (the label on screen), and `logins`: one login per host key, for example `{ "github": "octocat", "work": "ocat" }`. Optional `pushPolicy`: how this person wants to receive changes on their PRs (`review-only`, `stacked-pr` or `push`; see [Push policies](push-policy.md)). |
-| `hosts.<key>` | `hostname`, `label`, `concurrency` (the cap on parallel `gh` processes, default 4), `bot` (the AI-review bot's login, or `null`; see [AI-review bots](#ai-review-bots)), optional `botsByOwner` (another bot for the repos of some orgs; same section), optional `proxychains` (a proxychains config path; see [GitHub Enterprise and proxies](github-enterprise.md)), optional `reviewTeams` (see [Review teams](review-teams.md)), and optional `rowRefreshFloorMs` and `rowRefreshLowBudgetMs` (see [Refresh rules](#refresh-rules)). |
-| `repos[]` | `host` (a key from `hosts`), `owner`, `name`, and `short` (the label on screen). Optional `maxBaseAgeHours`: flag PRs whose base is older than this many hours. Optional `allAuthors`: `true` lists every open PR in the repo, including PRs by people outside `team` (see [PRs from outside the team](#prs-from-outside-the-team)). Optional `pushPolicy` and `pushPolicyByAuthor` (keyed by team `id` or login): how authors in this repo want to receive changes (see [Push policies](push-policy.md)). |
+| `hosts.<key>` | `hostname`, `label`, `concurrency` (the cap on parallel `gh` processes, default 4), `bot` (the AI-review bot's login, or `null`; see [AI-review bots](#ai-review-bots)), optional `botsByOwner` (another bot for the repos of some orgs; same section), optional `proxychains` (a proxychains config path; see [GitHub Enterprise and proxies](github-enterprise.md)), optional `reviewTeams` (see [Review teams](review-teams.md)), optional `anyRepo` (find the team's PRs in any repo of some orgs) and `defaultOrgs` (the orgs a host with no listed repos searches; see [PRs in any repo](#prs-in-any-repo)), and optional `rowRefreshFloorMs` and `rowRefreshLowBudgetMs` (see [Refresh rules](#refresh-rules)). |
+| `repos[]` | Can be empty: a host with no listed repos searches its `defaultOrgs` (see [PRs in any repo](#prs-in-any-repo)). Each repo has `host` (a key from `hosts`), `owner`, `name`, and `short` (the label on screen). Optional `maxBaseAgeHours`: flag PRs whose base is older than this many hours. Optional `allAuthors`: `true` lists every open PR in the repo, including PRs by people outside `team` (see [PRs from outside the team](#prs-from-outside-the-team)). Optional `pushPolicy` and `pushPolicyByAuthor` (keyed by team `id` or login): how authors in this repo want to receive changes (see [Push policies](push-policy.md)). |
 | `linear` | Optional. `workspace` (the slug in Linear URLs) and `keys` (team prefixes to find in titles and branch names). Use `null` to turn ticket links off. |
 | `aiReviewLabel` | Optional. The name shown for the AI-review column and tile. Defaults to `AI review`. |
 | `herdr` | Optional. See [herdr terminal panes](herdr.md). `enabled` (default `true`; used only when herdr is installed and running) and `transcriptTailKb` (how much of each agent transcript to search, default 192). |
@@ -25,9 +25,9 @@ The gear button opens the settings panel. It edits `config.json` through `GET` a
 
 | Group | Settings | Who changes them |
 | --- | --- | --- |
-| Personal | `team` and each person's `logins`, `repos` (with `allAuthors`, `maxBaseAgeHours`, `pushPolicy` and `pushPolicyByAuthor`), the review teams (`hosts.<key>.reviewTeams`), `linear` and `features` | You, in the panel or in `config.json` |
+| Personal | `team` and each person's `logins`, `repos` (with `allAuthors`, `maxBaseAgeHours`, `pushPolicy` and `pushPolicyByAuthor`), where each host finds PRs (`hosts.<key>.anyRepo`), the review teams (`hosts.<key>.reviewTeams`), `linear` and `features` | You, in the panel or in `config.json` |
 | Hosts | Each host's `hostname`, `label`, `bot` and `botsByOwner`; adding and removing hosts | You, in the panel's Server section or in `config.json` |
-| Deployment | The other host fields (`concurrency`, `proxychains`, `rowRefreshFloorMs`, `rowRefreshLowBudgetMs`), `port`, `herdr`, `refresh`, `aiReviewLabel`, `ignoreParticipants`, `limits`, and the token | The person who runs the server, in `config.json` |
+| Deployment | The other host fields (`concurrency`, `proxychains`, `rowRefreshFloorMs`, `rowRefreshLowBudgetMs`, `defaultOrgs`), `port`, `herdr`, `refresh`, `aiReviewLabel`, `ignoreParticipants`, `limits`, and the token | The person who runs the server, in `config.json` |
 
 The panel lists its sections on the left: You, People, Repos, Review teams, Linear, Features and Server. It shows one section at a time. People and repos are rows with their logins and push policy; click a row to edit it. The Server section edits the GitHub hosts and their AI-review bots, and shows the other server settings. When a save is refused, the panel opens the section and the row of the first refused field, and the list of sections shows how many fields to fix in each one. On a narrow screen, the sections are tabs above the panel.
 
@@ -56,6 +56,29 @@ Set `allAuthors: true` on a repo to list every open PR in it, whoever wrote it:
 ```
 
 Use it on repos where the team reviews most outside work. On a busy repo it fills the dashboard with PRs the team doesn't own, and the server fetches the details of each listed PR that is not dormant, in batches (see [Fetching details in batches](refreshing.md#fetching-details-in-batches)). Those PRs still only wait on someone through the usual rules in [What "waiting on" means](dashboard.md#what-waiting-on-means); being listed doesn't put them in anyone's queue. Shipped and `merged_prs` stay limited to the team's PRs.
+
+## PRs in any repo
+
+By default a host finds PRs only in the repos listed in `repos`. Set `anyRepo` on a host to find the team's PRs in any repo of some orgs (or users) on that host:
+
+```json
+"github": { "hostname": "github.com", "label": "GitHub", "bot": null, "anyRepo": { "orgs": ["example-org", "other-org"] } }
+```
+
+`orgs` needs at least one org: there is no setting for every repo on a host, which on github.com would include personal repos and outside open-source work. The listed repos on the host are searched too, also when they are outside the orgs.
+
+The person who runs the server can set `defaultOrgs` on a host. It is a server setting, set only in `config.json` (a host that embeds Shepherd sets it with its other server settings); the panel shows it and cannot change it. It does two things:
+
+- A host with no listed repos and no `anyRepo` searches its `defaultOrgs`, when someone in `team` has a login there. Without `defaultOrgs`, such a host is not searched.
+- When you turn **Any repo** on in the panel, the org list starts as the host's `defaultOrgs`.
+
+```json
+"github": { "hostname": "github.com", "label": "GitHub", "bot": null, "defaultOrgs": ["example-org", "other-org"] }
+```
+
+The org scope covers every search on the host: the team's open PRs, review requests from bells, [review teams](review-teams.md), [Shipped](dashboard.md#shipped) and follow-ups. The listed repos keep their settings (`short`, `allAuthors`, `maxBaseAgeHours` and the push policies). A repo that is not listed has the repo name as its label, no base-age limit and no repo push policy. Each search still returns at most 500 PRs.
+
+In the settings panel, the Repos section has a switch for each host ("Any repo on …") and a field for its orgs. When a host is in any-repo mode, the dashboard shows a filter chip for each repo that has PRs, and the Repos section of the panel lists the repos that are not listed under **Add more repos**. Click one to add it to your repos with its name as the label, then Save. When the host had no listed repos and searched its `defaultOrgs`, adding a repo from **Add more repos** also turns **Any repo** on with those orgs, so the host keeps searching them. **Add a repo** does not: the host then searches only its listed repos.
 
 ## Refresh rules
 

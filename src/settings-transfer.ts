@@ -96,13 +96,14 @@ export function importSettings(raw: unknown, current: Pick<SettingsResponse, 'pe
 			notes.push(`Added the host ${h.hostname} (as "${key}")${bots.length ? `, with the AI-review bot${bots.length > 1 ? 's' : ''} ${bots.join(', ')}` : ''}.`);
 		} else missing.push(h.hostname);
 	}
-	if (missing.length) notes.push(`This server has no host ${missing.join(', ')}, so the logins, repos and review teams there were left out.`);
+	if (missing.length) notes.push(`This server has no host ${missing.join(', ')}, so the logins, repos, review teams and any-repo settings there were left out.`);
 	const mapLogins = (logins: Record<string, string>) =>
 		Object.fromEntries(Object.entries(logins).flatMap(([k, v]) => (keyMap.has(k) ? [[keyMap.get(k)!, v]] : [])));
 
 	let team: TeamMember[] = structuredClone(file.personal.team).map((m) => ({ ...m, logins: mapLogins(m.logins) }));
 	const repos = structuredClone(file.personal.repos).flatMap((r) => (keyMap.has(r.host) ? [{ ...r, host: keyMap.get(r.host)! }] : []));
 	const reviewTeams = Object.fromEntries(Object.entries(file.personal.reviewTeams ?? {}).flatMap(([k, v]) => (keyMap.has(k) ? [[keyMap.get(k)!, v]] : [])));
+	const anyRepo = Object.fromEntries(Object.entries(file.personal.anyRepo ?? {}).flatMap(([k, v]) => (keyMap.has(k) ? [[keyMap.get(k)!, structuredClone(v)]] : [])));
 
 	/** Gives a member a new id, and moves the per-author policies keyed by the old one. */
 	const renameMember = (m: TeamMember, to: string) => {
@@ -152,14 +153,15 @@ export function importSettings(raw: unknown, current: Pick<SettingsResponse, 'pe
 		team,
 		repos,
 		reviewTeams,
+		anyRepo,
 		linear: file.personal.linear ?? null,
 		features: { ...(file.personal.features ?? {}) },
 	};
 
 	// A field that this server does not let the viewer change keeps its value here.
-	for (const key of ['team', 'repos', 'reviewTeams', 'linear', 'features'] as const) {
+	for (const key of ['team', 'repos', 'reviewTeams', 'anyRepo', 'linear', 'features'] as const) {
 		if (!editable(`/personal/${key}`)) {
-			(personal as unknown as Record<string, unknown>)[key] = structuredClone(current.personal[key]);
+			(personal as unknown as Record<string, unknown>)[key] = structuredClone(key === 'anyRepo' ? (current.personal.anyRepo ?? {}) : current.personal[key]);
 			notes.push(`This server sets ${key} itself, so the file's ${key} was not used.`);
 		}
 	}
