@@ -363,7 +363,8 @@ const repoShort = (host: string, owner: string, name: string): string =>
 // in the config, the full repo key, so that two repos with the same name get different chips.
 const repoFilterKey = (host: string, owner: string, name: string): string =>
 	cfg.repos.length ? repoShort(host, owner, name) : repoKey({ host, owner, name });
-const linearUrl = (key: string): string => `https://linear.app/${cfg.linear?.workspace ?? ''}/issue/${key}`;
+const linearUrl = (key: string): string =>
+	`https://linear.app/${encodeURIComponent(cfg.linear?.workspace ?? '')}/issue/${encodeURIComponent(key)}`;
 
 // ---------------------------------------------------------------------------
 // Small render helpers
@@ -578,7 +579,7 @@ function cellPr(row: Row): string {
 	}
 	meta.push(pushPolicyPill(l));
 	for (const k of linearKeys(row)) {
-		meta.push(`<a class="linear" href="${linearUrl(k)}" target="_blank" rel="noopener" title="Open ${k} in Linear"><i class="fa-solid fa-ticket"></i>${k}</a>`);
+		meta.push(`<a class="linear" href="${esc(linearUrl(k))}" target="_blank" rel="noopener" title="Open ${esc(k)} in Linear"><i class="fa-solid fa-ticket"></i>${esc(k)}</a>`);
 	}
 	meta.push(...herdrChips(row));
 	meta.push(...assocChips(row));
@@ -1182,9 +1183,9 @@ function renderChrome(): void {
 			const bell = reviewers().includes(m.id);
 			const who = m.id === cfg.me ? 'you' : m.short;
 			return `<span class="person ${on ? 'on' : ''}">
-				<button class="p-main" data-person="${m.id}" title="Show only pull requests ${m.id === cfg.me ? 'you' : esc(m.name)} wrote">${avatar(Object.values(m.logins)[0] ?? '', Object.keys(m.logins)[0] ?? '')}${esc(m.short)} <span class="count">${n}</span></button>
-				<button class="p-wait ${waiting ? 'on' : ''}" data-wait="${m.id}" title="Show only pull requests waiting on ${esc(who)} (${waitN}): ${WAIT_REASONS_TITLE}"><i class="fa-${waiting ? 'solid' : 'regular'} fa-hourglass-half"></i>${waitN ? `<span class="count">${waitN}</span>` : ''}</button>
-				<button class="p-bell ${bell ? 'on' : ''}" data-bell="${m.id}" title="${bell ? 'Hide' : 'Include'} pull requests that request a review from ${esc(who)}"><i class="fa-${bell ? 'solid' : 'regular'} fa-bell"></i></button>
+				<button class="p-main" data-person="${esc(m.id)}" title="Show only pull requests ${m.id === cfg.me ? 'you' : esc(m.name)} wrote">${avatar(Object.values(m.logins)[0] ?? '', Object.keys(m.logins)[0] ?? '')}${esc(m.short)} <span class="count">${n}</span></button>
+				<button class="p-wait ${waiting ? 'on' : ''}" data-wait="${esc(m.id)}" title="Show only pull requests waiting on ${esc(who)} (${waitN}): ${WAIT_REASONS_TITLE}"><i class="fa-${waiting ? 'solid' : 'regular'} fa-hourglass-half"></i>${waitN ? `<span class="count">${waitN}</span>` : ''}</button>
+				<button class="p-bell ${bell ? 'on' : ''}" data-bell="${esc(m.id)}" title="${bell ? 'Hide' : 'Include'} pull requests that request a review from ${esc(who)}"><i class="fa-${bell ? 'solid' : 'regular'} fa-bell"></i></button>
 			</span>`;
 		})
 		.join('');

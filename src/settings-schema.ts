@@ -26,6 +26,10 @@ const HOSTNAME = '^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$';
  * letter or digit (never `__proto__`) and is not the name of an Object.prototype member, so a lookup by key never finds one.
  */
 const HOST_KEY = '^(?!(constructor|toString|toLocaleString|valueOf|hasOwnProperty|isPrototypeOf|propertyIsEnumerable)$)[A-Za-z0-9][A-Za-z0-9_-]*$';
+/** A team id. It is part of attributes, JSON pointers and per-author policy keys, so only plain characters. */
+const MEMBER_ID = '^[A-Za-z0-9][A-Za-z0-9_.-]*$';
+/** The workspace slug in Linear URLs, such as acme. */
+const LINEAR_WORKSPACE = '^[A-Za-z0-9][A-Za-z0-9_-]*$';
 /** A Linear team key, such as ENG. The client and the server build a regular expression from these. */
 const LINEAR_KEY = '^[A-Za-z][A-Za-z0-9]*$';
 
@@ -36,7 +40,7 @@ const member: SchemaNode = {
 	required: ['id', 'name', 'short', 'logins'],
 	additionalProperties: false,
 	properties: {
-		id: { type: 'string', minLength: 1, 'x-message': '{item} needs id, name and short' },
+		id: { type: 'string', minLength: 1, pattern: MEMBER_ID, 'x-message': { default: '{item} needs id, name and short', pattern: '{item} needs an id of letters, digits, ., _ and -, such as "sam"' } },
 		name: { type: 'string', minLength: 1, 'x-message': '{item} needs id, name and short' },
 		short: { type: 'string', minLength: 1, 'x-message': '{item} needs id, name and short' },
 		logins: {
@@ -141,7 +145,11 @@ export const SETTINGS_SCHEMA: SchemaNode = {
 					additionalProperties: false,
 					'x-message': '`linear` needs `workspace` and `keys` (or remove it)',
 					properties: {
-						workspace: { type: 'string', minLength: 1, 'x-message': '`linear` needs `workspace` and `keys` (or remove it)' },
+						workspace: {
+							type: 'string',
+							pattern: LINEAR_WORKSPACE,
+							'x-message': { default: '`linear` needs `workspace` and `keys` (or remove it)', pattern: '`linear.workspace` must be the slug in your Linear URLs: letters, digits, - and _' },
+						},
 						keys: {
 							type: 'array',
 							items: { type: 'string', pattern: LINEAR_KEY, 'x-message': '`linear.keys` must be team keys such as ENG: a letter, then letters or digits' },

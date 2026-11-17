@@ -125,3 +125,29 @@ describe('importing settings', () => {
 		expect(Object.values(r.hosts ?? {}).filter((h) => h.hostname.toLowerCase() === 'git.example.org').length).toBe(1);
 	});
 });
+
+describe('values that reach the dashboard HTML', () => {
+	const put = (edit: (p: SettingsResponse['personal']) => void) => {
+		const now = local();
+		const personal = JSON.parse(JSON.stringify(now.personal)) as SettingsResponse['personal'];
+		edit(personal);
+		return checkSettingsPut({ version: now.version, personal }, { current: now });
+	};
+
+	test('a team id or a Linear workspace with markup is refused, in a request, in config.json and in an import', () => {
+		const id = 'x"><img src=x onerror=alert(1)>';
+		expect(paths(put((p) => (p.team[1]!.id = id)))).toContain('/personal/team/1/id');
+		expect(paths(put((p) => (p.linear = { workspace: 'acme" onmouseover="alert(1)', keys: ['ENG'] })))).toEqual(['/personal/linear/workspace']);
+		const c = config();
+		c.team[1]!.id = id;
+		expect(problems(c).join(' ')).toContain('needs an id of letters, digits');
+		const file = JSON.parse(JSON.stringify(exportSettings(local()))) as { personal: { team: { id: string }[] } };
+		file.personal.team[1]!.id = id;
+		expect(() => importSettings(file, local())).toThrow('cannot use');
+	});
+
+	test('plain ids and workspace slugs pass', () => {
+		expect(put((p) => (p.team[1]!.id = 'bob.smith_2-x')).ok).toBe(true);
+		expect(put((p) => (p.linear = { workspace: 'acme-co_2', keys: ['ENG'] })).ok).toBe(true);
+	});
+});
