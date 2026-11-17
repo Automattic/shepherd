@@ -176,13 +176,18 @@ export function fieldMeta(fields: Record<string, FieldMeta>, pointer: string): F
 
 /** The cost limits that apply to the personal settings. */
 function limitErrors(next: PersonalSettings, current: SettingsResponse): SettingsFieldError[] {
-	const { maxPeople, maxRepos } = current.deployment.limits;
+	const { maxPeople, maxRepos, maxOrgs } = current.deployment.limits;
 	const errors: SettingsFieldError[] = [];
 	if (maxPeople !== undefined && next.team.length > maxPeople) {
 		errors.push({ path: '/personal/team', code: 'limit', message: `This server allows up to ${maxPeople} people; remove ${next.team.length - maxPeople}.` });
 	}
 	if (maxRepos !== undefined && next.repos.length > maxRepos) {
 		errors.push({ path: '/personal/repos', code: 'limit', message: `This server allows up to ${maxRepos} repos; remove ${next.repos.length - maxRepos}.` });
+	}
+	// An org opens every repo in it, so the orgs of `anyRepo` have their own cap.
+	const orgs = Object.values(next.anyRepo ?? {}).reduce((n, s) => n + (Array.isArray(s?.orgs) ? s.orgs.length : 0), 0);
+	if (maxOrgs !== undefined && orgs > maxOrgs) {
+		errors.push({ path: '/personal/anyRepo', code: 'limit', message: `This server allows up to ${maxOrgs} orgs for any repo; remove ${orgs - maxOrgs}.` });
 	}
 	return errors;
 }

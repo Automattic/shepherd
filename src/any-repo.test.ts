@@ -291,3 +291,42 @@ describe('review fixes', () => {
 		expect(importSettings(file, now).personal.anyRepo).toEqual({ github: { orgs: ['example-org'] } });
 	});
 });
+
+describe('review round 2 fixes', () => {
+	test('repo owner, repo name and logins only take the characters that GitHub allows, so they cannot add search terms', () => {
+		expect(problems(config([{ ...app, name: 'b org:victim-org' }]))).toEqual(['repos[0] (example-org/b org:victim-org) needs a repo name of letters, digits, ., _ and -']);
+		expect(problems(config([{ ...app, owner: 'a org:x' }]))).toEqual(['repos[0] (a org:x/app) needs an owner of letters, digits and -, such as example-org']);
+		const c = config([app]);
+		c.team[0]!.logins.github = 'alice org:victim-org';
+		expect(problems(c)).toEqual(['team[0] (alice) needs a GitHub login for host "github": letters, digits and -, with no spaces']);
+		expect(problems(config([{ ...app, owner: 'Example-Org', name: 'my.repo_name-2' }]))).toEqual([]);
+	});
+
+	test('limits.maxOrgs caps the orgs of anyRepo, all hosts together', () => {
+		const c = config([app], { orgs: ['a', 'b'] }, { ghe: { ...ghe, anyRepo: { orgs: ['c'] } } });
+		c.limits = { maxOrgs: 2 };
+		const now: SettingsResponse = { ...settingsFromConfig(c), version: 'v1', mode: 'personal', fields: { '/personal': { editable: true } } };
+		const r = checkSettingsPut({ version: 'v1', personal: now.personal }, { current: now });
+		expect(!r.ok && r.body.errors).toEqual([{ path: '/personal/anyRepo', code: 'limit', message: 'This server allows up to 2 orgs for any repo; remove 1.' }]);
+		const two = { ...structuredClone(now.personal), anyRepo: { github: { orgs: ['a', 'b'] } } };
+		expect(checkSettingsPut({ version: 'v1', personal: two }, { current: now }).ok).toBe(true);
+	});
+
+	test('a short name moves to an unlisted repo only when exactly one row has that name', () => {
+		const rows = [
+			{ host: 'github', owner: 'a', name: 'app' },
+			{ host: 'github', owner: 'b', name: 'app' },
+		];
+		expect(reconcileRepoFilter(['app'], [], rows)).toEqual(['app']);
+		expect(reconcileRepoFilter(['b/app'], [], rows)).toEqual(['github:b/app']);
+		expect(reconcileRepoFilter(['app'], [], [rows[0]!, rows[0]!])).toEqual(['github:a/app']);
+	});
+
+	test('an import into a server without anyRepo sends none', () => {
+		const from: SettingsResponse = { ...settingsFromConfig(config([app], { orgs: ['example-org'] })), version: 'v1', mode: 'personal', fields: { '/personal': { editable: true } } };
+		const older = structuredClone(from);
+		delete older.personal.anyRepo;
+		const file = JSON.parse(JSON.stringify(exportSettings(from))) as unknown;
+		expect('anyRepo' in importSettings(file, older).personal).toBe(false);
+	});
+});

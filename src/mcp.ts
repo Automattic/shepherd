@@ -8,7 +8,7 @@ import type { HerdrService } from './herdr.ts';
 import { countByAuthor, isMergedRange, MERGED_RANGES, mergedInRange, rangeBounds } from './merged.ts';
 import { DORMANT_MS, type PrService } from './prs.ts';
 import { PUSH_POLICIES, PUSH_POLICY_INSTRUCTIONS, PUSH_POLICY_RULE, resolvePushPolicy } from './push-policy.ts';
-import { anyRepoOrgs, inScope, searchHostKeys } from './repo-scope.ts';
+import { anyRepoOrgs, inScope, listedRepo, searchHostKeys } from './repo-scope.ts';
 import { reviewBot } from './review-bot.ts';
 import type { Config, FollowUp, LightPr, MergedPr, PrDetail, TeamMember } from './types.ts';
 import { changesRequestedPending, waitReasons, type WaitReason } from './waiting.ts';
@@ -118,7 +118,8 @@ export function createMcpHandler(config: Config, prs: PrService, herdr: HerdrSer
 		const hosts = m ? searchHostKeys(config).filter((h) => anyRepoOrgs(config, h) !== null && inScope(config, h, m[1]!, m[2]!)) : [];
 		if (m && hosts.length) return { host: hosts.length === 1 ? hosts[0]! : null, owner: m[1]!, name: m[2]! };
 		const anyNote = anyRepoHosts.length ? ` On ${anyRepoHosts.map(hostname).join(', ')}, give any repo in scope as owner/name.` : '';
-		throw new Error(`Unknown repo "${repo}". Known: ${config.repos.map((x) => `${x.short} (${x.owner}/${x.name})`).join(', ')}.${anyNote}`);
+		const known = config.repos.length ? ` Known: ${config.repos.map((x) => `${x.short} (${x.owner}/${x.name})`).join(', ')}.` : ' No repos are listed.';
+		throw new Error(`Unknown repo "${repo}".${known}${anyNote}`);
 	}
 	const inRepo = (p: { host: string; owner: string; repo: string }, f: RepoFilter): boolean =>
 		(f.host === null || p.host === f.host) && p.owner.toLowerCase() === f.owner.toLowerCase() && p.repo.toLowerCase() === f.name.toLowerCase();
@@ -135,8 +136,7 @@ export function createMcpHandler(config: Config, prs: PrService, herdr: HerdrSer
 		const m = team.find((t) => Object.values(t.logins).some((x) => x.toLowerCase() === l));
 		return m ? `${m.short === 'You' ? m.name : m.short} (${login})` : login;
 	};
-	const repoShort = (host: string, owner: string, name: string): string =>
-		config.repos.find((r) => r.host === host && r.owner === owner && r.name === name)?.short ?? name;
+	const repoShort = (host: string, owner: string, name: string): string => listedRepo(config, host, owner, name)?.short ?? name;
 	const linearUrl = (key: string) => (config.linear ? `https://linear.app/${config.linear.workspace}/issue/${key}` : null);
 	const reviewLabel = config.aiReviewLabel || 'AI review';
 	const exampleMember = team.find((m) => m.id !== config.me)?.id ?? me.id;

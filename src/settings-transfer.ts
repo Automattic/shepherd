@@ -103,11 +103,14 @@ export function importSettings(raw: unknown, current: Pick<SettingsResponse, 'pe
 	let team: TeamMember[] = structuredClone(file.personal.team).map((m) => ({ ...m, logins: mapLogins(m.logins) }));
 	const repos = structuredClone(file.personal.repos).flatMap((r) => (keyMap.has(r.host) ? [{ ...r, host: keyMap.get(r.host)! }] : []));
 	const reviewTeams = Object.fromEntries(Object.entries(file.personal.reviewTeams ?? {}).flatMap(([k, v]) => (keyMap.has(k) ? [[keyMap.get(k)!, v]] : [])));
-	// A file from before `anyRepo` has none: keep the server's, as a settings request without it does.
+	// A file from before `anyRepo` has none: keep the server's, as a settings request without it does. A server that has no
+	// `anyRepo` (an older host) gets none, so its save is not refused for a key it does not know.
 	const anyRepo =
-		file.personal.anyRepo === undefined
-			? structuredClone(current.personal.anyRepo ?? {})
-			: Object.fromEntries(Object.entries(file.personal.anyRepo).flatMap(([k, v]) => (keyMap.has(k) ? [[keyMap.get(k)!, structuredClone(v)]] : [])));
+		current.personal.anyRepo === undefined
+			? undefined
+			: file.personal.anyRepo === undefined
+				? structuredClone(current.personal.anyRepo)
+				: Object.fromEntries(Object.entries(file.personal.anyRepo).flatMap(([k, v]) => (keyMap.has(k) ? [[keyMap.get(k)!, structuredClone(v)]] : [])));
 
 	/** Gives a member a new id, and moves the per-author policies keyed by the old one. */
 	const renameMember = (m: TeamMember, to: string) => {
@@ -157,7 +160,7 @@ export function importSettings(raw: unknown, current: Pick<SettingsResponse, 'pe
 		team,
 		repos,
 		reviewTeams,
-		anyRepo,
+		...(anyRepo ? { anyRepo } : {}),
 		linear: file.personal.linear ?? null,
 		features: { ...(file.personal.features ?? {}) },
 	};
@@ -165,7 +168,8 @@ export function importSettings(raw: unknown, current: Pick<SettingsResponse, 'pe
 	// A field that this server does not let the viewer change keeps its value here.
 	for (const key of ['team', 'repos', 'reviewTeams', 'anyRepo', 'linear', 'features'] as const) {
 		if (!editable(`/personal/${key}`)) {
-			(personal as unknown as Record<string, unknown>)[key] = structuredClone(key === 'anyRepo' ? (current.personal.anyRepo ?? {}) : current.personal[key]);
+			if (key === 'anyRepo' && current.personal.anyRepo === undefined) delete personal.anyRepo;
+			else (personal as unknown as Record<string, unknown>)[key] = structuredClone(current.personal[key]);
 			notes.push(`This server sets ${key} itself, so the file's ${key} was not used.`);
 		}
 	}

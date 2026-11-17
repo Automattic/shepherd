@@ -229,7 +229,6 @@ export function prKey(host: string, owner: string, repo: string, number: number 
 	return `${host}:${owner}/${repo}#${number}`;
 }
 
-/** The reverse of prKey, or null when `key` is not one. */
 /**
  * The PRs of `/api/followups?prs=<key>,…`: each key parsed, and only in a repo of a host's scope (a listed repo, or a repo
  * of its any-repo orgs), so the endpoint can't be used to read the follow-ups of any PR through the server's gh login.
@@ -245,6 +244,7 @@ export function followUpTargets(config: Pick<Config, 'hosts' | 'repos' | 'team'>
 	return { targets };
 }
 
+/** The reverse of prKey, or null when `key` is not one. */
 export function parsePrKey(key: string): PrTarget | null {
 	const m = /^(.+):([\w.-]+)\/([\w.-]+)#(\d{1,9})$/.exec(key);
 	return m ? { host: m[1]!, owner: m[2]!, repo: m[3]!, number: Number(m[4]) } : null;

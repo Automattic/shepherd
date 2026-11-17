@@ -326,7 +326,7 @@ export function createSettingsPanel({ root, api, onSaved, seenRepos }: SettingsP
 		const fileOnly = [
 			h.concurrency !== undefined ? `up to ${esc(h.concurrency)} gh processes` : '',
 			h.rowRefreshFloorMs ? `rows refresh at most every ${esc(Math.round(h.rowRefreshFloorMs / 1000))}s` : '',
-			h.proxied ? 'goes through proxychains (removing the host, or giving it another key, removes that setting)' : '',
+			h.proxied ? 'goes through proxychains' : '',
 			h.defaultOrgs?.length ? `default orgs for any repo: ${esc(h.defaultOrgs.join(', '))}` : '',
 		].filter(Boolean);
 		return `<div class="s-card s-host" data-field="${esc(base)}">
@@ -353,7 +353,7 @@ export function createSettingsPanel({ root, api, onSaved, seenRepos }: SettingsP
 				${ownersEditable ? `<button type="button" class="s-link" data-s-org-add="${esc(k)}"><i class="fa-solid fa-plus"></i> Add an org</button>` : ''}
 			</div>
 			${fieldErrors(base)}${fieldErrors(`${base}/botsByOwner`)}
-			${fileOnly.length ? `<p class="s-hint"><i class="fa-solid fa-lock"></i> In config.json: ${fileOnly.join(', ')}.</p>` : ''}
+			${fileOnly.length ? `<p class="s-hint"><i class="fa-solid fa-lock"></i> In config.json: ${fileOnly.join(', ')}.${h.proxied || h.defaultOrgs?.length ? ' Removing the host, or giving it another key, removes its proxychains and default orgs.' : ''}</p>` : ''}
 			${listEditable ? `<div class="s-row-actions"><button type="button" class="s-danger" data-s-host-remove="${esc(k)}"><i class="fa-regular fa-trash-can"></i> Remove host</button></div>` : ''}
 		</div>`;
 	}
@@ -390,6 +390,7 @@ export function createSettingsPanel({ root, api, onSaved, seenRepos }: SettingsP
 			<dt>People</dt><dd>${limit(l.maxPeople)}</dd>
 			<dt>Repos</dt><dd>${limit(l.maxRepos)}</dd>
 			<dt>Bells</dt><dd>${limit(l.maxBells)}</dd>
+			<dt>Orgs for any repo</dt><dd>${limit(l.maxOrgs)}</dd>
 			<dt>Requests</dt><dd>${l.requestBudget ? `${esc(l.requestBudget.requests)} per ${esc(l.requestBudget.perSeconds)} seconds` : 'no limit'}</dd>
 		</dl>`;
 	}
@@ -402,7 +403,14 @@ export function createSettingsPanel({ root, api, onSaved, seenRepos }: SettingsP
 		const ids = suggestions();
 		if (!ids.length) return '';
 		const labels = repoChipLabels(ids, hostLabel, draft!.personal.repos.map((r) => r.short));
-		return `<div class="s-suggest"><span class="s-hint">Add more repos:</span>${ids
+		// Where `anyRepo` is locked, the first repo on a host that searches its default orgs ends that search.
+		const narrows = meta('/personal/anyRepo').editable
+			? []
+			: [...new Set(ids.map((id) => id.host))].filter((h) => !Object.hasOwn(draft!.personal.anyRepo ?? {}, h) && defaultScope(scopeConfig(), h) !== null);
+		const warning = narrows.length
+			? `<p class="s-hint"><i class="fa-solid fa-triangle-exclamation"></i> Adding a repo on ${esc(narrows.map(hostLabel).join(', '))} makes that host search only its listed repos, not its default orgs.</p>`
+			: '';
+		return `${warning}<div class="s-suggest"><span class="s-hint">Add more repos:</span>${ids
 			.map((id, i) => `<button type="button" class="chip-btn add" data-s-add-repo="${esc(repoKey(id))}" title="Track ${esc(`${id.owner}/${id.name}`)} on ${esc(hostLabel(id.host))}"><i class="fa-solid fa-plus"></i>${esc(labels[i]!)}</button>`)
 			.join('')}</div>`;
 	}
@@ -457,7 +465,7 @@ export function createSettingsPanel({ root, api, onSaved, seenRepos }: SettingsP
 					${meta('/personal/team').editable ? '<button type="button" class="s-add" data-s-add="team"><i class="fa-solid fa-plus"></i> Add a person</button>' : ''}`;
 			case 'repos':
 				// A server without the any-repo setting sends no `anyRepo`; it gets no switches.
-				return `${loaded!.personal.anyRepo !== undefined ? scopeSection() : ''}${fieldErrors('/personal/repos')}${p.repos.length ? `<div class="s-rows">${p.repos.map(repoRow).join('')}</div>` : '<p class="s-muted">No repos listed. A host with default orgs searches them; other hosts are not searched.</p>'}
+				return `${loaded!.personal.anyRepo !== undefined ? scopeSection() : ''}${fieldErrors('/personal/repos')}${p.repos.length ? `<div class="s-rows">${p.repos.map(repoRow).join('')}</div>` : `<p class="s-muted">${loaded!.personal.anyRepo !== undefined ? 'No repos listed. Hosts without any-repo orgs are not searched.' : 'No repos: PRs are found by author.'}</p>`}
 					${meta('/personal/repos').editable ? `<button type="button" class="s-add" data-s-add="repos"><i class="fa-solid fa-plus"></i> Add a repo</button>${suggestedRepos()}` : ''}`;
 			case 'review':
 				return hostKeys()
@@ -818,7 +826,7 @@ export function createSettingsPanel({ root, api, onSaved, seenRepos }: SettingsP
 			if (!id) return;
 			// A host that is in any-repo mode only because it has no repos stays in it: the chip means "track this one too".
 			// Where the host locks `anyRepo`, the setting stays as it is, so the save is not refused.
-			if (meta('/personal/anyRepo').editable) draft.personal.anyRepo = anyRepoAfterAdding({ ...scopeConfig(), anyRepo: draft.personal.anyRepo }, id.host);
+			if (loaded!.personal.anyRepo !== undefined && meta('/personal/anyRepo').editable) draft.personal.anyRepo = anyRepoAfterAdding({ ...scopeConfig(), anyRepo: draft.personal.anyRepo }, id.host);
 			draft.personal.repos.push(newRepoEntry(id, draft.personal.repos));
 			const next = dialog.querySelector<HTMLElement>(`[data-s-add-repo]:not([data-s-add-repo="${CSS.escape(ds.sAddRepo)}"])`)?.dataset.sAddRepo;
 			renderFocus(next ? `[data-s-add-repo="${CSS.escape(next)}"]` : '[data-s-add="repos"]');

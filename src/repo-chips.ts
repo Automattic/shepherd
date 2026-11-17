@@ -89,8 +89,9 @@ export function reconcileRepoFilter(selected: string[], listed: (RepoId & { shor
 		const id = parseRepoKey(key);
 		if (id.host) return findListed(listed, id)?.short ?? key;
 		if (shorts.has(key)) return key;
-		const row = rows.find((r) => !findListed(listed, r) && (l(r.name) === l(key) || l(`${r.owner}/${r.name}`) === l(key)));
-		return row ? repoKey(row) : key;
+		// Only one unlisted repo may match: with two repos of that name, the value stays for the user to clear.
+		const matches = new Map(rows.filter((r) => !findListed(listed, r) && (l(r.name) === l(key) || l(`${r.owner}/${r.name}`) === l(key))).map((r) => [repoKey(r), r]));
+		return matches.size === 1 ? [...matches.keys()][0]! : key;
 	});
 	return [...new Set(out)];
 }

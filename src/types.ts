@@ -193,6 +193,8 @@ export interface SettingsLimits {
 	maxRepos?: number;
 	/** The most people whose review requests the list includes (bells) in one request. */
 	maxBells?: number;
+	/** The most orgs in `anyRepo`, all hosts together. */
+	maxOrgs?: number;
 	/** The most API requests one viewer can make in `perSeconds` seconds. */
 	requestBudget?: { requests: number; perSeconds: number };
 }

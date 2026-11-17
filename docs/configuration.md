@@ -14,7 +14,7 @@
 | `herdr` | Optional. See [herdr terminal panes](herdr.md). `enabled` (default `true`; used only when herdr is installed and running) and `transcriptTailKb` (how much of each agent transcript to search, default 192). |
 | `refresh` | Optional. `"rows"` (the default) or `"list"`. Sets when the page loads a row again. See [Refresh rules](#refresh-rules). |
 | `features` | Optional. Turns dashboard features off: `shipped`, `followups` and `herdr`, each `true` or `false`. A missing key means on. See [Turn features off](#turn-features-off). |
-| `limits` | Optional. Cost limits that the server enforces: `maxPeople`, `maxRepos`, `maxBells` and `requestBudget`. See [Cost limits](#cost-limits). |
+| `limits` | Optional. Cost limits that the server enforces: `maxPeople`, `maxRepos`, `maxOrgs`, `maxBells` and `requestBudget`. See [Cost limits](#cost-limits). |
 | `ignoreParticipants` | Logins to leave out of Participants. Use it for bots and service accounts that appear as ordinary users. Logins ending in `[bot]` or `-bot` are always left out, and so is any actor that GitHub types as a `Bot` (a GitHub App such as `github-actions` has neither suffix), in Participants and in follow-ups. |
 
 The server binds to `127.0.0.1` only. The MCP endpoint refuses browser requests from other origins.
@@ -76,7 +76,7 @@ The person who runs the server can set `defaultOrgs` on a host. It is a server s
 "github": { "hostname": "github.com", "label": "GitHub", "bot": null, "defaultOrgs": ["example-org", "other-org"] }
 ```
 
-The org scope covers every search on the host: the team's open PRs, review requests from bells, [review teams](review-teams.md), [Shipped](dashboard.md#shipped) and follow-ups. The listed repos keep their settings (`short`, `allAuthors`, `maxBaseAgeHours` and the push policies). A repo that is not listed has the repo name as its label, no base-age limit and no repo push policy. Each search still returns at most 500 PRs.
+The org scope covers every search on the host: the team's open PRs, review requests from bells, [review teams](review-teams.md), [Shipped](dashboard.md#shipped) and the follow-ups endpoint. It does not limit reads of one PR by its link: the row refresh (`/api/pr`) and the MCP `get_pr` tool with a `url` read any PR on a configured host that the server's GitHub login can read, as they did before. The listed repos keep their settings (`short`, `allAuthors`, `maxBaseAgeHours` and the push policies). A repo that is not listed has the repo name as its label, no base-age limit and no repo push policy. Each search still returns at most 500 PRs.
 
 In the settings panel, the Repos section has a switch for each host ("Any repo on …") and a field for its orgs. When a host is in any-repo mode, the dashboard shows a filter chip for each repo that has PRs, and the Repos section of the panel lists the repos that are not listed under **Add more repos**. Click one to add it to your repos with its name as the label, then Save. When the host had no listed repos and searched its `defaultOrgs`, adding a repo from **Add more repos** also turns **Any repo** on with those orgs, so the host keeps searching them. **Add a repo** does not: the host then searches only its listed repos.
 
@@ -122,13 +122,14 @@ When a feature is off, the page sends no request for it and shows no error for i
 `limits` caps what one person's settings can cost the server's GitHub logins:
 
 ```json
-"limits": { "maxPeople": 12, "maxRepos": 20, "maxBells": 6, "requestBudget": { "requests": 600, "perSeconds": 3600 } }
+"limits": { "maxPeople": 12, "maxRepos": 20, "maxOrgs": 5, "maxBells": 6, "requestBudget": { "requests": 600, "perSeconds": 3600 } }
 ```
 
 | Key | What the server does |
 | --- | --- |
 | `maxPeople` | Refuses a settings save with more people in `team`. |
 | `maxRepos` | Refuses a settings save with more `repos`. |
+| `maxOrgs` | Refuses a settings save with more orgs in `anyRepo`, all hosts together. An org opens every repo in it, so it can cost more than a repo. |
 | `maxBells` | Uses only this many bells in one list request. |
 | `requestBudget` | The most API requests one viewer can make in `perSeconds` seconds. This server has one user and does not enforce it; a host with many viewers does. |
 

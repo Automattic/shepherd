@@ -19,6 +19,8 @@ const positiveInteger = (message: string): SchemaNode => ({ type: 'integer', min
 const LOGIN = '^[A-Za-z0-9][A-Za-z0-9_.-]*(\\[bot\\])?$';
 /** A GitHub org or user name. */
 const OWNER = '^[A-Za-z0-9][A-Za-z0-9-]*$';
+/** A GitHub repo name. */
+const REPO_NAME = '^[A-Za-z0-9._-]+$';
 /** A host name, without a port (gh refuses one). It never starts with `-`, so `gh` cannot read it as a flag. */
 const HOSTNAME = '^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$';
 /**
@@ -48,7 +50,12 @@ const member: SchemaNode = {
 			minProperties: 1,
 			'x-message': '{item} needs "logins": { "<host key>": "<login>" }',
 			propertyNames: { 'x-keyOf': '/deployment/hosts', 'x-message': '{item} has a login for unknown host "{key}"' },
-			additionalProperties: { type: 'string', minLength: 1, 'x-message': '{item} needs a login for host "{key}"' },
+			additionalProperties: {
+				type: 'string',
+				minLength: 1,
+				pattern: LOGIN,
+				'x-message': { default: '{item} needs a login for host "{key}"', pattern: '{item} needs a GitHub login for host "{key}": letters, digits and -, with no spaces' },
+			},
 		},
 		pushPolicy: pushPolicy(`{item} needs "pushPolicy" to be one of ${POLICY_LIST}, or no such field`),
 	},
@@ -62,8 +69,9 @@ const repo: SchemaNode = {
 	additionalProperties: false,
 	properties: {
 		host: { type: 'string', 'x-keyOf': '/deployment/hosts', 'x-message': '{item} uses unknown host "{value}"' },
-		owner: { type: 'string', minLength: 1, 'x-message': '{item} needs owner, name and short' },
-		name: { type: 'string', minLength: 1, 'x-message': '{item} needs owner, name and short' },
+		// The owner and the name go into GitHub search terms, so only the characters that GitHub allows in them.
+		owner: { type: 'string', minLength: 1, pattern: OWNER, 'x-message': { default: '{item} needs owner, name and short', pattern: '{item} needs an owner of letters, digits and -, such as example-org' } },
+		name: { type: 'string', minLength: 1, pattern: REPO_NAME, 'x-message': { default: '{item} needs owner, name and short', pattern: '{item} needs a repo name of letters, digits, ., _ and -' } },
 		short: { type: 'string', minLength: 1, 'x-message': '{item} needs owner, name and short' },
 		maxBaseAgeHours: { type: 'number', exclusiveMinimum: 0, 'x-message': '{item} needs "maxBaseAgeHours" to be a positive number, or no such field' },
 		allAuthors: { type: 'boolean', 'x-message': '{item} needs "allAuthors" to be true or false, or no such field' },
@@ -215,6 +223,7 @@ export const SETTINGS_SCHEMA: SchemaNode = {
 						maxPeople: positiveInteger('`limits.maxPeople` must be a whole number, 1 or more'),
 						maxRepos: positiveInteger('`limits.maxRepos` must be a whole number, 1 or more'),
 						maxBells: positiveInteger('`limits.maxBells` must be a whole number, 1 or more'),
+						maxOrgs: positiveInteger('`limits.maxOrgs` must be a whole number, 1 or more'),
 						requestBudget: {
 							type: 'object',
 							required: ['requests', 'perSeconds'],

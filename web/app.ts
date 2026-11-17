@@ -1049,7 +1049,11 @@ function layout(): void {
 	// Before boot (or when a banner stopped it), there is no config and no list to show.
 	if (!booted) return;
 	// A saved repo filter follows its repo into or out of the listed repos (for example after "Add more repos").
-	const repoFilter = reconcileRepoFilter(S.repos, cfg.repos, [...rows.values()].map((r) => ({ host: r.light.host, owner: r.light.owner, name: r.light.repo })));
+	const repoFilter = reconcileRepoFilter(
+		S.repos,
+		cfg.repos,
+		[...rows.values()].filter((r) => !r.gone).map((r) => ({ host: r.light.host, owner: r.light.owner, name: r.light.repo })),
+	);
 	if (repoFilter.join('\n') !== S.repos.join('\n')) {
 		S.repos = repoFilter;
 		save();
