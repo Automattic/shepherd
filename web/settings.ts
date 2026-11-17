@@ -353,7 +353,7 @@ export function createSettingsPanel({ root, api, onSaved, seenRepos }: SettingsP
 				${ownersEditable ? `<button type="button" class="s-link" data-s-org-add="${esc(k)}"><i class="fa-solid fa-plus"></i> Add an org</button>` : ''}
 			</div>
 			${fieldErrors(base)}${fieldErrors(`${base}/botsByOwner`)}
-			${fileOnly.length ? `<p class="s-hint"><i class="fa-solid fa-lock"></i> In config.json: ${fileOnly.join(', ')}.${h.proxied || h.defaultOrgs?.length ? ' Removing the host, or giving it another key, removes its proxychains and default orgs.' : ''}</p>` : ''}
+			${fileOnly.length ? `<p class="s-hint"><i class="fa-solid fa-lock"></i> In config.json: ${fileOnly.join(', ')}. Removing the host, or giving it another key, removes these settings.</p>` : ''}
 			${listEditable ? `<div class="s-row-actions"><button type="button" class="s-danger" data-s-host-remove="${esc(k)}"><i class="fa-regular fa-trash-can"></i> Remove host</button></div>` : ''}
 		</div>`;
 	}
@@ -702,6 +702,8 @@ export function createSettingsPanel({ root, api, onSaved, seenRepos }: SettingsP
 		// A feature that is on has no entry, as in config.json.
 		else if (kind === 'feature') value = raw === true ? undefined : false;
 		else if (kind === 'string') value = String(raw);
+		// A login, repo owner or repo name has no spaces, so a pasted space at either end is not part of it.
+		if (typeof value === 'string' && /\/logins\/[^/]+$|^\/personal\/repos\/\d+\/(owner|name)$/.test(el.dataset.path)) value = value.trim();
 		// A login left empty is no login on that host.
 		if (/\/logins\/[^/]+$/.test(el.dataset.path) && value === '') value = undefined;
 		setAt(draft as unknown as Record<string, unknown>, el.dataset.path, value);

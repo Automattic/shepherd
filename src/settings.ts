@@ -380,7 +380,8 @@ export function checkSettingsPut(body: unknown, { current, refuse }: PutContext)
 	// `anyRepo` is newer than the other keys, so a request without it keeps the current value instead of deleting it,
 	// less the hosts that the request removes (an older client cannot show an error about them).
 	const hosts = isObject(deployment.hosts) ? deployment.hosts : {};
-	const personal = Object.hasOwn(sent, 'anyRepo')
+	// A host whose settings have no `anyRepo` gets none, so a locked or unknown field is never filled in.
+	const personal = Object.hasOwn(sent, 'anyRepo') || current.personal.anyRepo === undefined
 		? sent
 		: { ...sent, anyRepo: Object.fromEntries(Object.entries(current.personal.anyRepo ?? {}).filter(([k]) => Object.hasOwn(hosts, k)).map(([k, v]) => [k, structuredClone(v)])) };
 	const next: SettingsDocument = { personal: personal as unknown as PersonalSettings, deployment };

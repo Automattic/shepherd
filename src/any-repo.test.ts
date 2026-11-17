@@ -2,7 +2,7 @@
 // listed repos, by the server (`defaultOrgs`). Run with `bun test`.
 
 import { describe, expect, test } from 'bun:test';
-import { problems, publicConfig } from './config.ts';
+import { problems, publicConfig, warnings } from './config.ts';
 import type { GhRunner } from './gh.ts';
 import { createPrService, followUpTargets } from './prs.ts';
 import { findListed, newRepoEntry, reconcileRepoFilter, repoChipLabels, unlistedRepos } from './repo-chips.ts';
@@ -294,11 +294,11 @@ describe('review fixes', () => {
 
 describe('review round 2 fixes', () => {
 	test('repo owner, repo name and logins only take the characters that GitHub allows, so they cannot add search terms', () => {
-		expect(problems(config([{ ...app, name: 'b org:victim-org' }]))).toEqual(['repos[0] (example-org/b org:victim-org) needs a repo name of letters, digits, ., _ and -']);
-		expect(problems(config([{ ...app, owner: 'a org:x' }]))).toEqual(['repos[0] (a org:x/app) needs an owner of letters, digits and -, such as example-org']);
+		expect(problems(config([{ ...app, name: 'b org:victim-org' }]))).toEqual(['repos[0] (example-org/b org:victim-org) needs a repo name of letters, digits, ., _ and -, with no spaces']);
+		expect(problems(config([{ ...app, owner: 'a org:x' }]))).toEqual(['repos[0] (a org:x/app) needs an owner of letters, digits, - and _, with no spaces, such as example-org']);
 		const c = config([app]);
 		c.team[0]!.logins.github = 'alice org:victim-org';
-		expect(problems(c)).toEqual(['team[0] (alice) needs a GitHub login for host "github": letters, digits and -, with no spaces']);
+		expect(problems(c)).toEqual(['team[0] (alice) needs a GitHub login for host "github": letters, digits, -, _ and ., with no spaces']);
 		expect(problems(config([{ ...app, owner: 'Example-Org', name: 'my.repo_name-2' }]))).toEqual([]);
 	});
 
@@ -328,5 +328,30 @@ describe('review round 2 fixes', () => {
 		delete older.personal.anyRepo;
 		const file = JSON.parse(JSON.stringify(exportSettings(from))) as unknown;
 		expect('anyRepo' in importSettings(file, older).personal).toBe(false);
+	});
+});
+
+describe('delta review fixes', () => {
+	test('an Enterprise Managed User account can own a listed repo and be an org of anyRepo', () => {
+		const c = config([{ ...app, owner: 'mona-cat_octo' }], { orgs: ['mona-cat_octo'] });
+		c.team[0]!.logins.github = 'mona-cat_octo';
+		expect(problems(c)).toEqual([]);
+	});
+
+	test('a host without anyRepo, which locks it, still saves and imports', () => {
+		const s = settingsFromConfig(config([app]));
+		delete s.personal.anyRepo;
+		const now: SettingsResponse = { ...s, version: 'v1', mode: 'personal', fields: { '/personal': { editable: true }, '/personal/anyRepo': { editable: false } } };
+		const saved = checkSettingsPut({ version: 'v1', personal: structuredClone(now.personal) }, { current: now });
+		expect(saved.ok).toBe(true);
+		expect(saved.ok && 'anyRepo' in saved.personal).toBe(false);
+		const file = JSON.parse(JSON.stringify(exportSettings(now))) as unknown;
+		expect(checkSettingsPut({ version: 'v1', personal: importSettings(file, now).personal }, { current: now }).ok).toBe(true);
+	});
+
+	test('more defaultOrgs than limits.maxOrgs is a warning at startup', () => {
+		const c = config([], undefined, {}, { defaultOrgs: ['a', 'b', 'c'] });
+		c.limits = { maxOrgs: 2 };
+		expect(warnings(c)).toEqual(["hosts.github.defaultOrgs has 3 orgs, more than limits.maxOrgs (2); a save that keeps them as the host's own orgs is refused"]);
 	});
 });

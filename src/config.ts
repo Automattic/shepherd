@@ -57,6 +57,11 @@ export function warnings(c: Config): string[] {
 		if (floor !== undefined && low !== undefined && low < floor) {
 			out.push(`hosts.${key}.rowRefreshLowBudgetMs (${low}) is less than rowRefreshFloorMs (${floor}); when the budget is low, the page uses the floor`);
 		}
+		// "Add more repos" turns a host's default orgs into its own orgs, which count toward limits.maxOrgs.
+		const maxOrgs = c.limits?.maxOrgs;
+		if (maxOrgs !== undefined && (h.defaultOrgs?.length ?? 0) > maxOrgs) {
+			out.push(`hosts.${key}.defaultOrgs has ${h.defaultOrgs!.length} orgs, more than limits.maxOrgs (${maxOrgs}); a save that keeps them as the host's own orgs is refused`);
+		}
 	}
 	c.repos.forEach((r, i) => {
 		if (!r.pushPolicyByAuthor) return;

@@ -17,8 +17,8 @@ const positiveInteger = (message: string): SchemaNode => ({ type: 'integer', min
 
 /** A GitHub login, or a GitHub App's login with the `[bot]` suffix. Also used for a team id that keys a per-author policy. */
 const LOGIN = '^[A-Za-z0-9][A-Za-z0-9_.-]*(\\[bot\\])?$';
-/** A GitHub org or user name. */
-const OWNER = '^[A-Za-z0-9][A-Za-z0-9-]*$';
+/** A GitHub org or user name. An Enterprise Managed User's name ends in `_` and the enterprise's shortcode. */
+const OWNER = '^[A-Za-z0-9][A-Za-z0-9_-]*$';
 /** A GitHub repo name. */
 const REPO_NAME = '^[A-Za-z0-9._-]+$';
 /** A host name, without a port (gh refuses one). It never starts with `-`, so `gh` cannot read it as a flag. */
@@ -54,7 +54,7 @@ const member: SchemaNode = {
 				type: 'string',
 				minLength: 1,
 				pattern: LOGIN,
-				'x-message': { default: '{item} needs a login for host "{key}"', pattern: '{item} needs a GitHub login for host "{key}": letters, digits and -, with no spaces' },
+				'x-message': { default: '{item} needs a login for host "{key}"', pattern: '{item} needs a GitHub login for host "{key}": letters, digits, -, _ and ., with no spaces' },
 			},
 		},
 		pushPolicy: pushPolicy(`{item} needs "pushPolicy" to be one of ${POLICY_LIST}, or no such field`),
@@ -70,8 +70,8 @@ const repo: SchemaNode = {
 	properties: {
 		host: { type: 'string', 'x-keyOf': '/deployment/hosts', 'x-message': '{item} uses unknown host "{value}"' },
 		// The owner and the name go into GitHub search terms, so only the characters that GitHub allows in them.
-		owner: { type: 'string', minLength: 1, pattern: OWNER, 'x-message': { default: '{item} needs owner, name and short', pattern: '{item} needs an owner of letters, digits and -, such as example-org' } },
-		name: { type: 'string', minLength: 1, pattern: REPO_NAME, 'x-message': { default: '{item} needs owner, name and short', pattern: '{item} needs a repo name of letters, digits, ., _ and -' } },
+		owner: { type: 'string', minLength: 1, pattern: OWNER, 'x-message': { default: '{item} needs owner, name and short', pattern: '{item} needs an owner of letters, digits, - and _, with no spaces, such as example-org' } },
+		name: { type: 'string', minLength: 1, pattern: REPO_NAME, 'x-message': { default: '{item} needs owner, name and short', pattern: '{item} needs a repo name of letters, digits, ., _ and -, with no spaces' } },
 		short: { type: 'string', minLength: 1, 'x-message': '{item} needs owner, name and short' },
 		maxBaseAgeHours: { type: 'number', exclusiveMinimum: 0, 'x-message': '{item} needs "maxBaseAgeHours" to be a positive number, or no such field' },
 		allAuthors: { type: 'boolean', 'x-message': '{item} needs "allAuthors" to be true or false, or no such field' },
