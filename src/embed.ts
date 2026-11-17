@@ -20,6 +20,17 @@ export interface ShepherdEmbedOptions {
 	 * Default: the client's own theme button.
 	 */
 	theme?: 'host';
+	/**
+	 * The host's own content for the left of the top bar (after the brand, when there is one): an HTML string or an
+	 * element. The client puts it in as it is: it is the host page's own markup, as trusted as the rest of that page.
+	 */
+	topbarStart?: string | Element;
+	/**
+	 * The host's content in place of the dashboard, for example a "Connect your GitHub account" card: an HTML string or
+	 * an element. When it is set, the client loads nothing (not even `/api/config`) and hides its controls; only the gate
+	 * and `topbarStart` work. The host removes it (reloads the page without it) when the dashboard may start.
+	 */
+	gate?: string | Element;
 }
 
 /** The mount element of the standalone page (public/index.html). */
@@ -77,6 +88,13 @@ function readMount(v: unknown): string | Element | undefined {
 	return undefined;
 }
 
+/** Host content: a non-empty HTML string or a DOM element. Other values give `undefined`. */
+function readHostContent(v: unknown): string | Element | undefined {
+	if (typeof v === 'string') return v.trim() ? v : undefined;
+	if (typeof Element !== 'undefined' && v instanceof Element) return v;
+	return undefined;
+}
+
 /** Reads `window.SHEPHERD`. The client ignores a value that is not valid. */
 export function readEmbedOptions(raw: unknown): ShepherdEmbedOptions {
 	if (!isRecord(raw)) return {};
@@ -90,6 +108,10 @@ export function readEmbedOptions(raw: unknown): ShepherdEmbedOptions {
 	if (typeof raw.header === 'boolean') opts.header = raw.header;
 	if (typeof raw.apiTrailingSlash === 'boolean') opts.apiTrailingSlash = raw.apiTrailingSlash;
 	if (raw.theme === 'host') opts.theme = 'host';
+	const topbarStart = readHostContent(raw.topbarStart);
+	if (topbarStart !== undefined) opts.topbarStart = topbarStart;
+	const gate = readHostContent(raw.gate);
+	if (gate !== undefined) opts.gate = gate;
 	return opts;
 }
 

@@ -2033,6 +2033,8 @@ function bootBanner(icon: string, html: string): void {
 
 void (async function boot(): Promise<void> {
 	applyTheme();
+	// The host shows its gate (for example, the viewer must connect GitHub first): nothing loads until it is gone.
+	if (EMBED.gate !== undefined) return;
 	let res: Response;
 	try {
 		res = await api('/api/config');
