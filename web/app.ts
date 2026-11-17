@@ -942,7 +942,8 @@ function renderRow(row: Row): void {
 function inScope(row: Row): boolean {
 	if (row.gone) return false;
 	if (!S.drafts && row.light.isDraft) return false;
-	if (!S.dormant && isDormant(row) && !waitingOnMe(row)) return false;
+	// Only a review request keeps a dormant PR here. The other reasons need details, and a hidden row never loads them.
+	if (!S.dormant && isDormant(row) && !waitReasonsFor(row, cfg.me).some((r) => r === 'requested' || r === 'team')) return false;
 	return true;
 }
 
