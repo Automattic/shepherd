@@ -334,6 +334,17 @@ test('contract: AI-review bot findings', () => {
 	});
 	// A host without a bot has no summary.
 	expect(expectedOf('merged-pr').bot).toBeNull();
+	// The case has no comment and no review of the bot, so the bot has not reviewed the PR.
+	expect([bot.reviewedAt, bot.current]).toEqual([null, null]);
+});
+
+test('contract: an AI review that is behind the head', () => {
+	const e = expectedOf('ai-review-behind');
+	// The bot's newest comment (created 10:00, last edited 10:05) is its review, not the older comment it touched at 12:30,
+	// and its review from 10:02 is older. The newest commit is from 11:00, so the review does not cover the head.
+	expect(e.lastCommitAt).toBe('2026-11-10T11:00:00Z');
+	expect([e.bot!.reviewedAt, e.bot!.current]).toEqual(['2026-11-10T10:05:00Z', false]);
+	expect(e.bot!.open).toBe(0);
 });
 
 test('contract: review requests and reviews', () => {

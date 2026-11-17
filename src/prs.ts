@@ -131,7 +131,7 @@ interface RawDetailPr {
 	};
 	latestOpinionatedReviews: { nodes: { state: PrReview['state']; submittedAt: string | null; author: RawAuthor | null }[] };
 	participants: { totalCount: number; nodes: { login: string; name: string | null }[] };
-	comments: { nodes: { author: RawAuthor | null; createdAt: string }[] };
+	comments: { nodes: { author: RawAuthor | null; createdAt: string; updatedAt: string }[] };
 	reviews: { nodes: { author: RawAuthor | null; submittedAt: string | null }[] };
 	commits: { nodes: { commit: { committedDate: string; author: { user: { login: string } | null } | null } }[] };
 	reviewThreads: {
@@ -567,14 +567,20 @@ export function createPrService(config: Config, gh: GhRunner): PrService {
 	// PRs whose detail batch failed, and when. Only `prefetchDetails` reads it: a call for one PR (the page's fallback, MCP) still tries.
 	const prefetchHeld = new Map<string, number>();
 
-	function shapeBot(hostKey: string, owner: string, repo: string, pr: RawDetailPr): BotSummary | null {
+	function shapeBot(hostKey: string, owner: string, repo: string, pr: RawDetailPr, lastCommitAt: string | null): BotSummary | null {
 		const bot = reviewBot(config, hostKey, owner);
 		if (!bot) return null;
 		const login = bot.toLowerCase();
+		const byBot = (a: RawAuthor | null) => a?.login?.toLowerCase() === login;
+		// The bot's newest comment is the one it made last, not the one it edited last: a bot that posts a new review can
+		// still touch its older one afterwards. The time of that comment is its last edit, for a bot that reviews in place.
+		const comment = pr.comments.nodes.filter((c) => byBot(c.author)).sort((a, b) => a.createdAt.localeCompare(b.createdAt)).at(-1);
+		const reviewedAt =
+			[comment?.updatedAt, ...pr.reviews.nodes.filter((r) => byBot(r.author)).map((r) => r.submittedAt)].filter((t): t is string => Boolean(t)).sort().at(-1) ?? null;
 		const findings: BotFinding[] = [];
 		for (const t of pr.reviewThreads.nodes) {
 			const first = t.comments.nodes[0];
-			if (!first || first.author?.login?.toLowerCase() !== login || t.isResolved) continue;
+			if (!first || !byBot(first.author) || t.isResolved) continue;
 			findings.push({
 				...parseBotFinding(first.body ?? ''),
 				outdated: t.isOutdated,
@@ -594,6 +600,8 @@ export function createPrService(config: Config, gh: GhRunner): PrService {
 			outdated: findings.filter((f) => f.outdated).length,
 			bySeverity,
 			findings,
+			reviewedAt,
+			current: reviewedAt === null ? null : lastCommitAt === null || reviewedAt >= lastCommitAt,
 		};
 	}
 
@@ -653,6 +661,7 @@ export function createPrService(config: Config, gh: GhRunner): PrService {
 		const mini = (p: RawMiniPr): MiniPr => ({ number: p.number, title: p.title, url: p.url, author: p.author?.login ?? 'ghost' });
 		const { participants, lastActive, lastActivity } = shapeParticipants(pr);
 		const parent = data.repository.parent?.nodes[0];
+		const lastCommitAt = pr.commits.nodes.map((c) => c.commit.committedDate).sort().at(-1) ?? null;
 
 		return {
 			key,
@@ -681,11 +690,11 @@ export function createPrService(config: Config, gh: GhRunner): PrService {
 				state: r.state,
 				submittedAt: r.submittedAt,
 			})),
-			bot: shapeBot(hostKey, owner, repo, pr),
+			bot: shapeBot(hostKey, owner, repo, pr, lastCommitAt),
 			participants,
 			authorLastActive: (pr.author && lastActive.get(pr.author.login)) ?? null,
 			lastActivity,
-			lastCommitAt: pr.commits.nodes.map((c) => c.commit.committedDate).sort().at(-1) ?? null,
+			lastCommitAt,
 			linear: [...linear],
 			refs: refs.filter((r) => r.key !== key),
 			hashRefs: hashRefs.filter((n) => n !== pr.number),
