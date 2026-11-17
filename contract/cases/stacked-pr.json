@@ -3,9 +3,13 @@
   "host": "github",
   "owner": "example-org",
   "repo": "app",
-  "number": 110,
-  "head": "feature/stacked-ui",
-  "base": "feature/base-work",
+  "prs": [
+    {
+      "number": 110,
+      "head": "feature/stacked-ui",
+      "base": "feature/base-work"
+    }
+  ],
   "data": {
     "rateLimit": {
       "remaining": 4990,
@@ -20,7 +24,7 @@
           "oid": "dddddddddddddddddddddddddddddddddddddddd"
         }
       },
-      "pullRequest": {
+      "pr0": {
         "number": 110,
         "title": "Example change 110",
         "url": "https://github.com/example-org/app/pull/110",
@@ -50,7 +54,9 @@
         "deletions": 3,
         "changedFiles": 2,
         "author": {
+          "__typename": "User",
           "login": "alice",
+          "avatarUrl": "https://avatars.example.com/alice?size=64",
           "name": "Alice Example"
         },
         "statusCheckRollup": {
@@ -79,19 +85,7 @@
           "nodes": []
         }
       },
-      "parent": {
-        "nodes": [
-          {
-            "number": 109,
-            "title": "Add the base API",
-            "url": "https://github.com/example-org/app/pull/109",
-            "author": {
-              "login": "bob"
-            }
-          }
-        ]
-      },
-      "stackedOnThis": {
+      "dn0": {
         "nodes": [
           {
             "number": 111,
@@ -106,6 +100,18 @@
             "title": "Add docs on top",
             "url": "https://github.com/example-org/app/pull/112",
             "author": null
+          }
+        ]
+      },
+      "up0": {
+        "nodes": [
+          {
+            "number": 109,
+            "title": "Add the base API",
+            "url": "https://github.com/example-org/app/pull/109",
+            "author": {
+              "login": "bob"
+            }
           }
         ]
       }

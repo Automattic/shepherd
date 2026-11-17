@@ -15,7 +15,7 @@
 | `refresh` | Optional. `"rows"` (the default) or `"list"`. Sets when the page loads a row again. See [Refresh rules](#refresh-rules). |
 | `features` | Optional. Turns dashboard features off: `shipped`, `followups` and `herdr`, each `true` or `false`. A missing key means on. See [Turn features off](#turn-features-off). |
 | `limits` | Optional. Cost limits that the server enforces: `maxPeople`, `maxRepos`, `maxBells` and `requestBudget`. See [Cost limits](#cost-limits). |
-| `ignoreParticipants` | Logins to leave out of Participants. Use it for bots and service accounts that appear as ordinary users. Logins ending in `[bot]` or `-bot` are always left out. |
+| `ignoreParticipants` | Logins to leave out of Participants. Use it for bots and service accounts that appear as ordinary users. Logins ending in `[bot]` or `-bot` are always left out, and so is any actor that GitHub types as a `Bot` (a GitHub App such as `github-actions` has neither suffix), in Participants and in follow-ups. |
 
 The server binds to `127.0.0.1` only. The MCP endpoint refuses browser requests from other origins.
 
@@ -50,7 +50,7 @@ Set `allAuthors: true` on a repo to list every open PR in it, whoever wrote it:
 { "host": "github", "owner": "example-org", "name": "plugin", "short": "plugin", "allAuthors": true }
 ```
 
-Use it on repos where the team reviews most outside work. On a busy repo it fills the dashboard with PRs the team doesn't own, and each listed PR costs a details fetch. Those PRs still only wait on someone through the usual rules in [What "waiting on" means](dashboard.md#what-waiting-on-means); being listed doesn't put them in anyone's queue. Shipped and `merged_prs` stay limited to the team's PRs.
+Use it on repos where the team reviews most outside work. On a busy repo it fills the dashboard with PRs the team doesn't own, and the server fetches the details of each listed PR that is not dormant, in batches (see [Fetching details in batches](refreshing.md#fetching-details-in-batches)). Those PRs still only wait on someone through the usual rules in [What "waiting on" means](dashboard.md#what-waiting-on-means); being listed doesn't put them in anyone's queue. Shipped and `merged_prs` stay limited to the team's PRs.
 
 ## Refresh rules
 
@@ -58,7 +58,7 @@ The server sends these values to the page, so the person who runs the server con
 
 - `hosts.<key>.rowRefreshFloorMs`: the shortest time, in milliseconds, before the page loads a row on this host again. The default is 120000 (2 minutes) on github.com and on hosts that report a GraphQL budget, and 20000 (20 seconds) on other hosts. The page still waits at least the refresh interval that the user selects. The value must be 10000 (10 seconds) or more.
 - `hosts.<key>.rowRefreshLowBudgetMs`: the time, in milliseconds, between row loads on this host when fewer than 500 GraphQL points remain. The default is 600000 (10 minutes). The value must be 10000 (10 seconds) or more. A low budget never makes rows load sooner: when this value is less than the floor, the page uses the floor. When both values are set and this one is less than `rowRefreshFloorMs`, the server prints a warning at startup.
-- `refresh: "list"`: the page loads a row only when the list shows a new **updated** time for it, when the row has no details yet, when the user clicks the refresh button of the row, or when the PR leaves the list. If that load fails, or the row is hidden at that time, the page tries again on a later tick. The page does not load a row from the list more often than every 10 seconds. **Refresh now** asks for a new list and does not ask for each row. The server reuses a list that is less than 10 seconds old for all list calls, and after a failed search it returns the same error for 10 seconds. A row load, also a forced one, reuses details that are less than 10 seconds old. The floors above then have no effect. GitHub does not change a PR's **updated** time when its checks finish or when its base branch moves. So in this mode, the status and base age of a row can stay old until the PR changes in another way, or until the user clicks the refresh button of the row.
+- `refresh: "list"`: the page loads a row only when the list shows a new **updated** time for it, when the row has no details yet, when the user clicks the refresh button of the row, or when the PR leaves the list. If that load fails, or the row is hidden at that time, the page tries again on a later tick. The page does not load a row from the list more often than every 10 seconds. **Refresh now** asks for a new list and does not ask for each row. The server reuses a list that is less than 10 seconds old for all list calls, and after a failed search it returns the same error for 10 seconds. A row load, also a forced one, reuses details that are less than 10 seconds old, and so does the server when it fetches details in batches after a list call (see [Fetching details in batches](refreshing.md#fetching-details-in-batches)). The floors above then have no effect. GitHub does not change a PR's **updated** time when its checks finish or when its base branch moves. So in this mode, the status and base age of a row can stay old until the PR changes in another way, or until the user clicks the refresh button of the row.
 
 ```json
 {

@@ -6,14 +6,13 @@ import { baseAgeHours, baseTooOld } from './base-age.ts';
 import { liveFollowUps } from './followups.ts';
 import type { HerdrService } from './herdr.ts';
 import { countByAuthor, isMergedRange, MERGED_RANGES, mergedInRange, rangeBounds } from './merged.ts';
-import type { PrService } from './prs.ts';
+import { DORMANT_MS, type PrService } from './prs.ts';
 import { PUSH_POLICIES, PUSH_POLICY_INSTRUCTIONS, PUSH_POLICY_RULE, resolvePushPolicy } from './push-policy.ts';
 import type { Config, FollowUp, LightPr, MergedPr, PrDetail, RepoConfig, TeamMember } from './types.ts';
 import { changesRequestedPending, waitReasons, type WaitReason } from './waiting.ts';
 
 const PROTOCOL_VERSIONS = ['2025-06-18', '2025-03-26', '2024-11-05'] as const;
 const DETAIL_MAX_AGE_MS = 60_000; // agents get data at most a minute old
-const DORMANT_MS = 60 * 24 * 3600 * 1000;
 const MAX_BODY_BYTES = 1_000_000;
 
 // ---------------------------------------------------------------------------
@@ -216,8 +215,8 @@ export function createMcpHandler(config: Config, prs: PrService, herdr: HerdrSer
 
 	async function details(list: LightPr[]): Promise<(Summary | ReturnType<typeof lightSummary>)[]> {
 		const settled = await Promise.allSettled(
-			list.map((p) =>
-				prs.getDetail({
+			prs.getDetails(
+				list.map((p) => ({
 					host: p.host,
 					owner: p.owner,
 					repo: p.repo,
@@ -225,7 +224,7 @@ export function createMcpHandler(config: Config, prs: PrService, herdr: HerdrSer
 					head: p.headRefName,
 					base: p.baseRefName,
 					maxAgeMs: DETAIL_MAX_AGE_MS,
-				})
+				}))
 			)
 		);
 		return settled.map((s, i) =>
@@ -394,8 +393,8 @@ export function createMcpHandler(config: Config, prs: PrService, herdr: HerdrSer
 					(p) => p.requestedFor.includes(person.id) || p.teamRequested || Date.now() - new Date(p.updatedAt).getTime() <= DORMANT_MS
 				);
 				const settled = await Promise.allSettled(
-					candidates.map((p) =>
-						prs.getDetail({ host: p.host, owner: p.owner, repo: p.repo, number: p.number, head: p.headRefName, base: p.baseRefName, maxAgeMs: DETAIL_MAX_AGE_MS })
+					prs.getDetails(
+						candidates.map((p) => ({ host: p.host, owner: p.owner, repo: p.repo, number: p.number, head: p.headRefName, base: p.baseRefName, maxAgeMs: DETAIL_MAX_AGE_MS }))
 					)
 				);
 				const waiting: (Summary & { waitingBecause: WaitReason[] })[] = [];

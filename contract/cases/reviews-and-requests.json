@@ -3,9 +3,13 @@
   "host": "github",
   "owner": "example-org",
   "repo": "app",
-  "number": 102,
-  "head": "feature/reviews",
-  "base": "main",
+  "prs": [
+    {
+      "number": 102,
+      "head": "feature/reviews",
+      "base": "main"
+    }
+  ],
   "data": {
     "rateLimit": {
       "remaining": 4990,
@@ -20,7 +24,7 @@
           "oid": "dddddddddddddddddddddddddddddddddddddddd"
         }
       },
-      "pullRequest": {
+      "pr0": {
         "number": 102,
         "title": "Example change 102",
         "url": "https://github.com/example-org/app/pull/102",
@@ -50,7 +54,9 @@
         "deletions": 3,
         "changedFiles": 2,
         "author": {
+          "__typename": "User",
           "login": "alice",
+          "avatarUrl": "https://avatars.example.com/alice?size=64",
           "name": "Alice Example"
         },
         "statusCheckRollup": {
@@ -62,14 +68,16 @@
               "requestedReviewer": {
                 "__typename": "User",
                 "login": "bob",
-                "name": "Bob Example"
+                "name": "Bob Example",
+                "avatarUrl": "https://avatars.example.com/bob?size=64"
               }
             },
             {
               "requestedReviewer": {
                 "__typename": "User",
                 "login": "carol",
-                "name": null
+                "name": null,
+                "avatarUrl": "https://avatars.example.com/carol?size=64"
               }
             },
             {
@@ -91,7 +99,9 @@
               "state": "APPROVED",
               "submittedAt": "2026-11-10T11:00:00Z",
               "author": {
-                "login": "dana"
+                "__typename": "User",
+                "login": "dana",
+                "avatarUrl": "https://avatars.example.com/dana?size=64"
               }
             },
             {
@@ -103,7 +113,9 @@
               "state": "DISMISSED",
               "submittedAt": null,
               "author": {
-                "login": "erin"
+                "__typename": "User",
+                "login": "erin",
+                "avatarUrl": "https://avatars.example.com/erin?size=64"
               }
             }
           ]
@@ -125,7 +137,7 @@
           "nodes": []
         }
       },
-      "stackedOnThis": {
+      "dn0": {
         "nodes": []
       }
     }

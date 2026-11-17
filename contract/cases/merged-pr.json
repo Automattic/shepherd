@@ -3,9 +3,13 @@
   "host": "github",
   "owner": "example-org",
   "repo": "app",
-  "number": 107,
-  "head": "feature/merged",
-  "base": "trunk",
+  "prs": [
+    {
+      "number": 107,
+      "head": "feature/merged",
+      "base": "trunk"
+    }
+  ],
   "data": {
     "rateLimit": {
       "remaining": 4990,
@@ -20,7 +24,7 @@
           "oid": "dddddddddddddddddddddddddddddddddddddddd"
         }
       },
-      "pullRequest": {
+      "pr0": {
         "number": 107,
         "title": "Example change 107",
         "url": "https://github.com/example-org/app/pull/107",
@@ -50,7 +54,9 @@
         "deletions": 3,
         "changedFiles": 2,
         "author": {
+          "__typename": "User",
           "login": "alice",
+          "avatarUrl": "https://avatars.example.com/alice?size=64",
           "name": "Alice Example"
         },
         "statusCheckRollup": {
@@ -79,7 +85,7 @@
           "nodes": []
         }
       },
-      "stackedOnThis": {
+      "dn0": {
         "nodes": []
       }
     }
