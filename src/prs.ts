@@ -359,7 +359,8 @@ export function createPrService(config: Config, gh: GhRunner): PrService {
 	const teamById = new Map(config.team.map((m) => [m.id, m]));
 	const hostKeys = [...new Set(config.repos.map((r) => r.host))];
 	const hostByHostname = new Map(Object.entries(config.hosts).map(([k, h]) => [h.hostname, k]));
-	const loginFor = (member: TeamMember | undefined, hostKey: string): string | undefined => member?.logins[hostKey];
+	const loginFor = (member: TeamMember | undefined, hostKey: string): string | undefined =>
+		member && Object.hasOwn(member.logins, hostKey) ? member.logins[hostKey] : undefined;
 	const linearKeys = config.linear?.keys ?? [];
 
 	const botLogins = new Set([

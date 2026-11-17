@@ -17,6 +17,11 @@ import type {
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
+/** Sets an own property, also for a key such as `__proto__`, which plain assignment turns into a prototype change. */
+const own = (o: Record<string, unknown>, key: string, value: unknown): void => {
+	Object.defineProperty(o, key, { value, enumerable: true, writable: true, configurable: true });
+};
+
 /** Copies `source[key]` into `target` only when it is there, so a missing key stays missing for the schema. */
 function copy(target: Record<string, unknown>, source: Record<string, unknown>, key: string, as = key): void {
 	if (source[key] !== undefined) target[as] = source[key];
@@ -40,12 +45,12 @@ export function documentFromConfig(c: Partial<Config>): SettingsDocument {
 		const hosts: Record<string, unknown> = {};
 		for (const [key, h] of Object.entries(raw.hosts)) {
 			if (!isObject(h)) {
-				hosts[key] = h;
+				own(hosts, key, h);
 				continue;
 			}
 			const { reviewTeams: teams, proxychains: _proxychains, ...rest } = h;
-			hosts[key] = rest;
-			if (teams !== undefined) reviewTeams[key] = teams;
+			own(hosts, key, rest);
+			if (teams !== undefined) own(reviewTeams, key, teams);
 		}
 		personal.reviewTeams = reviewTeams;
 		deployment.hosts = hosts;
@@ -80,6 +85,7 @@ export function settingsFromConfig(source: Config): SettingsDocument {
 					label: h.label,
 					bot: h.bot,
 					...(h.botsByOwner !== undefined ? { botsByOwner: h.botsByOwner } : {}),
+					...(h.proxychains ? { proxied: true } : {}),
 					...(h.concurrency !== undefined ? { concurrency: h.concurrency } : {}),
 					...(h.rowRefreshFloorMs !== undefined ? { rowRefreshFloorMs: h.rowRefreshFloorMs } : {}),
 					...(h.rowRefreshLowBudgetMs !== undefined ? { rowRefreshLowBudgetMs: h.rowRefreshLowBudgetMs } : {}),
@@ -132,7 +138,7 @@ export function mergeHosts(onDisk: Record<string, unknown>, hosts: DeploymentSet
 		else delete next.bot;
 		if (h.botsByOwner !== undefined && Object.keys(h.botsByOwner).length) next.botsByOwner = h.botsByOwner;
 		else delete next.botsByOwner;
-		out[key] = next;
+		own(out, key, next);
 	}
 	return { ...onDisk, hosts: out };
 }
@@ -224,6 +230,13 @@ function matches(doc: unknown, pattern: string): Match[] {
 	return current.map((c) => ({ pointer: toPointer(c.segs), id: c.ids.join('/'), parent: c.ids.slice(0, -1).join('/'), value: c.value }));
 }
 
+/** JSON with the keys of every object sorted, so that the order of keys is never a change. Arrays keep their order. */
+function stableJson(v: unknown): string {
+	const sort = (x: unknown): unknown =>
+		Array.isArray(x) ? x.map(sort) : isObject(x) ? Object.fromEntries(Object.keys(x).sort().map((k) => [k, sort(x[k])])) : x;
+	return JSON.stringify(sort(v)) ?? 'undefined';
+}
+
 /** `value` without the parts at `rest` (segments below it, `*` for any item). For masking editable fields inside a locked one. */
 function without(value: unknown, rest: string[]): unknown {
 	if (!rest.length) return undefined;
@@ -259,7 +272,7 @@ function notEditableChanges(prev: SettingsDocument, next: SettingsDocument, fiel
 		const holes = Object.entries(fields)
 			.filter(([p, m]) => m.editable && p.startsWith(`${pattern}/`))
 			.map(([p]) => fromPointer(p).slice(fromPointer(pattern).length));
-		const mask = (v: unknown) => JSON.stringify(holes.reduce((acc, hole) => without(acc, hole), v));
+		const mask = (v: unknown) => stableJson(holes.reduce((acc, hole) => without(acc, hole), v));
 		const before = new Map(matches(prev, pattern).map((m) => [m.id, m]));
 		const after = matches(next, pattern);
 		const afterIds = new Set(after.map((m) => m.id));
@@ -299,7 +312,7 @@ function nextDeployment(body: Record<string, unknown>, current: DeploymentSettin
 	const hosts: Record<string, unknown> = {};
 	for (const [key, h] of Object.entries(sent)) {
 		if (!isObject(h)) {
-			hosts[key] = h;
+			own(hosts, key, h);
 			continue;
 		}
 		const was = Object.hasOwn(current.hosts, key) ? (current.hosts[key] as unknown as Record<string, unknown>) : {};
@@ -312,7 +325,7 @@ function nextDeployment(body: Record<string, unknown>, current: DeploymentSettin
 			if ((HOST_FIELDS as readonly string[]).includes(f) || JSON.stringify(v) === JSON.stringify(was[f])) continue;
 			errors.push({ path: toPointer(['deployment', 'hosts', key, f]), code: 'not_editable', message: `${f} is set in config.json on the server.` });
 		}
-		hosts[key] = out;
+		own(hosts, key, out);
 	}
 	return { deployment: { ...current, hosts: hosts as DeploymentSettings['hosts'] }, errors };
 }

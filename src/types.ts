@@ -156,7 +156,8 @@ export interface PersonalSettings {
 
 /** The settings of the server. The page shows them; a host marks them not editable. */
 export interface DeploymentSettings {
-	hosts: Record<string, Pick<HostConfig, 'hostname' | 'label' | 'bot' | 'botsByOwner' | 'concurrency' | 'rowRefreshFloorMs' | 'rowRefreshLowBudgetMs'>>;
+	/** `proxied`: the host goes through proxychains (set in config.json; the path is never sent). */
+	hosts: Record<string, Pick<HostConfig, 'hostname' | 'label' | 'bot' | 'botsByOwner' | 'concurrency' | 'rowRefreshFloorMs' | 'rowRefreshLowBudgetMs'> & { proxied?: boolean }>;
 	refresh: RefreshMode;
 	aiReviewLabel: string;
 	ignoreParticipants: string[];

@@ -28,6 +28,9 @@ Run `bun run check` and `bun test` before you open a pull request.
 | `src/settings.ts` | The settings model: `config.json` to personal and deployment settings, field metadata, and the checks of `PUT /api/settings` |
 | `src/settings-store.ts` | `config.json` as settings storage: reload on change, conflict check, and safe writes |
 | `src/settings-api.ts` | `GET` and `PUT /api/settings` on the local server |
+| `src/settings-transfer.ts` | The settings file of the panel's Export and Import, and how an import fits it to another server |
+| `src/review-bot.ts` | Which login is the AI-review bot of a PR: the host's `botsByOwner` entry for the owner, or the host's `bot` |
+| `src/linear.ts` | The pattern for Linear ticket keys, with each key matched as plain text |
 | `src/gh.ts` | Runs `gh api` (GraphQL, plus REST GETs) with per-host concurrency caps and optional proxychains |
 | `src/prs.ts` | The follow-up query, shaping of the list, detail and follow-up data (AI-review findings, Linear keys, participants), caches, and the batched fetching of details (`getDetails()`, `prefetchDetails()`) |
 | `src/mcp.ts` | The MCP endpoint and its tools |
@@ -65,7 +68,7 @@ A host that does not run this server's data layer, but ports it to another langu
 
 The batch detail query has one `pr<i>` alias for each PR, a `dn<i>` alias (the PRs stacked on it) when the PR has a head branch, and an `up<i>` alias (the PR it is stacked on) when its base is not a default branch. `src/queries.ts` has the template and the builder, and nothing else builds a detail query: `getDetail()` in `src/prs.ts` sends a batch of one, `getDetails()` sends the PRs of a repository `BATCH_MAX` (10) to a query for the MCP tools, and `prefetchDetails()` does the same in the background for the PRs of a list call (see [Fetching details in batches](docs/refreshing.md#fetching-details-in-batches)). Names, numbers and branches reach GitHub only as variables, and the query text depends only on the number of PRs and on which PRs have a head and a stacked base. To change the query, change `BATCH_TEMPLATE` or a field set, and run `bun test`: the goldens in `src/queries.test.ts` are the same text as `queries.examples`, so they show the change.
 
-Every file has the same `context`, which is also the config that produced `expected`: the hosts `ghe` (hostname `github.example.com`, AI-review bot `review-bot`) and `github` (hostname `github.com`, no bot), and Linear workspace `example` with no keys. There are no review teams and no ignored participants. A host has to map these hostnames and the bot login to its own before it compares.
+Every file has the same `context`, which is also the config that produced `expected`: the hosts `ghe` (hostname `github.example.com`, AI-review bot `review-bot`) and `github` (hostname `github.com`, no default bot, but `other-review-bot` for the org `example-other-org` through `botsByOwner`), and Linear workspace `example` with no keys. There are no review teams and no ignored participants. A host has to map these hostnames, the org and the bot logins to its own before it compares.
 
 Things in `expected` that a host does not shape from `input`:
 

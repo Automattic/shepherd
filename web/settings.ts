@@ -1,5 +1,5 @@
-// The settings panel: edits the personal settings through GET and PUT /api/settings.
-// It shows the deployment settings and the cost limits read-only. It runs on the standalone page and on a
+// The settings panel: edits the personal settings through GET and PUT /api/settings, and the GitHub hosts where the
+// server allows it. It shows the other deployment settings and the cost limits read-only. It runs on the standalone page and on a
 // host page, because every call goes through the client's `api()` (apiBase, headers, trailing slash).
 // The per-browser UI state (bells, filters, sort, refresh interval, theme) stays in localStorage; see web/app.ts.
 //
@@ -10,6 +10,7 @@ import { FEATURES, type Feature } from '../src/features.ts';
 import { PUSH_POLICIES, PUSH_POLICY_LABELS } from '../src/push-policy.ts';
 import { fromPointer, toPointer } from '../src/schema.ts';
 import { fieldMeta } from '../src/settings.ts';
+import { exportSettings, importSettings } from '../src/settings-transfer.ts';
 import type { DeploymentSettings, PersonalSettings, PushPolicy, SettingsErrorResponse, SettingsFieldError, SettingsResponse, TeamMember } from '../src/types.ts';
 
 export interface SettingsPanelDeps {
@@ -21,7 +22,16 @@ export interface SettingsPanelDeps {
 }
 
 const ESCAPES: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
-const esc = (s: unknown): string => String(s ?? '').replace(/[&<>"']/g, (c) => ESCAPES[c] ?? c);
+/** Escapes text for HTML. Never throws: a value that cannot be turned into text (such as `{ "toString": 1 }`) shows as its type. */
+const esc = (s: unknown): string => {
+	let text: string;
+	try {
+		text = String(s ?? '');
+	} catch {
+		text = Object.prototype.toString.call(s);
+	}
+	return text.replace(/[&<>"']/g, (c) => ESCAPES[c] ?? c);
+};
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 const FEATURE_TEXT: Record<Feature, [label: string, hint: string]> = {
@@ -201,7 +211,7 @@ export function createSettingsPanel({ root, api, onSaved }: SettingsPanelDeps): 
 			${avatar(m)}
 			<span class="s-row-title">${esc(m.name || 'New person')}${isViewer ? ' <span class="s-you">you</span>' : ''}</span>
 			<span class="s-row-sub">${hostKeys()
-				.map((h) => (m.logins[h] ? `<span class="s-login"><b>${esc(hostLabel(h))}</b> ${esc(m.logins[h])}</span>` : ''))
+				.map((h) => (Object.hasOwn(m.logins, h) && m.logins[h] ? `<span class="s-login"><b>${esc(hostLabel(h))}</b> ${esc(m.logins[h])}</span>` : ''))
 				.join('')}</span>
 			${count ? `<span class="s-errcount" title="${count} to fix">${count}</span>` : ''}
 			${pill(m.pushPolicy, 'No policy')}
@@ -215,7 +225,7 @@ export function createSettingsPanel({ root, api, onSaved }: SettingsPanelDeps): 
 					${field('Label', input(`${base}/short`, m.short), fieldErrors(`${base}/short`), 'Shown on chips and filters.')}
 					${field('Id', input(`${base}/id`, m.id, { attrs: isViewer || saved ? ' readonly' : '' }), fieldErrors(`${base}/id`), saved ? 'Fixed once saved: bells and policies follow it.' : 'Short and lowercase, for example "sam".')}
 					${hostKeys()
-						.map((h) => field(`${hostLabel(h)} login`, input(`${base}/logins/${h}`, m.logins[h] ?? ''), fieldErrors(`${base}/logins/${h}`)))
+						.map((h) => field(`${hostLabel(h)} login`, input(`${base}/logins/${h}`, Object.hasOwn(m.logins, h) ? m.logins[h] : ''), fieldErrors(`${base}/logins/${h}`)))
 						.join('')}
 					${field(isViewer ? 'Your push policy' : 'Push policy', policySelect(`${base}/pushPolicy`, m.pushPolicy, 'Not set'), fieldErrors(`${base}/pushPolicy`))}
 				</div>
@@ -294,7 +304,9 @@ export function createSettingsPanel({ root, api, onSaved }: SettingsPanelDeps): 
 	}
 
 	/** True when this server lets the viewer change the hosts, or at least their bots. */
-	const hostsEditable = (): boolean => meta('/deployment/hosts').editable || hostKeys().some((k) => meta(toPointer(['deployment', 'hosts', k, 'bot'])).editable);
+	const hostsEditable = (): boolean =>
+		meta('/deployment/hosts').editable ||
+		hostKeys().some((k) => (['label', 'bot', 'botsByOwner'] as const).some((f) => meta(toPointer(['deployment', 'hosts', k, f])).editable));
 
 	/** One host, as fields: the key (fixed once saved), the host name, the label, the default bot and the bots per owner. */
 	function hostCard(k: string): string {
@@ -307,6 +319,7 @@ export function createSettingsPanel({ root, api, onSaved }: SettingsPanelDeps): 
 		const fileOnly = [
 			h.concurrency !== undefined ? `up to ${esc(h.concurrency)} gh processes` : '',
 			h.rowRefreshFloorMs ? `rows refresh at most every ${esc(Math.round(h.rowRefreshFloorMs / 1000))}s` : '',
+			h.proxied ? 'goes through proxychains (removing the host, or giving it another key, removes that setting)' : '',
 		].filter(Boolean);
 		return `<div class="s-card s-host" data-field="${esc(base)}">
 			<div class="s-grid">
@@ -393,7 +406,7 @@ export function createSettingsPanel({ root, api, onSaved }: SettingsPanelDeps): 
 						items.forEach((e) => placed.add(e.path));
 						return field(
 							hostLabel(h),
-							input(ptr, (p.reviewTeams[h] ?? []).join(', '), { kind: 'list', placeholder: 'org/team, org/other-team' }),
+							input(ptr, (Object.hasOwn(p.reviewTeams, h) ? p.reviewTeams[h]! : []).join(', '), { kind: 'list', placeholder: 'org/team, org/other-team' }),
 							fieldErrors(ptr) + items.map((e) => `<p class="s-err" role="alert"><i class="fa-solid fa-circle-exclamation"></i>${esc(e.message)}</p>`).join(''),
 							'As org/team, separated by commas.'
 						);
@@ -470,6 +483,8 @@ export function createSettingsPanel({ root, api, onSaved }: SettingsPanelDeps): 
 						${content}
 					</div>
 					<footer class="s-foot">
+						<button type="button" class="chip-btn" data-s-export title="Download your saved settings as a file, to import here or on another Shepherd"><i class="fa-solid fa-download"></i> Export</button>
+						<button type="button" class="chip-btn" data-s-import title="Load settings from an exported file. You review them, then save."><i class="fa-solid fa-upload"></i> Import</button>
 						<span class="s-dirty" data-s-dirty${dirty() ? '' : ' hidden'}><i class="fa-solid fa-circle"></i> Unsaved changes</span>
 						<span class="s-spacer"></span>
 						<button type="button" class="chip-btn" data-s-close>Cancel</button>
@@ -481,6 +496,49 @@ export function createSettingsPanel({ root, api, onSaved }: SettingsPanelDeps): 
 		const body = dialog.querySelector('.s-body');
 		if (body && sameSection) body.scrollTop = top;
 		dialog.dataset.section = view.section;
+	}
+
+	/** Downloads the saved settings (not unsaved edits) as a settings file. */
+	function exportFile(): void {
+		if (!loaded) return;
+		const blob = new Blob([`${JSON.stringify(exportSettings(loaded), null, 2)}\n`], { type: 'application/json' });
+		const a = document.createElement('a');
+		a.href = URL.createObjectURL(blob);
+		a.download = `shepherd-settings-${new Date().toISOString().slice(0, 10)}.json`;
+		dialog.append(a);
+		a.click();
+		a.remove();
+		setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+	}
+
+	/** Reads a settings file into the panel. Nothing is saved until the viewer saves. */
+	function pickImport(): void {
+		const picker = document.createElement('input');
+		picker.type = 'file';
+		picker.accept = 'application/json,.json';
+		picker.addEventListener('change', async () => {
+			const f = picker.files?.[0];
+			if (!f || !loaded || !draft) return;
+			try {
+				const result = importSettings(JSON.parse(await f.text()) as unknown, loaded);
+				draft.personal = result.personal;
+				if (result.hosts) draft.deployment.hosts = result.hosts;
+				errors = [];
+				view = { section: 'you' };
+				const notes = result.notes.length ? `<ul>${result.notes.map((n) => `<li>${esc(n)}</li>`).join('')}</ul>` : '';
+				notice = { kind: 'ok', html: `<strong>Imported ${esc(f.name)}.</strong> Look over the settings, then save them.${notes}` };
+			} catch (e) {
+				notice = { kind: 'error', html: `<strong>Could not import ${esc(f.name)}.</strong> ${esc(e instanceof SyntaxError ? 'The file is not JSON.' : (e as Error).message)}` };
+			}
+			try {
+				render();
+			} catch (e) {
+				// The import checks the file, so this is a bug: go back to the saved settings rather than leave a broken panel.
+				console.error(e);
+				show(loaded);
+			}
+		});
+		picker.click();
 	}
 
 	/** Renders, then puts the focus back on the control that caused it, which the render replaced. */
@@ -615,6 +673,7 @@ export function createSettingsPanel({ root, api, onSaved }: SettingsPanelDeps): 
 			if (!to || Object.hasOwn(hosts, to)) return refuse(toPointer(['deployment', 'hosts', from]), to ? `There is already a host "${to}".` : 'A host needs a key.');
 			draft.deployment.hosts = rename(hosts, from, to);
 			if (Object.hasOwn(draft.personal.reviewTeams, from)) draft.personal.reviewTeams = rename(draft.personal.reviewTeams, from, to);
+			for (const m of draft.personal.team) if (Object.hasOwn(m.logins, from)) m.logins = rename(m.logins, from, to);
 			renderFocus(`[data-s-host-key="${CSS.escape(to)}"]`);
 		} else if (el.dataset.sOrgKey !== undefined && el.dataset.host !== undefined) {
 			const host = hosts[el.dataset.host];
@@ -714,8 +773,22 @@ export function createSettingsPanel({ root, api, onSaved }: SettingsPanelDeps): 
 			hosts[key] = { hostname: '', label: '', bot: null };
 			renderFocus(`[data-path="${toPointer(['deployment', 'hosts', key, 'hostname'])}"]`);
 		} else if (ds.sHostRemove !== undefined) {
-			delete draft.deployment.hosts[ds.sHostRemove];
-			// Errors point at hosts that are gone. A host still in use is refused at save, at the logins and repos that use it.
+			const key = ds.sHostRemove;
+			const repos = draft.personal.repos.filter((r) => r.host === key);
+			if (repos.length) {
+				// The repos would point at a host that is gone: say which, and keep the host.
+				const path = toPointer(['deployment', 'hosts', key]);
+				errors = [
+					...errors.filter((x) => x.path !== path),
+					{ path, code: 'invalid', message: `Remove the repos on this host first: ${repos.map((r) => `${r.owner}/${r.name}`).join(', ')}.` },
+				];
+				render();
+				return;
+			}
+			delete draft.deployment.hosts[key];
+			// The logins and review teams on the host go with it, since the panel has no field left for them.
+			for (const m of draft.personal.team) if (Object.hasOwn(m.logins, key)) delete m.logins[key];
+			if (Object.hasOwn(draft.personal.reviewTeams, key)) delete draft.personal.reviewTeams[key];
 			errors = [];
 			render();
 		} else if (ds.sOrgAdd !== undefined) {
@@ -734,6 +807,10 @@ export function createSettingsPanel({ root, api, onSaved }: SettingsPanelDeps): 
 			}
 			errors = [];
 			render();
+		} else if ('sExport' in ds) {
+			exportFile();
+		} else if ('sImport' in ds) {
+			pickImport();
 		} else if ('sReload' in ds && dialog.dataset.fresh) {
 			const fresh = JSON.parse(dialog.dataset.fresh) as SettingsResponse;
 			delete dialog.dataset.fresh;

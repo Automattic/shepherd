@@ -769,3 +769,7 @@
 .shepherd .s-hosts { display: flex; flex-direction: column; gap: 12px; }
 .shepherd .s-host { background: var(--surface); }
 .shepherd .s-hosts + .s-add { margin-bottom: 22px; }
+.shepherd .s-foot .chip-btn i { margin-right: 4px; }
+@media (max-width: 720px) {
+	.shepherd .s-foot { flex-wrap: wrap; }
+}

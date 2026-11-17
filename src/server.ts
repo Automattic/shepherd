@@ -68,6 +68,9 @@ const json = <T>(status: number, body: T) =>
 	Response.json(body, { status, headers: { 'cache-control': 'no-store' } });
 
 async function listPrs(url: URL): Promise<Response> {
+	// One service for the whole call: a save while it waits makes a new one, with other hosts.
+	const svc = prs;
+	const runner = gh;
 	const teamIds = new Set(config.team.map((m) => m.id));
 	const reviewerIds = (url.searchParams.get('reviewers') ?? '')
 		.split(',')
@@ -75,16 +78,16 @@ async function listPrs(url: URL): Promise<Response> {
 		.sort()
 		// The cost limit on bells: each one adds a search term.
 		.slice(0, config.limits?.maxBells ?? Infinity);
-	const settled = await Promise.allSettled(prs.hostKeys.map((h) => prs.listHost(h, reviewerIds)));
+	const settled = await Promise.allSettled(svc.hostKeys.map((h) => svc.listHost(h, reviewerIds)));
 	const list: LightPr[] = [];
 	const errors: Record<string, string> = {};
 	const throttled: Record<string, boolean> = {};
 	settled.forEach((s, i) => {
-		const host = prs.hostKeys[i]!;
+		const host = svc.hostKeys[i]!;
 		if (s.status === 'fulfilled') {
 			// Send the details we already have, so the page does not ask for each row again.
 			for (const pr of s.value.prs) {
-				const detail = prs.cachedDetail(pr.key, pr.updatedAt);
+				const detail = svc.cachedDetail(pr.key, pr.updatedAt);
 				list.push(detail ? { ...pr, detail } : pr);
 			}
 			throttled[host] = s.value.throttled;
@@ -94,17 +97,18 @@ async function listPrs(url: URL): Promise<Response> {
 	});
 	// Fetch the details of the rows that lack them, in batches, and do not wait: the list answers now, and the page's /api/pr calls
 	// for these rows wait for the pending batch and send no query. A failed batch is only logged, and its rows just have no detail.
-	void prs.prefetchDetails(list, throttled);
-	return json<ListResponse>(200, { prs: list, errors, throttled, rate: gh.rate, fetchedAt: new Date().toISOString() });
+	void svc.prefetchDetails(list, throttled);
+	return json<ListResponse>(200, { prs: list, errors, throttled, rate: runner.rate, fetchedAt: new Date().toISOString() });
 }
 
 /** The team's merged PRs for the widest range; the page filters to the range picked, with no new request. */
 async function listMerged(): Promise<Response> {
-	const settled = await Promise.allSettled(prs.hostKeys.map((h) => prs.listMerged(h)));
+	const svc = prs;
+	const settled = await Promise.allSettled(svc.hostKeys.map((h) => svc.listMerged(h)));
 	const list: MergedPr[] = [];
 	const errors: Record<string, string> = {};
 	settled.forEach((s, i) => {
-		const host = prs.hostKeys[i]!;
+		const host = svc.hostKeys[i]!;
 		if (s.status === 'rejected') errors[host] = (s.reason as Error).message;
 		else {
 			list.push(...s.value.prs);

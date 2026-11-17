@@ -24,6 +24,7 @@ export function localSettings(store: ConfigStore, env: Record<string, string | u
 		// The hosts are editable here, apart from the fields that start processes or set their limits.
 		'/deployment/hosts': { editable: true },
 		'/deployment/hosts/*/concurrency': { editable: false, reason: HOST_FILE_REASON },
+		'/deployment/hosts/*/proxied': { editable: false, reason: HOST_FILE_REASON },
 		'/deployment/hosts/*/rowRefreshFloorMs': { editable: false, reason: HOST_FILE_REASON },
 		'/deployment/hosts/*/rowRefreshLowBudgetMs': { editable: false, reason: HOST_FILE_REASON },
 		'/deployment/refresh': { editable: false, reason: DEPLOYMENT_REASON },
@@ -32,7 +33,7 @@ export function localSettings(store: ConfigStore, env: Record<string, string | u
 		'/deployment/limits': { editable: false, reason: DEPLOYMENT_REASON },
 	};
 	if (hasEnterpriseToken(env)) {
-		// Only the label and the bot of the existing hosts.
+		// Only the label, the bot and the bots per org of the existing hosts.
 		fields['/deployment/hosts'] = { editable: false, reason: ENTERPRISE_TOKEN_REASON };
 		fields['/deployment/hosts/*/label'] = { editable: true };
 		fields['/deployment/hosts/*/bot'] = { editable: true };

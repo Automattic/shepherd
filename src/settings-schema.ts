@@ -19,10 +19,13 @@ const positiveInteger = (message: string): SchemaNode => ({ type: 'integer', min
 const LOGIN = '^[A-Za-z0-9][A-Za-z0-9_.-]*(\\[bot\\])?$';
 /** A GitHub org or user name. */
 const OWNER = '^[A-Za-z0-9][A-Za-z0-9-]*$';
-/** A host name with an optional port. It never starts with `-`, so `gh` cannot read it as a flag. */
-const HOSTNAME = '^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?(:[0-9]{1,5})?$';
-/** A key of `hosts`. It is part of JSON pointers and of each login and repo, so only plain characters. */
-const HOST_KEY = '^[A-Za-z0-9_-]+$';
+/** A host name, without a port (gh refuses one). It never starts with `-`, so `gh` cannot read it as a flag. */
+const HOSTNAME = '^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$';
+/**
+ * A key of `hosts`. It is part of JSON pointers and of each login and repo, so only plain characters. It starts with a
+ * letter or digit (never `__proto__`) and is not the name of an Object.prototype member, so a lookup by key never finds one.
+ */
+const HOST_KEY = '^(?!(constructor|toString|toLocaleString|valueOf|hasOwnProperty|isPrototypeOf|propertyIsEnumerable)$)[A-Za-z0-9][A-Za-z0-9_-]*$';
 /** A Linear team key, such as ENG. The client and the server build a regular expression from these. */
 const LINEAR_KEY = '^[A-Za-z][A-Za-z0-9]*$';
 
@@ -85,6 +88,7 @@ const host: SchemaNode = {
 			additionalProperties: { type: ['string', 'null'], pattern: LOGIN, 'x-message': '{path} must be a bot login, or null for none' },
 		},
 		concurrency: positiveInteger('{path} must be a whole number, 1 or more, or no such field'),
+		proxied: { type: 'boolean', 'x-message': '{path} must be true or false, or no such field' },
 		rowRefreshFloorMs: { type: 'number', minimum: MIN_ROW_REFRESH_MS, 'x-message': `{path} ${MS}` },
 		rowRefreshLowBudgetMs: { type: 'number', minimum: MIN_ROW_REFRESH_MS, 'x-message': `{path} ${MS}` },
 	},
@@ -160,7 +164,7 @@ export const SETTINGS_SCHEMA: SchemaNode = {
 			properties: {
 				hosts: {
 					type: 'object',
-					propertyNames: { pattern: HOST_KEY, 'x-message': 'host key "{key}" may have only letters, digits, - and _' },
+					propertyNames: { pattern: HOST_KEY, 'x-message': 'host key "{key}" must start with a letter or digit, have only letters, digits, - and _, and not be a JavaScript name such as constructor' },
 					additionalProperties: { $ref: '#/definitions/host' },
 					'x-message': '`hosts` must be an object',
 				},

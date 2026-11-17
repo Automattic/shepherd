@@ -105,7 +105,7 @@ Each entry of `queries.examples` is `{ name, input, query, variables }`. `input`
 A host can give each viewer their own settings: the team, repos, review teams, Linear and features. The client edits them in its settings panel, through two calls. The host keeps the settings in its own storage. `src/types.ts` has the shapes.
 
 - `GET /api/settings` sends a `SettingsResponse`: `personal` and `deployment` (the values), `version`, `mode`, `fields` and, optionally, `problems`.
-- `PUT /api/settings` gets a `SettingsPutRequest`: `{ "version": "…", "personal": { … }, "deployment"?: { "hosts": { … } } }`. `personal` has all six keys (`me`, `team`, `repos`, `reviewTeams`, `linear`, `features`); refuse a request that leaves one out, so a missing key never deletes a setting. The client sends `deployment.hosts` only when `fields` makes a host field editable; a host that locks `/deployment` refuses it as `not_editable`. It sends the new `SettingsResponse` when it saves. Otherwise it sends a `SettingsErrorResponse`: `{ "error", "errors": [ { "path", "code", "message" } ] }`.
+- `PUT /api/settings` gets a `SettingsPutRequest`: `{ "version": "…", "personal": { … }, "deployment"?: { "hosts": { … } } }`. `personal` has all six keys (`me`, `team`, `repos`, `reviewTeams`, `linear`, `features`); refuse a request that leaves one out, so a missing key never deletes a setting. The client sends `deployment.hosts` only when `fields` makes a host field editable; a host that locks `/deployment` refuses a change to it as `not_editable`. Each host in `deployment.hosts` can have `proxied: true` when it goes through proxychains; the path itself is never sent. It sends the new `SettingsResponse` when it saves. Otherwise it sends a `SettingsErrorResponse`: `{ "error", "errors": [ { "path", "code", "message" } ] }`.
 
 | Status | When |
 | --- | --- |
@@ -123,6 +123,10 @@ The `code` of each error:
 `fields` maps JSON pointers to `{ "editable": boolean, "reason"?: string }`. A `*` segment matches any item, and the longest matching pointer wins. A pointer with no match is editable under `/personal` and not editable under `/deployment`. Check a lock at each place it names, not as a list of values: an item of `team` is the same item when its `id` is the same, wherever it is in the array, and an error names the concrete field (`/personal/team/1/pushPolicy`). Send `{ "editable": false }` for the whole of `/deployment` when the viewer cannot change it, and for each feature that the host does not have (for example `/personal/features/herdr`). The panel shows these fields read-only, with the `reason`. The host must also refuse a change to them in `PUT`, because a request can send it anyway.
 
 Push policies are personal settings like the others: a viewer can set the `pushPolicy` of anyone in their `team` and the `pushPolicyByAuthor` entries of their repos. A host that keeps each person's policy in one place, set only by that person, sends `{ "editable": false }` for `/personal/team/*/pushPolicy` and `/personal/repos/*/pushPolicyByAuthor`, and refuses a change to them.
+
+### Moving settings between servers
+
+The panel's **Export** and **Import** buttons work on any host that has the settings API: they need no other route. Export downloads a file with `format: "shepherd-settings"`, `version: 1`, the server's `hosts` (host name, label and bots, by key) and the viewer's `personal` settings (`src/settings-transfer.ts`). Import fits the file to the server in the browser, using `GET /api/settings`: host keys follow host names, `me` stays the server's when `/personal/me` is not editable (the file's entry that shares a login with the viewer takes that id; an entry with only the same id is renamed to `<id>-imported`), hosts are added only when `/deployment/hosts` is editable, and fields that are not editable keep their values. The viewer then saves with an ordinary `PUT`, so the host's checks apply as usual.
 
 ### The settings schema
 
