@@ -182,6 +182,14 @@ describe('MCP tools with review teams', () => {
 		5: pr({ number: 5, updatedAt: now, isDraft: true }),
 		6: pr({ number: 6, updatedAt: idle, author: { login: 'outsider', name: null } }),
 		7: pr({ number: 7, updatedAt: idle, requested: nobody }),
+		8: pr({
+			number: 8,
+			updatedAt: now,
+			author: { login: 'bob', name: null },
+			requested: nobody,
+			reviews: [{ login: 'alice', state: 'CHANGES_REQUESTED', submittedAt: now }],
+			lastActivity: { login: 'alice', at: now, kind: 'review' },
+		}),
 	};
 	// 6: an outsider's PR that requests the review team but has been idle past the 60-day dormant cut-off. 7: the team's, idle, no team request.
 	const idleLights = [
@@ -291,6 +299,14 @@ describe('MCP tools with review teams', () => {
 		const requested = await call(h, 'review_queue', { person: 'bob', reasons: ['requested'] });
 		expect(requested.pullRequests).toEqual([]);
 		expect(requested.count).toBe(0);
+	});
+
+	test('review_queue keeps every reason of a PR that it keeps', async () => {
+		// 8: bob's PR, alice requested changes and acted last, so it waits on bob for "author" and "turn".
+		const h = handler(['example-org/reviewers'], { extra: [light(8, 'bob', { authoredByTeam: true, teamRequested: false })] });
+		const queue = await call(h, 'review_queue', { person: 'bob', reasons: ['author'] });
+		expect(numbers(queue.pullRequests)).toEqual([8]);
+		expect(queue.pullRequests[0].waitingBecause).toEqual(['author', 'turn']);
 	});
 
 	test('review_queue names the known reasons when one is unknown', async () => {
