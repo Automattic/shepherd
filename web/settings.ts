@@ -432,17 +432,16 @@ export function createSettingsPanel({ root, api, onSaved, seenRepos }: SettingsP
 				const hint = byDefault
 					? `No repos are listed on this host, so it finds your team's PRs in its default orgs: ${byDefault.join(', ')}. Add a repo on this host to search only the listed repos.`
 					: "Find your team's PRs in any repo of the orgs you name, not only in the repos below. The repos below keep their settings.";
-				return `${toggleRow(control, label, hint, fieldErrors(base))}
-					${
-						explicit
-							? field(
-									'In these orgs',
-									input(orgsPtr, (scopes[h]?.orgs ?? []).join(', '), { kind: 'list', placeholder: defaults.join(', ') || 'example-org, other-org' }),
-									fieldErrors(orgsPtr) + items.map((e) => `<p class="s-err" role="alert"><i class="fa-solid fa-circle-exclamation"></i>${esc(e.message)}</p>`).join(''),
-									`Org or user names, separated by commas. At least one.${defaults.length ? ` This server's defaults: ${defaults.join(', ')}.` : ''}`
-								)
-							: ''
-					}`;
+				// The org list goes inside the row, above its bottom border, so it reads as part of this switch.
+				const orgs = explicit
+					? field(
+							'In these orgs',
+							input(orgsPtr, (scopes[h]?.orgs ?? []).join(', '), { kind: 'list', placeholder: defaults.join(', ') || 'example-org, other-org' }),
+							fieldErrors(orgsPtr) + items.map((e) => `<p class="s-err" role="alert"><i class="fa-solid fa-circle-exclamation"></i>${esc(e.message)}</p>`).join(''),
+							`Org or user names, separated by commas. At least one.${defaults.length ? ` This server's defaults: ${defaults.join(', ')}.` : ''}`
+						)
+					: '';
+				return toggleRow(control, label, hint, fieldErrors(base) + orgs);
 			})
 			.join('');
 		return `<h3 class="s-subhead">Where to find PRs</h3><div class="s-toggles">${rowsHtml}</div>${fieldErrors('/personal/anyRepo')}<h3 class="s-subhead">Repos</h3>`;

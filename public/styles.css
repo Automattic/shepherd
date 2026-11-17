@@ -674,6 +674,8 @@
 .shepherd .s-toggle-row { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 12px; padding: 10px 0; }
 .shepherd .s-toggle-row > div { flex: 1; }
 .shepherd .s-toggle-row .s-err { flex-basis: 100%; }
+/* A field that belongs to a switch (the org list of "Any repo"): a full line inside the row, lined up with the switch's text. */
+.shepherd .s-toggle-row > .s-field { flex-basis: calc(100% - 48px); margin-left: 48px; }
 .shepherd .s-toggles .s-toggle-row { padding: 14px 0; border-bottom: 1px solid var(--line); }
 .shepherd .s-switch { position: relative; display: inline-flex; flex: none; width: 36px; height: 20px; cursor: pointer; }
 .shepherd .s-switch input { position: absolute; inset: 0; margin: 0; opacity: 0; cursor: inherit; }
