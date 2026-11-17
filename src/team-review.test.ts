@@ -182,6 +182,14 @@ describe('MCP tools with review teams', () => {
 		5: pr({ number: 5, updatedAt: now, isDraft: true }),
 		6: pr({ number: 6, updatedAt: idle, author: { login: 'outsider', name: null } }),
 		7: pr({ number: 7, updatedAt: idle, requested: nobody }),
+		8: pr({
+			number: 8,
+			updatedAt: now,
+			author: { login: 'bob', name: null },
+			requested: nobody,
+			reviews: [{ login: 'alice', state: 'CHANGES_REQUESTED', submittedAt: now }],
+			lastActivity: { login: 'alice', at: now, kind: 'review' },
+		}),
 	};
 	// 6: an outsider's PR that requests the review team but has been idle past the 60-day dormant cut-off. 7: the team's, idle, no team request.
 	const idleLights = [
@@ -190,7 +198,7 @@ describe('MCP tools with review teams', () => {
 	];
 	const numbers = (prs: { number: number }[]) => prs.map((p) => p.number).sort((a, b) => a - b);
 
-	function handler(reviewTeams?: string[], opts: { extra?: LightPr[]; failing?: number[] } = {}) {
+	function handler(reviewTeams?: string[], opts: { extra?: LightPr[]; failing?: number[]; asked?: number[] } = {}) {
 		const config: Config = {
 			me: 'alice',
 			team: [alice, bob],
@@ -206,6 +214,7 @@ describe('MCP tools with review teams', () => {
 			},
 			getDetails: (reqs) =>
 				reqs.map(async (req) => {
+					opts.asked?.push(Number(req.number));
 					if (opts.failing?.includes(Number(req.number))) throw new Error('proxy timeout');
 					return details[Number(req.number)]!;
 				}),
@@ -281,6 +290,40 @@ describe('MCP tools with review teams', () => {
 		const queue = await call(h, 'review_queue', { person: 'bob' });
 		expect(numbers(queue.pullRequests)).toEqual([1, 2, 6]);
 		expect(queue.pullRequests.every((p: { waitingBecause: string[] }) => p.waitingBecause.join() === 'team')).toBe(true);
+	});
+
+	test('review_queue keeps only the reasons asked for', async () => {
+		const h = handler(['example-org/reviewers']);
+		const all = await call(h, 'review_queue', { person: 'bob' });
+		expect(numbers((await call(h, 'review_queue', { person: 'bob', reasons: [] })).pullRequests)).toEqual(numbers(all.pullRequests));
+		expect(numbers((await call(h, 'review_queue', { person: 'bob', reasons: ['team'] })).pullRequests)).toEqual([1, 2]);
+		const requested = await call(h, 'review_queue', { person: 'bob', reasons: ['requested'] });
+		expect(requested.pullRequests).toEqual([]);
+		expect(requested.count).toBe(0);
+	});
+
+	test('review_queue keeps every reason of a PR that it keeps', async () => {
+		// 8: bob's PR, alice requested changes and acted last, so it waits on bob for "author" and "turn".
+		const h = handler(['example-org/reviewers'], { extra: [light(8, 'bob', { authoredByTeam: true, teamRequested: false })] });
+		const queue = await call(h, 'review_queue', { person: 'bob', reasons: ['author'] });
+		expect(numbers(queue.pullRequests)).toEqual([8]);
+		expect(queue.pullRequests[0].waitingBecause).toEqual(['author', 'turn']);
+	});
+
+	test('review_queue gets details only for PRs with a review request when it needs no other reason', async () => {
+		const asked: number[] = [];
+		const h = handler(['example-org/reviewers'], { asked });
+		await call(h, 'review_queue', { person: 'bob', reasons: ['requested', 'team'] });
+		expect(asked.sort((a, b) => a - b)).toEqual([1, 2, 4]);
+		asked.length = 0;
+		await call(h, 'review_queue', { person: 'bob', reasons: ['team', 'turn'] });
+		expect(asked.sort((a, b) => a - b)).toEqual([1, 2, 3, 4]);
+	});
+
+	test('review_queue names the known reasons when one is unknown', async () => {
+		const out = await call(handler(), 'review_queue', { reasons: ['requested', 'mine'] });
+		expect(out.error).toBe('Error: `reasons` must be a list of "requested", "team", "turn", "author"');
+		expect((await call(handler(), 'review_queue', { reasons: 'team' })).error).toContain('must be a list');
 	});
 });
 

@@ -11,7 +11,8 @@
 
 import type { PrDetail, TeamMember } from './types.ts';
 
-export type WaitReason = 'requested' | 'team' | 'turn' | 'author';
+export const WAIT_REASONS = ['requested', 'team', 'turn', 'author'] as const;
+export type WaitReason = (typeof WAIT_REASONS)[number];
 
 const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 const owns = (m: TeamMember, login: string) => Object.values(m.logins).some((l) => same(l, login));
