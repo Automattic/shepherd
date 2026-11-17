@@ -87,7 +87,7 @@ A PR counts as approved when GitHub's review decision is approved, or when at le
 
 ## Controls
 
-- **Refresh interval.** 1m (default), 5m or 15m, or the pause button. The thin bar under the header shows the time until the next check. When the refresh is paused, the page checks the list only when it loads and when you click refresh (or press `r`), and the line under the title says so. A page that had 5s or 30s set goes back to 1m.
+- **Refresh interval.** 1m, 5m or 15m (default), or the pause button. The thin bar under the header shows the time until the next check. When the refresh is paused, the page checks the list only when it loads and when you click refresh (or press `r`), and the line under the title says so. A browser keeps the interval it has saved; one with none saved, or with a value that is no longer offered (such as 5s or 30s), uses 15m.
 - **Refresh now.** The button in the header, or press `R`. It reloads every row.
 - **Theme.** Light or dark. It follows your system until you choose.
 - **Settings.** The gear button opens the settings panel: the team, repos, review teams, Linear and features. See [Settings in the dashboard](configuration.md#settings-in-the-dashboard). A server without a settings API has no gear. In a team or member view, the bar says whose dashboard it is instead, with a link to your own.

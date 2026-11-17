@@ -198,6 +198,8 @@ const WAIT_REASONS_TITLE = 'as a requested reviewer, as the author with changes 
 const PAUSED = 0;
 /** When the refresh is paused, a row counts as old after this long, as with the 1m interval. */
 const PAUSED_ROW_AGE_MS = 60_000;
+/** The refresh interval of a browser that has none saved, or one that is no longer offered. */
+const DEFAULT_INTERVAL_MS = 15 * 60_000;
 const INTERVALS: readonly { label: string; ms: number }[] = [
 	{ label: '1m', ms: 60_000 },
 	{ label: '5m', ms: 300_000 },
@@ -218,7 +220,7 @@ const LEGACY_SETTINGS_KEY = 'teamwork.settings'; // saved before the rename to S
 
 function loadSettings(): Settings {
 	const settings: Settings = {
-		interval: 60_000,
+		interval: DEFAULT_INTERVAL_MS,
 		theme: null,
 		reviewers: null,
 		people: [],
@@ -2072,7 +2074,7 @@ void (async function boot(): Promise<void> {
 		$('#ai-review-label').textContent = cfg.aiReviewLabel;
 		renderView();
 		if (!Array.isArray(S.reviewers)) S.reviewers = [cfg.me];
-		if (!INTERVALS.some((i) => i.ms === S.interval)) S.interval = 60_000;
+		if (!INTERVALS.some((i) => i.ms === S.interval)) S.interval = DEFAULT_INTERVAL_MS;
 		renderIntervals();
 		renderSort();
 		renderShipped();
