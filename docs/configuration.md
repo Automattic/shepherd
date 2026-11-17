@@ -169,8 +169,9 @@ Some bots review again after every push. An approved PR is then not ready while 
 - When the bot last reviewed: the last edit of its newest comment on the PR, or its newest review when that is later. The newest comment is the one the bot made last. Its time is its last edit, because a bot can update its review in place.
 - The date of the newest commit. GitHub gives no push time, so a commit that was made long before its push looks older than it is.
 
-The review is current when it is not older than the newest commit. A review that is behind keeps an approved PR out of **Ready to ship**, and so does an unresolved **fix** thread. A PR that the bot has not reviewed at all is not held back. Three limits:
+The review is current when it is not older than the newest commit. A review that is behind keeps an approved PR out of **Ready to ship**, and so does an unresolved **fix** thread. A PR that the bot has not reviewed at all is not held back. Four limits:
 
 - Every comment and every review of the bot counts, a short reply in a thread too. This fits a bot that writes only to review.
 - A bot that reviews a PR once, and not again after a push, leaves every PR behind after its next commit. Do not set such a bot as `bot`.
 - A **fix** thread on code that has changed since still holds the PR until someone resolves it.
+- Shepherd reads only the last 50 comments and the last 50 reviews of a PR. When the bot reviewed before those, Shepherd finds no review, and the PR is not held back.
