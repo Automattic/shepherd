@@ -132,6 +132,15 @@ interface RawDetailPr {
 				| null;
 		}[];
 	};
+	assignees: { nodes: { login: string }[] };
+	/** Only review-request and request-removed events (the query's `itemTypes`). */
+	timelineItems: {
+		nodes: {
+			__typename: string;
+			createdAt?: string;
+			requestedReviewer?: { __typename: 'User'; login: string } | { __typename: string } | null;
+		}[];
+	};
 	latestOpinionatedReviews: { nodes: { state: PrReview['state']; submittedAt: string | null; author: RawAuthor | null }[] };
 	participants: { totalCount: number; nodes: { login: string; name: string | null }[] };
 	comments: { nodes: { author: RawAuthor | null; createdAt: string; updatedAt: string }[] };
@@ -433,6 +442,8 @@ export function createPrService(config: Config, gh: GhRunner): PrService {
 			inAllAuthorsRepo: false,
 			requestedFor: [],
 			teamRequested: false,
+			// Always sent, so a client that merges a new list into an old row drops a stale assignment.
+			assignedTo: [],
 		};
 	}
 
@@ -484,13 +495,16 @@ export function createPrService(config: Config, gh: GhRunner): PrService {
 		const teamRepos = scopeQualifiers(config, hostKey, (x) => !x.allAuthors);
 		const allAuthorsRepos = hostRepos.filter((x) => x.allAuthors).map((x) => `repo:${x.owner}/${x.name}`).join(' ');
 		const teamLogins = new Set(config.team.map((m) => loginFor(m, hostKey)?.toLowerCase()).filter(Boolean));
-		const searches: { kind: 'team' | 'allAuthors' | 'review' | 'teamReview'; id?: string; q: string }[] = [];
+		const searches: { kind: 'team' | 'allAuthors' | 'review' | 'assigned' | 'teamReview'; id?: string; q: string }[] = [];
 		if (authors && teamRepos !== null) searches.push({ kind: 'team', q: searchTerms('is:pr is:open', teamRepos, authors) });
 		if (allAuthorsRepos) searches.push({ kind: 'allAuthors', q: `is:pr is:open ${allAuthorsRepos}` });
 		if (repos !== null) {
 			for (const id of reviewerIds) {
 				const login = loginFor(teamById.get(id), hostKey);
-				if (login) searches.push({ kind: 'review', id, q: searchTerms('is:pr is:open', repos, `user-review-requested:${login}`) });
+				if (!login) continue;
+				searches.push({ kind: 'review', id, q: searchTerms('is:pr is:open', repos, `user-review-requested:${login}`) });
+				// PRs they're assigned to wait on them once the author answers (see src/waiting.ts), whoever wrote them.
+				searches.push({ kind: 'assigned', id, q: searchTerms('is:pr is:open', repos, `assignee:${login}`) });
 			}
 			// Review teams are searched whatever the bells say: a team request waits on everyone in the team.
 			// Drafts never wait on a team (see src/waiting.ts), so skip them and their detail fetches.
@@ -511,6 +525,7 @@ export function createPrService(config: Config, gh: GhRunner): PrService {
 					if (teamLogins.has(existing.author.login.toLowerCase())) existing.authoredByTeam = true;
 				}
 				else if (s.kind === 'teamReview') existing.teamRequested = true;
+				else if (s.kind === 'assigned' && s.id) existing.assignedTo?.push(s.id);
 				else if (s.id) existing.requestedFor.push(s.id);
 				byKey.set(pr.key, existing);
 			}
@@ -670,6 +685,18 @@ export function createPrService(config: Config, gh: GhRunner): PrService {
 			if (r && r.__typename === 'User' && 'login' in r) users.push({ login: r.login, name: r.name });
 			else if (r && r.__typename === 'Team' && 'slug' in r) teams.push({ slug: r.slug, combinedSlug: r.combinedSlug, name: r.name, reviewTeam: reviewTeams.includes(r.combinedSlug.toLowerCase()) });
 		}
+		// A person whose newest direct request event is a request: still asked, or asked and since reviewed (submitting a
+		// review clears the request without a removal event). Removing the request takes them off. Team requests don't count.
+		const requestEvents = new Map<string, { at: string; removed: boolean }>();
+		for (const e of pr.timelineItems.nodes) {
+			const r = e.requestedReviewer;
+			if (!e.createdAt || !r || r.__typename !== 'User' || !('login' in r)) continue;
+			const removed = e.__typename === 'ReviewRequestRemovedEvent';
+			if (!removed && e.__typename !== 'ReviewRequestedEvent') continue;
+			const prev = requestEvents.get(r.login);
+			if (!prev || prev.at <= e.createdAt) requestEvents.set(r.login, { at: e.createdAt, removed });
+		}
+		const assignedReviewers = [...requestEvents].filter(([, v]) => !v.removed).map(([login]) => login);
 		const mini = (p: RawMiniPr): MiniPr => ({ number: p.number, title: p.title, url: p.url, author: p.author?.login ?? 'ghost' });
 		const { participants, lastActive, lastActivity } = shapeParticipants(pr);
 		const parent = data.repository.parent?.nodes[0];
@@ -697,6 +724,8 @@ export function createPrService(config: Config, gh: GhRunner): PrService {
 			checks: pr.statusCheckRollup?.state ?? null,
 			size: { additions: pr.additions, deletions: pr.deletions, files: pr.changedFiles },
 			requested: { users, teams },
+			assignees: pr.assignees.nodes.map((a) => a.login),
+			assignedReviewers,
 			reviews: pr.latestOpinionatedReviews.nodes.map((r) => ({
 				login: r.author?.login ?? 'ghost',
 				state: r.state,

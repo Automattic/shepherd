@@ -318,11 +318,15 @@ describe('MCP tools with review teams', () => {
 		asked.length = 0;
 		await call(h, 'review_queue', { person: 'bob', reasons: ['team', 'turn'] });
 		expect(asked.sort((a, b) => a - b)).toEqual([1, 2, 3, 4]);
+		// "reply" depends on activity too, so it needs the details of every PR that is not dormant.
+		asked.length = 0;
+		await call(h, 'review_queue', { person: 'bob', reasons: ['reply'] });
+		expect(asked.sort((a, b) => a - b)).toEqual([1, 2, 3, 4]);
 	});
 
 	test('review_queue names the known reasons when one is unknown', async () => {
 		const out = await call(handler(), 'review_queue', { reasons: ['requested', 'mine'] });
-		expect(out.error).toBe('Error: `reasons` must be a list of "requested", "team", "turn", "author"');
+		expect(out.error).toBe('Error: `reasons` must be a list of "requested", "team", "turn", "author", "reply"');
 		expect((await call(handler(), 'review_queue', { reasons: 'team' })).error).toContain('must be a list');
 	});
 });
@@ -343,7 +347,7 @@ describe('getDetail marks review teams', () => {
 				baseRefOid: 'base0', baseRef: { target: { oid: 'base0' } }, body: null, mergeable: 'MERGEABLE', reviewDecision: null,
 				additions: 1, deletions: 0, changedFiles: 1, author: { login: 'outsider' }, statusCheckRollup: null,
 				reviewRequests: { nodes: [team('Example-Org/reviewers'), team('other-org/reviewers')] },
-				latestOpinionatedReviews: { nodes: [] }, participants: { totalCount: 0, nodes: [] }, comments: { nodes: [] },
+				assignees: { nodes: [] }, timelineItems: { nodes: [] }, latestOpinionatedReviews: { nodes: [] }, participants: { totalCount: 0, nodes: [] }, comments: { nodes: [] },
 				reviews: { nodes: [] }, commits: { nodes: [] }, reviewThreads: { nodes: [] },
 			},
 		},

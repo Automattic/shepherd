@@ -302,6 +302,8 @@ export interface LightPr {
 	requestedFor: string[];
 	/** The PR requests a review from one of the host's `reviewTeams`. */
 	teamRequested: boolean;
+	/** Team member ids whose assignee search matched this PR. Missing from servers older than this field. */
+	assignedTo?: string[];
 	/**
 	 * The details the server already has for this `updatedAt`, if any. The page shows them at once,
 	 * and calls /api/pr for the row only when they are older than the row's refresh interval.
@@ -425,6 +427,13 @@ export interface PrDetail {
 		users: { login: string; name: string | null }[];
 		teams: { slug: string; combinedSlug: string; name: string; reviewTeam: boolean }[];
 	};
+	/** Logins in GitHub's Assignees field. Missing from servers older than this field. */
+	assignees?: string[];
+	/**
+	 * Logins whose review was asked for directly and not taken back: still pending, or cleared by their review.
+	 * Removing the request takes a login off. Team requests don't count. Missing from servers older than this field.
+	 */
+	assignedReviewers?: string[];
 	/** Latest opinionated review per reviewer. */
 	reviews: PrReview[];
 	/** Null on hosts without an AI-review bot. */

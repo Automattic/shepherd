@@ -65,6 +65,12 @@
         "reviewRequests": {
           "nodes": []
         },
+        "assignees": {
+          "nodes": []
+        },
+        "timelineItems": {
+          "nodes": []
+        },
         "latestOpinionatedReviews": {
           "nodes": []
         },

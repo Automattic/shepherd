@@ -20,6 +20,12 @@ export const DETAIL_PR_FIELDS = `
 		... on User { login name avatarUrl(size: 64) }
 		... on Team { slug combinedSlug name }
 	} } }
+	assignees(first:20) { nodes { login } }
+	timelineItems(last:50, itemTypes:[REVIEW_REQUESTED_EVENT, REVIEW_REQUEST_REMOVED_EVENT]) { nodes {
+		__typename
+		... on ReviewRequestedEvent { createdAt requestedReviewer { __typename ... on User { login } } }
+		... on ReviewRequestRemovedEvent { createdAt requestedReviewer { __typename ... on User { login } } }
+	} }
 	latestOpinionatedReviews(first:30) { nodes { state submittedAt author { __typename login avatarUrl(size: 64) } } }
 	participants(first:50) { totalCount nodes { login name avatarUrl(size: 64) } }
 	comments(last:50) { nodes { author { __typename login } createdAt updatedAt } }

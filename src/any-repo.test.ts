@@ -100,6 +100,7 @@ describe('listHost and listMerged in any-repo mode', () => {
 		await prs.listHost('github', ['alice']);
 		expect(queries.sort()).toEqual([
 			'is:pr is:open draft:false repo:example-org/app team-review-requested:example-org/reviewers',
+			'is:pr is:open repo:example-org/app assignee:alice',
 			'is:pr is:open repo:example-org/app author:alice',
 			'is:pr is:open repo:example-org/app user-review-requested:alice',
 		]);
@@ -110,6 +111,7 @@ describe('listHost and listMerged in any-repo mode', () => {
 		await prs.listHost('github', ['alice']);
 		expect(queries.sort()).toEqual([
 			'is:pr is:open draft:false org:example-org repo:partner-org/lib team-review-requested:example-org/reviewers',
+			'is:pr is:open org:example-org repo:partner-org/lib assignee:alice',
 			'is:pr is:open org:example-org repo:partner-org/lib author:alice',
 			'is:pr is:open org:example-org repo:partner-org/lib user-review-requested:alice',
 		]);

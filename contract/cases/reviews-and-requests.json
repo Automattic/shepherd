@@ -93,6 +93,69 @@
             }
           ]
         },
+        "assignees": {
+          "nodes": [
+            {
+              "login": "dana"
+            }
+          ]
+        },
+        "timelineItems": {
+          "nodes": [
+            {
+              "__typename": "ReviewRequestedEvent",
+              "createdAt": "2026-11-10T09:00:00Z",
+              "requestedReviewer": {
+                "__typename": "User",
+                "login": "bob"
+              }
+            },
+            {
+              "__typename": "ReviewRequestedEvent",
+              "createdAt": "2026-11-10T09:00:00Z",
+              "requestedReviewer": {
+                "__typename": "User",
+                "login": "carol"
+              }
+            },
+            {
+              "__typename": "ReviewRequestedEvent",
+              "createdAt": "2026-11-10T09:00:00Z",
+              "requestedReviewer": {
+                "__typename": "User",
+                "login": "dana"
+              }
+            },
+            {
+              "__typename": "ReviewRequestedEvent",
+              "createdAt": "2026-11-10T09:00:00Z",
+              "requestedReviewer": {
+                "__typename": "User",
+                "login": "erin"
+              }
+            },
+            {
+              "__typename": "ReviewRequestedEvent",
+              "createdAt": "2026-11-10T09:00:00Z",
+              "requestedReviewer": {
+                "__typename": "Team"
+              }
+            },
+            {
+              "__typename": "ReviewRequestedEvent",
+              "createdAt": "2026-11-10T09:00:00Z",
+              "requestedReviewer": null
+            },
+            {
+              "__typename": "ReviewRequestRemovedEvent",
+              "createdAt": "2026-11-10T10:00:00Z",
+              "requestedReviewer": {
+                "__typename": "User",
+                "login": "erin"
+              }
+            }
+          ]
+        },
         "latestOpinionatedReviews": {
           "nodes": [
             {

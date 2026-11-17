@@ -194,7 +194,7 @@ describe('getDetail', () => {
 				isDraft: false, updatedAt: now, createdAt: now, headRefName: 'feature', baseRefName: 'main', headRefOid: 'head0',
 				baseRefOid: 'base0', baseRef: { target: { oid: 'base0' } }, body: null, mergeable: 'MERGEABLE', reviewDecision: null,
 				additions: 1, deletions: 0, changedFiles: 1, author: { login: 'alice' }, statusCheckRollup: null,
-				reviewRequests: { nodes: [] }, latestOpinionatedReviews: { nodes: [] }, participants: { totalCount: 0, nodes: [] },
+				reviewRequests: { nodes: [] }, assignees: { nodes: [] }, timelineItems: { nodes: [] }, latestOpinionatedReviews: { nodes: [] }, participants: { totalCount: 0, nodes: [] },
 				comments: { nodes: [] }, reviews: { nodes: [] }, commits: { nodes: [] }, reviewThreads: { nodes: [] },
 			},
 		},

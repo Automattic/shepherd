@@ -76,7 +76,7 @@ async function listPrs(url: URL): Promise<Response> {
 		.split(',')
 		.filter((id) => teamIds.has(id))
 		.sort()
-		// The cost limit on bells: each one adds a search term.
+		// The cost limit on bells: each one adds two searches per host (review requests and assignments).
 		.slice(0, config.limits?.maxBells ?? Infinity);
 	const settled = await Promise.allSettled(svc.hostKeys.map((h) => svc.listHost(h, reviewerIds)));
 	const list: LightPr[] = [];
