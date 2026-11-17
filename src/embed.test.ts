@@ -147,3 +147,11 @@ test('readEmbedOptions keeps theme only when it is "host"', () => {
 	expect(readEmbedOptions({ theme: 'host' })).toEqual({ theme: 'host' });
 	for (const theme of ['dark', 'light', 'HOST', true, 1, null]) expect(readEmbedOptions({ theme })).toEqual({});
 });
+
+test('readEmbedOptions keeps topbarStart and gate when they are non-empty HTML', () => {
+	expect(readEmbedOptions({ topbarStart: '<a class="host-btn">Connect</a>', gate: '<div>Connect first</div>' })).toEqual({
+		topbarStart: '<a class="host-btn">Connect</a>',
+		gate: '<div>Connect first</div>',
+	});
+	for (const value of ['', '   ', 1, true, null, {}, []]) expect(readEmbedOptions({ topbarStart: value, gate: value })).toEqual({});
+});

@@ -134,6 +134,36 @@
 .shepherd .brand-sub { margin: 0; font-size: 12px; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .shepherd .controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
 
+/* The host's content (`topbarStart` and `gate` in window.SHEPHERD), and classes that its markup can use to look like the dashboard. */
+.shepherd.has-topbar-start.no-header .topbar { justify-content: space-between; }
+.shepherd .topbar-start { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 0 1 auto; }
+.shepherd .topbar-start form { display: contents; }
+.shepherd .host-note { font-size: 12px; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.shepherd .host-note a { color: var(--text-2); text-decoration: underline; text-decoration-color: var(--line-strong); text-underline-offset: 2px; }
+.shepherd .host-note a:hover { color: var(--accent); text-decoration-color: currentColor; }
+.shepherd .host-btn {
+	display: inline-flex; align-items: center; gap: 7px; flex: none; height: 36px; padding: 0 14px; border-radius: 10px; cursor: pointer;
+	background: var(--surface); border: 1px solid var(--line); color: var(--text-2); font-size: 13px; font-weight: 550; white-space: nowrap;
+	transition: color .15s, border-color .15s, background-color .15s, transform .1s;
+}
+.shepherd .host-btn i { font-size: 15px; }
+.shepherd .host-btn:hover { color: var(--text); border-color: var(--line-strong); }
+.shepherd .host-btn:active { transform: scale(.97); }
+.shepherd .host-btn.primary { background: var(--text); border-color: var(--text); color: var(--bg); }
+.shepherd .host-btn.primary:hover { background: color-mix(in srgb, var(--text) 86%, var(--bg)); color: var(--bg); }
+.shepherd .host-btn.large { height: 42px; padding: 0 20px; font-size: 14px; }
+.shepherd .host-btn.large i { font-size: 17px; }
+.shepherd .gate { display: grid; place-items: center; padding: 72px 24px 96px; }
+.shepherd .gate-card { display: flex; flex-direction: column; align-items: center; gap: 10px; max-width: 420px; text-align: center; }
+.shepherd .gate-card > i { font-size: 40px; color: var(--text); margin-bottom: 4px; }
+.shepherd .gate-card h2 { margin: 0; font-size: 18px; font-weight: 650; letter-spacing: -.01em; }
+.shepherd .gate-card p { margin: 0 0 8px; color: var(--text-2); font-size: 13px; }
+.shepherd .gate-card form { margin: 0; }
+@media (max-width: 640px) {
+	.shepherd .host-note { display: none; }
+	.shepherd .host-btn { height: 32px; padding: 0 10px; border-radius: 8px; }
+}
+
 .shepherd .seg {
 	display: inline-flex; padding: 3px; gap: 2px; border-radius: 10px;
 	background: var(--surface-2); border: 1px solid var(--line);

@@ -16,7 +16,8 @@ const BRAND = `
 function shellHtml(header: boolean): string {
 	return `
 	<header class="topbar">${header ? BRAND : ''}
-		<div class="controls">
+		<div class="topbar-start" id="topbar-start" hidden></div>
+		<div class="controls" id="controls">
 			<div class="view-note" id="view-note" hidden></div>
 			<div class="rate" id="rate" title="github.com GraphQL budget"></div>
 			<div class="seg" id="interval" role="radiogroup" aria-label="Refresh interval"></div>
@@ -27,7 +28,9 @@ function shellHtml(header: boolean): string {
 		<div class="tickbar"><span id="tick"></span></div>
 	</header>
 
-	<main>
+	<div class="gate" id="gate" hidden></div>
+
+	<main id="main">
 		<div class="banner" id="banner" hidden></div>
 
 		<section class="tiles" id="tiles" aria-label="Summary"></section>
@@ -95,5 +98,26 @@ export function mountShell(opts: ShepherdEmbedOptions): HTMLElement {
 	root.innerHTML = shellHtml(header);
 	// The host sets the theme, so the client's theme button would fight it.
 	if (opts.theme === 'host') root.querySelector<HTMLElement>('#theme')!.hidden = true;
+	if (opts.topbarStart !== undefined) {
+		root.classList.add('has-topbar-start');
+		fill(root.querySelector<HTMLElement>('#topbar-start')!, opts.topbarStart);
+	}
+	if (opts.gate !== undefined) {
+		// Only the gate and the host's topbar content work. The client loads nothing (see boot() in web/app.ts).
+		root.classList.add('gated');
+		for (const id of ['#controls', '#main']) {
+			const el = root.querySelector<HTMLElement>(id)!;
+			el.hidden = true;
+			el.inert = true;
+		}
+		fill(root.querySelector<HTMLElement>('#gate')!, opts.gate);
+	}
 	return root;
+}
+
+/** Shows an element with the host's content: an HTML string, or the host's element itself. */
+function fill(el: HTMLElement, content: string | Element): void {
+	if (typeof content === 'string') el.innerHTML = content;
+	else el.replaceChildren(content);
+	el.hidden = false;
 }

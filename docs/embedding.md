@@ -27,6 +27,30 @@ The client reads the object one time, when it starts. Changes to the object afte
 | `apiTrailingSlash` | `true` adds a `/` to the end of the path of each call to `apiBase`, before the query. For example, `/api/prs?reviewers=…` goes to `/my-app/api/shepherd/prs/?reviewers=…`. Use it when the host redirects a path without the slash: each redirect costs one more request, and a browser changes a redirected `POST` to a `GET`. It has no effect without `apiBase`. The default is `false`. |
 | `header` | `false` removes the brand header (the logo, the name and the line below it). The controls (the rate budget, the refresh interval, **Refresh now**, the theme button, the settings button and the note of a team or member view) stay in a bar at the top of the dashboard. This bar does not stick to the top of the window. The default is `true`. |
 | `theme` | `"host"`: the host page sets the theme of the dashboard, as `data-theme="light"` or `data-theme="dark"` on the mount element, and changes the attribute when its own theme changes (for example, from a `MutationObserver` on its own theme class). The client then hides its theme button and does not apply a theme that the browser saved. Without the attribute, the dashboard follows the system setting. Set the attribute before `app.js` loads, so the first render has the right colors. By default the client has its own theme button. |
+| `topbarStart` | The host's own content for the left of the top bar (after the brand, when there is one): an HTML string or an element. See [Host content](#host-content). |
+| `gate` | The host's content in place of the dashboard: an HTML string or an element. While it is set, the client loads nothing and hides its controls. See [Host content](#host-content). |
+
+### Host content
+
+A host can put its own markup in the dashboard, so it can change its text, buttons and layout without a new client. For example, a host that asks GitHub with each viewer's own token can show the viewer's GitHub connection in the top bar, and ask them to connect before the dashboard starts:
+
+```js
+window.SHEPHERD = {
+	// …
+	topbarStart: '<a class="host-btn primary" href="/my-app/github/connect"><i class="fa-brands fa-github"></i>Connect</a>'
+		+ '<span class="host-note">The dashboard reads GitHub as you.</span>',
+	gate: '<div class="gate-card"><i class="fa-brands fa-github"></i><h2>Connect your GitHub account</h2>'
+		+ '<p>The dashboard reads GitHub as you.</p>'
+		+ '<a class="host-btn primary large" href="/my-app/github/connect"><i class="fa-brands fa-github"></i>Connect GitHub</a></div>',
+};
+```
+
+- `topbarStart` goes on the left of the top bar. With `header: false`, the top bar then has the host's content on the left and the controls on the right.
+- `gate` goes in place of the dashboard. While it is set, the client loads nothing (not even `/api/config`), and it hides and disables its controls; only the gate and `topbarStart` work. The host leaves `gate` out, on the next page load, when the dashboard may start.
+
+Each one is an HTML string or a DOM element. The client puts an HTML string in with `innerHTML`, as it is: it is the host page's own markup, as trusted as the rest of that page, so the host escapes any values that it puts in it. An empty string is the same as no value. Scripts in an HTML string do not run; use an element to add listeners.
+
+The host can use these classes, which follow the dashboard's colors and theme: `host-btn` (a button or a link that looks like a button; add `primary` for the main action and `large` for a bigger one), `host-note` (muted text, hidden on narrow screens) and `gate-card` (a centered card: a Font Awesome icon, an `h2`, a `p` and a button). A `form` in `topbarStart` does not change the layout, so a `POST` button fits too.
 
 The host's API must give the same responses as the paths below on the local server:
 
