@@ -3,10 +3,10 @@
 import { describe, expect, test } from 'bun:test';
 import type { GhRunner } from './gh.ts';
 import type { HerdrService } from './herdr.ts';
-import { createMcpHandler } from './mcp.ts';
+import { createMcpHandler, UnknownPersonError } from './mcp.ts';
 import { createPrService, type PrService } from './prs.ts';
 import type { Config, LightPr, PrDetail, TeamMember } from './types.ts';
-import { waitReasons } from './waiting.ts';
+import { parseWaitReasons, waitReasons } from './waiting.ts';
 
 const alice: TeamMember = { id: 'alice', name: 'Alice', short: 'Alice', logins: { github: 'alice' } };
 const bob: TeamMember = { id: 'bob', name: 'Bob', short: 'Bob', logins: { github: 'bob' } };
@@ -281,6 +281,38 @@ describe('MCP tools with review teams', () => {
 		const queue = await call(h, 'review_queue', { person: 'bob' });
 		expect(numbers(queue.pullRequests)).toEqual([1, 2, 6]);
 		expect(queue.pullRequests.every((p: { waitingBecause: string[] }) => p.waitingBecause.join() === 'team')).toBe(true);
+	});
+
+	test('reviewQueue, which /api/queue sends, matches the tool and keeps only the reasons asked for', async () => {
+		const h = handler(['example-org/reviewers']);
+		const tool = await call(h, 'review_queue', { person: 'bob' });
+		const all = await h.reviewQueue('bob');
+		expect(numbers(all.pullRequests as never)).toEqual(numbers(tool.pullRequests));
+		expect(all.count).toBe(tool.count);
+		expect(numbers((await h.reviewQueue('bob', ['team'])).pullRequests as never)).toEqual([1, 2]);
+		const requested = await h.reviewQueue('bob', ['requested']);
+		expect(requested.pullRequests).toEqual([]);
+		expect(requested.count).toBe(0);
+	});
+
+	test('reviewQueue names an unknown person with an error of its own type', async () => {
+		const queue = handler().reviewQueue('nobody');
+		await expect(queue).rejects.toBeInstanceOf(UnknownPersonError);
+		await expect(queue).rejects.toThrow('Known: alice (Alice), bob (Bob)');
+	});
+});
+
+describe('parseWaitReasons', () => {
+	test('an empty list means every reason', () => {
+		expect(parseWaitReasons('')).toEqual(['requested', 'team', 'turn', 'author']);
+	});
+
+	test('keeps the reasons given, in a fixed order, once each', () => {
+		expect(parseWaitReasons('team, requested,team')).toEqual(['requested', 'team']);
+	});
+
+	test('an unknown reason is an error that lists the known ones', () => {
+		expect(parseWaitReasons('requested,mine')).toEqual({ error: 'unknown reason "mine". Known: requested, team, turn, author' });
 	});
 });
 

@@ -7,12 +7,13 @@ import { buildClient, PUBLIC_DIR } from './build-client.ts';
 import { configFeatures, DEFAULT_PORT, loadConfig, publicConfig } from './config.ts';
 import { createGh } from './gh.ts';
 import { createHerdr } from './herdr.ts';
-import { createMcpHandler } from './mcp.ts';
+import { createMcpHandler, UnknownPersonError, type ReviewQueue } from './mcp.ts';
 import { FOLLOWUPS_MAX_PRS } from './followups.ts';
 import { createPrService, followUpTargets, NotFoundError } from './prs.ts';
 import { createSettingsHandler } from './settings-api.ts';
 import { createConfigStore } from './settings-store.ts';
 import type { DetailResponse, ErrorResponse, FollowUpsResponse, HerdrLinksResponse, LightPr, ListResponse, MergedPr, MergedResponse, PaneMatchPr } from './types.ts';
+import { parseWaitReasons } from './waiting.ts';
 
 const loaded = await loadConfig();
 // One object for the life of the server: a reload changes its keys in place, so `gh` and herdr keep reading it.
@@ -118,6 +119,21 @@ async function listMerged(): Promise<Response> {
 	return json<MergedResponse>(200, { prs: list, errors });
 }
 
+/**
+ * The PRs that wait on `?person=` (default `me`), as the `review_queue` MCP tool returns them. `?reasons=requested,team`
+ * keeps only the PRs with one of those reasons; without it, every reason counts.
+ */
+async function getQueue(url: URL): Promise<Response> {
+	const reasons = parseWaitReasons(url.searchParams.get('reasons') ?? '');
+	if ('error' in reasons) return json<ErrorResponse>(400, { error: `bad request: ${reasons.error}` });
+	try {
+		return json<ReviewQueue>(200, await handleMcp.reviewQueue(url.searchParams.get('person') || 'me', reasons));
+	} catch (e) {
+		if (e instanceof UnknownPersonError) return json<ErrorResponse>(400, { error: `bad request: ${e.message}` });
+		throw e;
+	}
+}
+
 /** Follow-ups for `?prs=<key>,<key>`, where a key is a prKey in a tracked repo. */
 async function getFollowUps(url: URL): Promise<Response> {
 	const keys = (url.searchParams.get('prs') ?? '').split(',').filter(Boolean);
@@ -209,6 +225,7 @@ const server = Bun.serve({
 			if (url.pathname === '/api/config') return json(200, publicConfig(config));
 			if (url.pathname === '/api/prs') return await listPrs(url);
 			if (url.pathname === '/api/pr') return await getPr(url);
+			if (url.pathname === '/api/queue') return await getQueue(url);
 			// A feature that config.json turns off has no endpoint, as on a server that does not have it.
 			if (url.pathname === '/api/merged' && features.shipped) return await listMerged();
 			if (url.pathname === '/api/followups' && features.followups) return await getFollowUps(url);

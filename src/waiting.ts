@@ -11,7 +11,16 @@
 
 import type { PrDetail, TeamMember } from './types.ts';
 
-export type WaitReason = 'requested' | 'team' | 'turn' | 'author';
+export const WAIT_REASONS = ['requested', 'team', 'turn', 'author'] as const;
+export type WaitReason = (typeof WAIT_REASONS)[number];
+
+/** A comma-separated list of reasons, such as `requested,team`; an empty list means every reason. */
+export function parseWaitReasons(text: string): WaitReason[] | { error: string } {
+	const given = text.split(',').map((r) => r.trim()).filter(Boolean);
+	const unknown = given.filter((r) => !(WAIT_REASONS as readonly string[]).includes(r));
+	if (unknown.length) return { error: `unknown reason "${unknown[0]}". Known: ${WAIT_REASONS.join(', ')}` };
+	return given.length ? WAIT_REASONS.filter((r) => given.includes(r)) : [...WAIT_REASONS];
+}
 
 const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 const owns = (m: TeamMember, login: string) => Object.values(m.logins).some((l) => same(l, login));

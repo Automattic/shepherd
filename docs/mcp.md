@@ -39,3 +39,20 @@ To check the endpoint without a client (add `-H "Authorization: Bearer $SHEPHERD
 curl -s http://127.0.0.1:5050/mcp -H 'content-type: application/json' \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | jq '[.result.tools[].name]'
 ```
+
+## The review queue over HTTP
+
+A script, such as a cron job, can get the review queue with no MCP client. `GET /api/queue` sends the same JSON as `review_queue`, from the same code:
+
+```sh
+curl -s 'http://127.0.0.1:5050/api/queue?reasons=requested,team' | jq -r '.pullRequests[].url'
+```
+
+| Parameter | Value |
+| --- | --- |
+| `person` | A team `id`, a first name or a login. The default is `me`. |
+| `reasons` | A comma-separated list of `requested`, `team`, `turn` and `author`. Only PRs with at least one of these reasons are in the result. Each PR still lists all of its reasons in `waitingBecause`. Without `reasons`, every reason counts. |
+
+The response is `{ person, count, errors, pullRequests }`, newest first. `errors` lists the hosts and the PRs that could not be fetched. An unknown person or reason gets a 400 with a list of the valid names. When the server has a token, add `-H "Authorization: Bearer $SHEPHERD_TOKEN"`.
+
+To start a review for each PR that asks for your review, use `reasons=requested,team`. The other two reasons are not review requests: `author` is your own PR with changes requested, and `turn` is a PR where someone else spoke last. A PR stays in the queue until you review it, so a script that runs again must skip the PRs that it already started.

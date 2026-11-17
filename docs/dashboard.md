@@ -87,7 +87,7 @@ A PR is waiting on someone when any of these is true:
 - **Their turn:** someone else commented, reviewed or pushed most recently on a PR they wrote or took part in.
 - **Author:** they wrote it, someone requested changes, and nothing has been pushed since.
 
-The **Waiting on you** tile, the orange left bar, the sort order and each person's hourglass all use this definition, as does the `review_queue` MCP tool. The rules live in `src/waiting.ts`.
+The **Waiting on you** tile, the orange left bar, the sort order and each person's hourglass all use this definition, as do the `review_queue` MCP tool and [`/api/queue`](mcp.md#the-review-queue-over-http). The rules live in `src/waiting.ts`.
 
 A PR counts as approved when GitHub's review decision is approved, or when at least one person approved and nobody requested changes. A stack counts as approved only when every open PR in it is approved, and it is green only when none of them has conflicts or failed checks. A partly approved stack stays in the normal order; its Approvals column shows which parts are done.
 

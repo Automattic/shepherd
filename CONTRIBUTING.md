@@ -34,7 +34,7 @@ Run `bun run check` and `bun test` before you open a pull request.
 | `src/gh.ts` | Runs `gh api` (GraphQL, plus REST GETs) with per-host concurrency caps and optional proxychains |
 | `src/prs.ts` | The follow-up query, shaping of the list, detail and follow-up data (AI-review findings, Linear keys, participants), caches, and the batched fetching of details (`getDetails()`, `prefetchDetails()`) |
 | `src/mcp.ts` | The MCP endpoint and its tools |
-| `src/waiting.ts` | What "waiting on" means, shared by the dashboard and the MCP tools |
+| `src/waiting.ts` | What "waiting on" means, shared by the dashboard, the MCP tools and `/api/queue` |
 | `src/ready.ts` | What keeps an approved PR from going out, used by the dashboard |
 | `src/base-age.ts` | How old a PR's base is, shared by the dashboard and the MCP tools |
 | `src/merged.ts` | The Shipped ranges and filter, shared by the dashboard and the MCP tools |

@@ -11,7 +11,7 @@ import { PUSH_POLICIES, PUSH_POLICY_INSTRUCTIONS, PUSH_POLICY_RULE, resolvePushP
 import { anyRepoOrgs, inScope, listedRepo, searchHostKeys } from './repo-scope.ts';
 import { reviewBot } from './review-bot.ts';
 import type { Config, FollowUp, LightPr, MergedPr, PrDetail, TeamMember } from './types.ts';
-import { changesRequestedPending, waitReasons, type WaitReason } from './waiting.ts';
+import { changesRequestedPending, WAIT_REASONS, waitReasons, type WaitReason } from './waiting.ts';
 
 /** A repo that a tool filters on. `host` is null when the repo is in scope on more than one host. */
 interface RepoFilter {
@@ -82,7 +82,23 @@ function isRequest(msg: unknown): msg is JsonRpcRequest {
 
 // ---------------------------------------------------------------------------
 
-export function createMcpHandler(config: Config, prs: PrService, herdr: HerdrService): (req: Request) => Promise<Response> {
+/** A name that is not on the team. The message lists the known names. */
+export class UnknownPersonError extends Error {}
+
+/** The MCP endpoint, plus the review queue of its `review_queue` tool, which the server also sends at `/api/queue`. */
+export type McpHandler = ((req: Request) => Promise<Response>) & {
+	reviewQueue(person: string, reasons?: readonly WaitReason[]): Promise<ReviewQueue>;
+};
+
+/** Each PR has the fields of the other tools' summaries, plus `waitingBecause`: every reason, also the ones not asked for. */
+export interface ReviewQueue {
+	person: string;
+	count: number;
+	errors: string[];
+	pullRequests: ({ url: string; updated: string; waitingBecause: WaitReason[] } & Record<string, unknown>)[];
+}
+
+export function createMcpHandler(config: Config, prs: PrService, herdr: HerdrService): McpHandler {
 	const team = config.team;
 	const me = team.find((m) => m.id === config.me)!; // loadConfig guarantees it
 
@@ -100,7 +116,7 @@ export function createMcpHandler(config: Config, prs: PrService, herdr: HerdrSer
 
 	function requireMember(who: string): TeamMember {
 		const m = findMember(who);
-		if (!m) throw new Error(`Unknown person "${who}". Known: ${team.map((t) => `${t.id} (${t.name})`).join(', ')}`);
+		if (!m) throw new UnknownPersonError(`Unknown person "${who}". Known: ${team.map((t) => `${t.id} (${t.name})`).join(', ')}`);
 		return m;
 	}
 
@@ -289,6 +305,32 @@ export function createMcpHandler(config: Config, prs: PrService, herdr: HerdrSer
 	const hasFindings = (x: Summary | ReturnType<typeof lightSummary>): boolean =>
 		'aiReview' in x && x.aiReview !== null && x.aiReview.unresolved > 0;
 
+	/** Open PRs that wait on one person, newest first, with the reasons. Only PRs with at least one reason in `only` stay in. */
+	async function reviewQueue(who: string, only: readonly WaitReason[] = WAIT_REASONS) {
+		const person = requireMember(who);
+		const { prs: all, errors } = await collect([person.id]);
+		// Every non-dormant candidate needs details: "turn" and "author" depend on activity, not just requests.
+		const candidates = all.filter(
+			(p) => p.requestedFor.includes(person.id) || p.teamRequested || Date.now() - new Date(p.updatedAt).getTime() <= DORMANT_MS
+		);
+		const settled = await Promise.allSettled(
+			prs.getDetails(
+				candidates.map((p) => ({ host: p.host, owner: p.owner, repo: p.repo, number: p.number, head: p.headRefName, base: p.baseRefName, maxAgeMs: DETAIL_MAX_AGE_MS }))
+			)
+		);
+		const waiting: (Summary & { waitingBecause: WaitReason[] })[] = [];
+		settled.forEach((s, i) => {
+			if (s.status === 'rejected') {
+				errors.push(`${candidates[i]!.url}: ${(s.reason as Error).message}`);
+				return;
+			}
+			const reasons = waitReasons(s.value, person);
+			if (reasons.some((r) => only.includes(r))) waiting.push({ ...summarize(s.value), waitingBecause: reasons });
+		});
+		waiting.sort((a, b) => b.updated.localeCompare(a.updated));
+		return { person: person.name, count: waiting.length, errors, pullRequests: waiting };
+	}
+
 	// ---- tools ----
 
 	const hostsWithReviewTeams = Object.values(config.hosts).filter((h) => h.reviewTeams?.length);
@@ -421,30 +463,7 @@ export function createMcpHandler(config: Config, prs: PrService, herdr: HerdrSer
 				additionalProperties: false,
 			},
 			annotations: { readOnlyHint: true, openWorldHint: true },
-			run: async (args) => {
-				const person = requireMember(str(args, 'person') ?? 'me');
-				const { prs: all, errors } = await collect([person.id]);
-				// Every non-dormant candidate needs details: "turn" and "author" depend on activity, not just requests.
-				const candidates = all.filter(
-					(p) => p.requestedFor.includes(person.id) || p.teamRequested || Date.now() - new Date(p.updatedAt).getTime() <= DORMANT_MS
-				);
-				const settled = await Promise.allSettled(
-					prs.getDetails(
-						candidates.map((p) => ({ host: p.host, owner: p.owner, repo: p.repo, number: p.number, head: p.headRefName, base: p.baseRefName, maxAgeMs: DETAIL_MAX_AGE_MS }))
-					)
-				);
-				const waiting: (Summary & { waitingBecause: WaitReason[] })[] = [];
-				settled.forEach((s, i) => {
-					if (s.status === 'rejected') {
-						errors.push(`${candidates[i]!.url}: ${(s.reason as Error).message}`);
-						return;
-					}
-					const reasons = waitReasons(s.value, person);
-					if (reasons.length) waiting.push({ ...summarize(s.value), waitingBecause: reasons });
-				});
-				waiting.sort((a, b) => b.updated.localeCompare(a.updated));
-				return { person: person.name, count: waiting.length, errors, pullRequests: waiting };
-			},
+			run: (args) => reviewQueue(str(args, 'person') ?? 'me'),
 		},
 		{
 			name: 'merged_prs',
@@ -624,7 +643,9 @@ export function createMcpHandler(config: Config, prs: PrService, herdr: HerdrSer
 	const json = (status: number, body: unknown, headers: Record<string, string> = {}) =>
 		Response.json(body, { status, headers: { 'cache-control': 'no-store', ...headers } });
 
-	return async function handleMcp(req: Request): Promise<Response> {
+	return Object.assign(handleMcp, { reviewQueue });
+
+	async function handleMcp(req: Request): Promise<Response> {
 		// Guard against DNS rebinding: only local pages (or non-browser clients) may call.
 		const origin = req.headers.get('origin');
 		if (origin && !/^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/.test(origin)) {
@@ -646,5 +667,5 @@ export function createMcpHandler(config: Config, prs: PrService, herdr: HerdrSer
 		);
 		if (!replies.length) return new Response(null, { status: 202 });
 		return json(200, batch ? replies : replies[0]);
-	};
+	}
 }
