@@ -192,12 +192,15 @@ const MERGED_RANGE_TITLES: Record<MergedRange, string> = {
 
 /** Why a pull request waits on someone, for the tooltips. The rules live in src/waiting.ts. */
 const WAIT_REASONS_TITLE = 'as a requested reviewer, as the author with changes requested, or when someone else had the last word';
+/** The refresh interval that stops the automatic refresh. The refresh button still checks the list. */
+const PAUSED = 0;
+/** When the refresh is paused, a row counts as old after this long, as with the 1m interval. */
+const PAUSED_ROW_AGE_MS = 60_000;
 const INTERVALS: readonly { label: string; ms: number }[] = [
-	{ label: '5s', ms: 5_000 },
-	{ label: '30s', ms: 30_000 },
 	{ label: '1m', ms: 60_000 },
 	{ label: '5m', ms: 300_000 },
 	{ label: '15m', ms: 900_000 },
+	{ label: 'Pause', ms: PAUSED },
 ];
 /** In "list" mode, the page does not load a row from the list more often than this. */
 const LIST_ROW_RETRY_MS = 10_000;
@@ -1237,7 +1240,7 @@ function renderChrome(): void {
 	const brandSub = ROOT.querySelector('#brand-sub'); // not there with `header: false`
 	if (brandSub) {
 		brandSub.textContent = lastList
-			? `${total} open PRs across ${cfg.repos.length || listedRepoCount()} repos · list checked ${new Date(lastList).toLocaleTimeString()}`
+			? `${total} open PRs across ${cfg.repos.length || listedRepoCount()} repos · list checked ${new Date(lastList).toLocaleTimeString()}${S.interval === PAUSED ? ' · auto-refresh paused' : ''}`
 			: 'Loading…';
 	}
 
@@ -1268,7 +1271,7 @@ function maxAge(row: Row): number {
 		lowBudgetMs: hostCfg?.rowRefreshLowBudgetMs,
 		metered: Boolean(hostRate) || isDotcom(row.light.host),
 		lowBudget: hostRate !== undefined && hostRate.remaining < 500,
-		intervalMs: S.interval,
+		intervalMs: S.interval === PAUSED ? PAUSED_ROW_AGE_MS : S.interval,
 	});
 }
 
@@ -1678,9 +1681,11 @@ async function focusHerdrPane(button: HTMLElement, paneId: string): Promise<void
 
 function schedule(): void {
 	clearTimeout(tickTimer);
-	tickTimer = setTimeout(tick, S.interval);
 	const bar = $('#tick');
 	bar.style.animation = 'none';
+	// Paused: no next check, so the bar under the header stays empty.
+	if (S.interval === PAUSED) return;
+	tickTimer = setTimeout(tick, S.interval);
 	void bar.offsetWidth;
 	bar.style.animation = `shepherd-tick ${S.interval}ms linear forwards`;
 }
@@ -1697,7 +1702,7 @@ function refreshNow(): void {
 }
 
 document.addEventListener('visibilitychange', () => {
-	if (!document.hidden && lastList && Date.now() - lastList > S.interval) tick();
+	if (S.interval !== PAUSED && !document.hidden && lastList && Date.now() - lastList > S.interval) tick();
 });
 
 // ---------------------------------------------------------------------------
@@ -1934,8 +1939,10 @@ $('#sort').addEventListener('click', (e) => {
 });
 
 function renderIntervals(): void {
-	$('#interval').innerHTML = INTERVALS.map(
-		(i) => `<button role="radio" aria-checked="${S.interval === i.ms}" data-interval="${i.ms}" title="Refresh every ${i.label}">${i.label}</button>`
+	$('#interval').innerHTML = INTERVALS.map((i) =>
+		i.ms === PAUSED
+			? `<button role="radio" aria-checked="${S.interval === i.ms}" data-interval="${i.ms}" aria-label="Pause" title="Pause the automatic refresh. The refresh button still checks the list."><i class="fa-solid fa-pause"></i></button>`
+			: `<button role="radio" aria-checked="${S.interval === i.ms}" data-interval="${i.ms}" title="Refresh every ${i.label}">${i.label}</button>`
 	).join('');
 }
 $('#interval').addEventListener('click', (e) => {
@@ -1943,10 +1950,14 @@ $('#interval').addEventListener('click', (e) => {
 	if (!(target instanceof Element)) return;
 	const b = target.closest('[data-interval]');
 	if (!(b instanceof HTMLElement)) return;
+	const wasPaused = S.interval === PAUSED;
 	S.interval = Number(b.dataset.interval);
 	save();
 	renderIntervals();
-	schedule();
+	renderChrome();
+	// Leaving pause checks at once if the list is already older than the new interval.
+	if (wasPaused && S.interval !== PAUSED && lastList && Date.now() - lastList > S.interval) tick();
+	else schedule();
 });
 
 // Keep relative times fresh without refetching.
