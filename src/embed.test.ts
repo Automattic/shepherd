@@ -142,3 +142,8 @@ test('pageToken: without storage, a token from the link still works for this pag
 	expect(pageToken(false, 'from-link', broken)).toBe('from-link');
 	expect(pageToken(false, '', broken)).toBe('');
 });
+
+test('readEmbedOptions keeps theme only when it is "host"', () => {
+	expect(readEmbedOptions({ theme: 'host' })).toEqual({ theme: 'host' });
+	for (const theme of ['dark', 'light', 'HOST', true, 1, null]) expect(readEmbedOptions({ theme })).toEqual({});
+});

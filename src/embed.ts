@@ -14,6 +14,12 @@ export interface ShepherdEmbedOptions {
 	header?: boolean;
 	/** `true` adds a `/` to the end of the path of each API call to `apiBase`, before the query. Default: `false`. */
 	apiTrailingSlash?: boolean;
+	/**
+	 * `'host'`: the host page sets the theme, as `data-theme="light"` or `"dark"` on the mount element, and changes it
+	 * when its own theme changes. The client then has no theme button and does not apply a saved theme.
+	 * Default: the client's own theme button.
+	 */
+	theme?: 'host';
 }
 
 /** The mount element of the standalone page (public/index.html). */
@@ -83,6 +89,7 @@ export function readEmbedOptions(raw: unknown): ShepherdEmbedOptions {
 	if (mount !== undefined) opts.mount = mount;
 	if (typeof raw.header === 'boolean') opts.header = raw.header;
 	if (typeof raw.apiTrailingSlash === 'boolean') opts.apiTrailingSlash = raw.apiTrailingSlash;
+	if (raw.theme === 'host') opts.theme = 'host';
 	return opts;
 }
 

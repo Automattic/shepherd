@@ -93,5 +93,7 @@ export function mountShell(opts: ShepherdEmbedOptions): HTMLElement {
 	root.classList.add('shepherd');
 	root.classList.toggle('no-header', !header);
 	root.innerHTML = shellHtml(header);
+	// The host sets the theme, so the client's theme button would fight it.
+	if (opts.theme === 'host') root.querySelector<HTMLElement>('#theme')!.hidden = true;
 	return root;
 }
