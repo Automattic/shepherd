@@ -57,7 +57,7 @@ const embedded = (): SettingsResponse => ({
 		ignoreParticipants: [],
 		limits: {},
 	},
-	version: 'mc-v1',
+	version: 'embedded-v1',
 	mode: 'personal',
 	fields: {
 		'/personal': { editable: true },

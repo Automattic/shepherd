@@ -373,8 +373,8 @@
 /* Avatars */
 /*
  * The color of an initials avatar is in `--avatar-bg`, set on the element. The background has
- * `!important` because a host page can have its own `.avatar` rule with `!important` (MC's
- * stylesheet has one), and that rule beats an inline background. The same rule can add a shadow.
+ * `!important` because a host page can have its own `.avatar` rule with `!important`, and that
+ * rule beats an inline background. The same rule can add a shadow.
  */
 .shepherd .avatar {
 	width: 24px; height: 24px; border-radius: 50%; flex: none; position: relative;
