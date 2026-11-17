@@ -29,7 +29,9 @@ import { countByAuthor, isMergedRange, MERGED_RANGE_LABELS, MERGED_RANGES, merge
 import { apiHeaders, apiUrl, pageToken, readEmbedOptions, sendsToken } from '../src/embed.ts';
 import { PUSH_POLICY_LABELS, resolvePushPolicy } from '../src/push-policy.ts';
 import { createSettingsPanel } from './settings.ts';
+import { linearKeyRegExp } from '../src/linear.ts';
 import { parseRepoKey, repoChipLabels, repoKey, unknownSelectedRepos } from '../src/repo-chips.ts';
+import { reviewBot } from '../src/review-bot.ts';
 import { rowMaxAge } from '../src/row-refresh.ts';
 import { mountShell } from './shell.ts';
 import { changesRequestedPending, isTurnOf, WAIT_REASON_TEXT, waitReasons, type WaitReason } from '../src/waiting.ts';
@@ -433,8 +435,8 @@ function rowKeyOf(host: string, owner: string, repo: string, number: number): st
 
 function linearKeysLight(light: LightPr): Set<string> {
 	const keys = new Set<string>();
-	if (!cfg.linear?.keys.length) return keys;
-	const re = new RegExp(`\\b(${cfg.linear.keys.join('|')})-(\\d+)\\b`, 'gi');
+	const re = linearKeyRegExp(cfg.linear?.keys ?? []);
+	if (!re) return keys;
 	for (const [, prefix = '', num = ''] of `${light.title}\n${light.headRefName}`.matchAll(re)) keys.add(`${prefix.toUpperCase()}-${num}`);
 	return keys;
 }
@@ -789,8 +791,8 @@ function cellApprovals(row: Row): string {
 }
 
 function cellBot(row: Row): string {
-	const hostCfg = cfg.hosts[row.light.host];
-	if (!hostCfg?.bot) return `<span class="muted" title="No ${esc(cfg.aiReviewLabel)} bot on ${esc(hostCfg?.hostname)}">n/a</span>`;
+	const { host, owner, repo } = row.light;
+	if (!reviewBot(cfg, host, owner, repo)) return `<span class="muted" title="No ${esc(cfg.aiReviewLabel)} bot for ${esc(`${owner}/${repo}`)}">n/a</span>`;
 	const d = row.detail;
 	if (!d) return skel(48);
 	const b = d.bot;
@@ -1968,8 +1970,17 @@ setInterval(() => {
 // ---------------------------------------------------------------------------
 // Boot
 
-/** Shows why the dashboard did not start. `html` must be escaped already. */
 let settingsPanel: { open(): Promise<void> } | undefined;
+
+/** True for a link that is safe to put in an href: http, https, or a path on this site. Never `javascript:`. */
+function safeLink(url: string | undefined): url is string {
+	if (!url) return false;
+	try {
+		return ['http:', 'https:'].includes(new URL(url, location.href).protocol);
+	} catch {
+		return false;
+	}
+}
 
 /**
  * Whose dashboard this is. A team or member view says so, links to the viewer's own dashboard, and has no
@@ -1983,7 +1994,7 @@ function renderView(): void {
 		saveDisplayOnly = true;
 		resetFilters();
 		const whose = cfg.viewLabel || (cfg.mode === 'team' ? 'a team' : 'one person');
-		const back = cfg.personalUrl ? ` <a href="${esc(cfg.personalUrl)}">Your dashboard</a>` : '';
+		const back = safeLink(cfg.personalUrl) ? ` <a href="${esc(cfg.personalUrl)}">Your dashboard</a>` : '';
 		note.innerHTML = `<i class="fa-solid fa-${cfg.mode === 'team' ? 'users' : 'user'}"></i> Viewing ${esc(whose)}'s dashboard.${back}`;
 		note.title = 'Your own settings do not apply here.';
 	}
@@ -1995,6 +2006,7 @@ function renderView(): void {
 	}
 }
 
+/** Shows why the dashboard did not start. `html` must be escaped already. */
 function bootBanner(icon: string, html: string): void {
 	const banner = $('#banner');
 	banner.hidden = false;

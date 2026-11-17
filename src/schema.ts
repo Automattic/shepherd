@@ -100,6 +100,20 @@ function hasType(v: unknown, type: SchemaType): boolean {
 
 const quoteList = (values: readonly unknown[]): string => values.map((v) => JSON.stringify(v)).join(', ');
 
+/** A value as text for a message. Never throws, also not for an object whose `toString` is not a function. */
+function text(v: unknown): string {
+	if (typeof v === 'string') return v;
+	try {
+		return JSON.stringify(v) ?? String(v);
+	} catch {
+		return Object.prototype.toString.call(v);
+	}
+}
+
+/** The schema of a property, from the schema's own `properties` only: `constructor` or `__proto__` is not a property. */
+const ownProperty = (node: SchemaNode, key: string): SchemaNode | undefined =>
+	node.properties && Object.hasOwn(node.properties, key) ? node.properties[key] : undefined;
+
 interface Frame {
 	/** The path from the document root. */
 	segments: string[];
@@ -153,14 +167,14 @@ export function validate(root: SchemaNode, doc: unknown, options: ValidateOption
 		let itemAt = -1;
 		for (let i = n - 1; i >= 0 && itemAt < 0; i--) if (frame.itemSchemas[i]) itemAt = i;
 		// A message can name the allowed values also when an earlier check (the type) failed.
-		const memberOf = node['x-memberOf'] !== undefined ? valuesAt(doc, node['x-memberOf']).map(String).join(', ') : undefined;
+		const memberOf = node['x-memberOf'] !== undefined ? valuesAt(doc, node['x-memberOf']).map(text).join(', ') : undefined;
 		const vars: Record<string, string> = {
 			...(memberOf !== undefined ? { options: memberOf } : {}),
 			path: render(frame, n),
 			parent: render(frame, n - 1),
 			item: render(frame, itemAt >= 0 ? itemAt + 1 : n - 1),
 			key: frame.segments[n - 1] ?? '',
-			value: String(frame.values[n - 1]),
+			value: text(frame.values[n - 1]),
 			...extra,
 		};
 		errors.push({ pointer: toPointer(frame.segments), keyword, message: template.replace(/\{(\w+)\}/g, (m, k: string) => vars[k] ?? m) });
@@ -193,7 +207,7 @@ export function validate(root: SchemaNode, doc: unknown, options: ValidateOption
 		}
 		if (node['x-memberOf'] !== undefined) {
 			const options = valuesAt(doc, node['x-memberOf']);
-			if (!options.some((o) => o === value)) report(node, 'x-memberOf', frame, { options: options.map(String).join(', ') });
+			if (!options.some((o) => o === value)) report(node, 'x-memberOf', frame, { options: options.map(text).join(', ') });
 		}
 		if (Array.isArray(value)) {
 			if (node.minItems !== undefined && value.length < node.minItems) report(node, 'minItems', frame);
@@ -214,7 +228,7 @@ export function validate(root: SchemaNode, doc: unknown, options: ValidateOption
 			if (node.minProperties !== undefined && keys.length < node.minProperties) report(node, 'minProperties', frame);
 			for (const name of node.required ?? []) {
 				// A missing property reports the message of its own schema, so each one can say what it needs.
-				if (!Object.hasOwn(value, name)) report(resolve(node.properties?.[name] ?? {}), 'required', child(frame, name, undefined));
+				if (!Object.hasOwn(value, name)) report(resolve(ownProperty(node, name) ?? {}), 'required', child(frame, name, undefined));
 			}
 			for (const key of keys) {
 				const sub = child(frame, key, value[key]);
@@ -226,7 +240,7 @@ export function validate(root: SchemaNode, doc: unknown, options: ValidateOption
 					for (const e of errors.slice(before)) if (e.keyword === 'x-keyOf' || e.keyword === 'enum' || e.keyword === 'pattern' || e.keyword === 'minLength') e.keyword = 'propertyNames';
 					if (errors.length > before) continue;
 				}
-				const prop = node.properties?.[key];
+				const prop = ownProperty(node, key);
 				if (prop) walk(prop, value[key], sub);
 				else if (node.additionalProperties === false) report(node, 'additionalProperties', sub);
 				else if (isObject(node.additionalProperties)) walk(node.additionalProperties, value[key], sub);
@@ -244,8 +258,11 @@ function label(template: string, item: unknown): string {
 	let missing = false;
 	const out = template.replace(/\{(\w+)\}/g, (_, k: string) => {
 		const v = item[k];
-		if (typeof v !== 'string' || !v) missing = true;
-		return String(v);
+		if (typeof v !== 'string' || !v) {
+			missing = true;
+			return '';
+		}
+		return v;
 	});
 	return missing ? '' : out;
 }

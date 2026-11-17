@@ -15,11 +15,21 @@ const MS = `must be a number of milliseconds (${MIN_ROW_REFRESH_MS} or more), or
 const pushPolicy = (message: string): SchemaNode => ({ enum: [...PUSH_POLICIES], 'x-message': message });
 const positiveInteger = (message: string): SchemaNode => ({ type: 'integer', minimum: 1, 'x-message': message });
 
+/** A GitHub login, or a GitHub App's login with the `[bot]` suffix. Also used for a team id that keys a per-author policy. */
+const LOGIN = '^[A-Za-z0-9][A-Za-z0-9_.-]*(\\[bot\\])?$';
+/** A host name with an optional port. It never starts with `-`, so `gh` cannot read it as a flag. */
+const HOSTNAME = '^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?(:[0-9]{1,5})?$';
+/** A key of `hosts`. It is part of JSON pointers and of each login and repo, so only plain characters. */
+const HOST_KEY = '^[A-Za-z0-9_-]+$';
+/** A Linear team key, such as ENG. The client and the server build a regular expression from these. */
+const LINEAR_KEY = '^[A-Za-z][A-Za-z0-9]*$';
+
 const member: SchemaNode = {
 	type: 'object',
 	'x-label': '{id}',
 	'x-message': '{path} must be an object',
 	required: ['id', 'name', 'short', 'logins'],
+	additionalProperties: false,
 	properties: {
 		id: { type: 'string', minLength: 1, 'x-message': '{item} needs id, name and short' },
 		name: { type: 'string', minLength: 1, 'x-message': '{item} needs id, name and short' },
@@ -40,6 +50,7 @@ const repo: SchemaNode = {
 	'x-label': '{owner}/{name}',
 	'x-message': '{path} must be an object',
 	required: ['host', 'owner', 'name', 'short'],
+	additionalProperties: false,
 	properties: {
 		host: { type: 'string', 'x-keyOf': '/deployment/hosts', 'x-message': '{item} uses unknown host "{value}"' },
 		owner: { type: 'string', minLength: 1, 'x-message': '{item} needs owner, name and short' },
@@ -51,9 +62,10 @@ const repo: SchemaNode = {
 		pushPolicyByAuthor: {
 			type: 'object',
 			'x-message': '{item} needs "pushPolicyByAuthor" to be an object of team id or login to policy, or no such field',
-			propertyNames: { minLength: 1, 'x-message': '{item} pushPolicyByAuthor needs a team id or login for each policy' },
+			propertyNames: { pattern: LOGIN, 'x-message': '{item} pushPolicyByAuthor needs a team id or login for each policy, not "{key}"' },
 			additionalProperties: pushPolicy(`{item} pushPolicyByAuthor."{key}" must be one of ${POLICY_LIST}`),
 		},
+		bot: { type: ['string', 'null'], pattern: LOGIN, 'x-message': '{item} needs "bot" to be a login, or null for none, or no such field' },
 	},
 };
 
@@ -62,9 +74,9 @@ const host: SchemaNode = {
 	'x-message': '{path} must be an object',
 	required: ['hostname'],
 	properties: {
-		hostname: { type: 'string', minLength: 1, 'x-message': '{parent} needs a hostname' },
+		hostname: { type: 'string', pattern: HOSTNAME, 'x-message': '{parent} needs a hostname, such as github.com' },
 		label: { type: 'string', 'x-message': '{path} must be a string' },
-		bot: { type: ['string', 'null'], 'x-message': '{path} must be a login or null' },
+		bot: { type: ['string', 'null'], pattern: LOGIN, 'x-message': '{path} must be a login or null' },
 		concurrency: positiveInteger('{path} must be a whole number, 1 or more, or no such field'),
 		rowRefreshFloorMs: { type: 'number', minimum: MIN_ROW_REFRESH_MS, 'x-message': `{path} ${MS}` },
 		rowRefreshLowBudgetMs: { type: 'number', minimum: MIN_ROW_REFRESH_MS, 'x-message': `{path} ${MS}` },
@@ -115,10 +127,15 @@ export const SETTINGS_SCHEMA: SchemaNode = {
 				linear: {
 					type: ['object', 'null'],
 					required: ['workspace', 'keys'],
+					additionalProperties: false,
 					'x-message': '`linear` needs `workspace` and `keys` (or remove it)',
 					properties: {
 						workspace: { type: 'string', minLength: 1, 'x-message': '`linear` needs `workspace` and `keys` (or remove it)' },
-						keys: { type: 'array', items: { type: 'string', minLength: 1 }, 'x-message': '`linear` needs `workspace` and `keys` (or remove it)' },
+						keys: {
+							type: 'array',
+							items: { type: 'string', pattern: LINEAR_KEY, 'x-message': '`linear.keys` must be team keys such as ENG: a letter, then letters or digits' },
+							'x-message': '`linear` needs `workspace` and `keys` (or remove it)',
+						},
 					},
 				},
 				features: {
@@ -134,7 +151,12 @@ export const SETTINGS_SCHEMA: SchemaNode = {
 			'x-message': '{path} must be an object',
 			required: ['hosts'],
 			properties: {
-				hosts: { type: 'object', additionalProperties: { $ref: '#/definitions/host' }, 'x-message': '`hosts` must be an object' },
+				hosts: {
+					type: 'object',
+					propertyNames: { pattern: HOST_KEY, 'x-message': 'host key "{key}" may have only letters, digits, - and _' },
+					additionalProperties: { $ref: '#/definitions/host' },
+					'x-message': '`hosts` must be an object',
+				},
 				refresh: { enum: ['rows', 'list'], 'x-message': '`refresh` must be "rows" or "list", or no such field' },
 				aiReviewLabel: { type: 'string', 'x-message': '`aiReviewLabel` must be a string, or no such field' },
 				ignoreParticipants: { type: 'array', items: { type: 'string' }, 'x-message': '`ignoreParticipants` must be a list of logins, or no such field' },

@@ -67,7 +67,8 @@ describe('the schema and problems() agree', () => {
 			const doc = documentFromConfig(c);
 			const fromFile = validate(emitted, doc).find((e) => e.pointer === pointer);
 			expect(fromFile).toBeDefined();
-			const r = checkSettingsPut({ version: 'v1', personal: doc.personal }, { current: current() });
+			// A settings request sends every personal key; the config of these cases leaves out linear and features.
+			const r = checkSettingsPut({ version: 'v1', personal: Object.assign({ linear: null, features: {} }, doc.personal) }, { current: current() });
 			expect(r.ok).toBe(false);
 			const err = !r.ok ? r.body.errors.find((e) => e.path === pointer) : undefined;
 			expect(err?.code).toBe('invalid');
@@ -160,7 +161,7 @@ describe('PUT /api/settings checks', () => {
 		expect(errorsOf(put((p) => (p.me = 'bob')))).toEqual([{ path: '/personal/me', code: 'not_editable' }]);
 		const now = current();
 		const r = checkSettingsPut({ version: now.version, personal: now.personal, deployment: { ...now.deployment, refresh: 'list' } }, { current: now });
-		expect(errorsOf(r)).toEqual([{ path: '/deployment', code: 'not_editable' }]);
+		expect(errorsOf(r)).toEqual([{ path: '/deployment/refresh', code: 'not_editable' }]);
 		// A host marks a feature that it does not have as not editable.
 		const noHerdr = current(config(), { fields: { ...current().fields, '/personal/features/herdr': { editable: false, reason: 'no herdr here' } } });
 		expect(errorsOf(put((p) => (p.features = { herdr: true }), noHerdr))).toEqual([{ path: '/personal/features/herdr', code: 'not_editable' }]);
@@ -185,8 +186,8 @@ describe('PUT /api/settings checks', () => {
 		const locked = current(config(), {
 			fields: { ...current().fields, '/personal/team/*/pushPolicy': { editable: false, reason: 'Each person sets their own.' }, '/personal/repos/*/pushPolicyByAuthor': { editable: false } },
 		});
-		expect(errorsOf(put((p) => (p.team[1]!.pushPolicy = 'push'), locked))).toEqual([{ path: '/personal/team/*/pushPolicy', code: 'not_editable' }]);
-		expect(errorsOf(put((p) => (p.repos[0]!.pushPolicyByAuthor = {}), locked))).toEqual([{ path: '/personal/repos/*/pushPolicyByAuthor', code: 'not_editable' }]);
+		expect(errorsOf(put((p) => (p.team[1]!.pushPolicy = 'push'), locked))).toEqual([{ path: '/personal/team/1/pushPolicy', code: 'not_editable' }]);
+		expect(errorsOf(put((p) => (p.repos[0]!.pushPolicyByAuthor = {}), locked))).toEqual([{ path: '/personal/repos/0/pushPolicyByAuthor', code: 'not_editable' }]);
 		expect(put((p) => (p.team[0]!.name = 'Alice B.'), locked).ok).toBe(true);
 	});
 });
@@ -294,16 +295,18 @@ describe('the config.json store', () => {
 		expect(store.config.me).toBe('alice');
 	});
 
-	test('a reload keeps the deployment settings from startup and says to restart', async () => {
+	test('a reload applies the hosts at once, and keeps the other deployment settings from startup', async () => {
 		const store = await open();
 		const edited = config();
 		edited.hosts.github!.concurrency = 8;
 		edited.hosts.github!.reviewTeams = ['example-org/web'];
+		edited.refresh = 'list';
 		await write(edited);
 		await store.refresh();
-		expect(store.config.hosts.github!.concurrency).toBeUndefined();
+		expect(store.config.hosts.github!.concurrency).toBe(8);
 		expect(store.config.hosts.github!.reviewTeams).toEqual(['example-org/web']);
-		expect(store.problems).toEqual(['config.json changed hosts; restart the server to apply it']);
+		expect(store.config.refresh).toBeUndefined();
+		expect(store.problems).toEqual(['config.json changed refresh; restart the server to apply it']);
 	});
 
 	describe('the HTTP handler', () => {
@@ -319,7 +322,9 @@ describe('the config.json store', () => {
 			expect(body.personal.reviewTeams).toEqual({ github: ['example-org/reviewers'] });
 			expect(body.deployment.limits).toEqual({});
 			expect(JSON.stringify(body)).not.toContain('proxy.conf');
-			expect(body.fields['/deployment']?.editable).toBe(false);
+			expect(body.fields['/deployment/hosts']?.editable).toBe(true);
+			expect(body.fields['/deployment/hosts/*/concurrency']?.editable).toBe(false);
+			expect(body.fields['/deployment/limits']?.editable).toBe(false);
 		});
 
 		test('PUT saves, and a second PUT from the same copy is a conflict', async () => {

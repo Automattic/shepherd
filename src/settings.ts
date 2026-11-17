@@ -2,7 +2,7 @@
 // No I/O here, so the server, its tests and the browser client can share it. settings-store.ts reads and
 // writes config.json; settings-schema.ts is the rulebook.
 
-import { fromPointer, toPointer, validate, valuesAt } from './schema.ts';
+import { fromPointer, toPointer, validate } from './schema.ts';
 import { SETTINGS_SCHEMA } from './settings-schema.ts';
 import type {
 	Config,
@@ -114,6 +114,26 @@ export function mergePersonal(onDisk: Record<string, unknown>, personal: Persona
 	return out;
 }
 
+/**
+ * The parsed config.json with the hosts of a settings request: hosts that the request does not have are removed, new ones
+ * are added, and each host takes `hostname`, `label` and `bot` from the request. The other fields of a host
+ * (`proxychains`, `concurrency`, the refresh floors, `reviewTeams`) stay as they are on disk.
+ */
+export function mergeHosts(onDisk: Record<string, unknown>, hosts: DeploymentSettings['hosts']): Record<string, unknown> {
+	const before = isObject(onDisk.hosts) ? onDisk.hosts : {};
+	const out: Record<string, unknown> = {};
+	for (const [key, h] of Object.entries(hosts)) {
+		const was = Object.hasOwn(before, key) && isObject(before[key]) ? before[key] : {};
+		const next: Record<string, unknown> = { ...was, hostname: h.hostname };
+		if (h.label !== undefined) next.label = h.label;
+		else delete next.label;
+		if (h.bot !== undefined) next.bot = h.bot;
+		else delete next.bot;
+		out[key] = next;
+	}
+	return { ...onDisk, hosts: out };
+}
+
 // ---------------------------------------------------------------------------
 // Field metadata
 
@@ -156,24 +176,154 @@ function limitErrors(next: PersonalSettings, current: SettingsResponse): Setting
 	return errors;
 }
 
-/** Changed values at pointers that are not editable. */
+/** A name for an array item that stays the same when the array is reordered: a member's id, a repo's host and name. */
+function identity(item: unknown, index: number): string {
+	if (isObject(item)) {
+		if (typeof item.id === 'string') return `id:${item.id}`;
+		if (typeof item.owner === 'string' && typeof item.name === 'string') return `repo:${String(item.host)}/${item.owner}/${item.name}`.toLowerCase();
+	}
+	return `#${index}`;
+}
+
+interface Match {
+	/** The concrete pointer in the document, with array indexes. */
+	pointer: string;
+	/** The same place, with array items named by `identity()`, so the two documents can be compared item by item. */
+	id: string;
+	/** The `id` of the parent of the matched value. */
+	parent: string;
+	value: unknown;
+}
+
+/**
+ * Every place in `doc` that `pattern` (whose segments can be `*`) names. A pattern whose last segment is not `*`
+ * also matches where that key is missing, with `value` undefined, as long as its parent is there.
+ */
+function matches(doc: unknown, pattern: string): Match[] {
+	let current: { segs: string[]; ids: string[]; value: unknown; present: boolean }[] = [{ segs: [], ids: [], value: doc, present: true }];
+	for (const seg of fromPointer(pattern)) {
+		const next: typeof current = [];
+		for (const c of current) {
+			if (!c.present) continue;
+			const v = c.value;
+			if (seg === '*') {
+				if (Array.isArray(v)) v.forEach((item, i) => next.push({ segs: [...c.segs, String(i)], ids: [...c.ids, identity(item, i)], value: item, present: true }));
+				else if (isObject(v)) for (const [k, item] of Object.entries(v)) next.push({ segs: [...c.segs, k], ids: [...c.ids, k], value: item, present: true });
+			} else if (Array.isArray(v) && /^\d+$/.test(seg)) {
+				const i = Number(seg);
+				next.push({ segs: [...c.segs, seg], ids: [...c.ids, identity(v[i], i)], value: v[i], present: i < v.length });
+			} else if (isObject(v)) {
+				next.push({ segs: [...c.segs, seg], ids: [...c.ids, seg], value: Object.hasOwn(v, seg) ? v[seg] : undefined, present: Object.hasOwn(v, seg) });
+			}
+		}
+		current = next;
+	}
+	return current.map((c) => ({ pointer: toPointer(c.segs), id: c.ids.join('/'), parent: c.ids.slice(0, -1).join('/'), value: c.value }));
+}
+
+/** `value` without the parts at `rest` (segments below it, `*` for any item). For masking editable fields inside a locked one. */
+function without(value: unknown, rest: string[]): unknown {
+	if (!rest.length) return undefined;
+	const [seg, ...more] = rest as [string, ...string[]];
+	if (Array.isArray(value)) {
+		return value.map((item, i) => (seg === '*' || seg === String(i) ? without(item, more) : item)).filter((item) => item !== undefined);
+	}
+	if (isObject(value)) {
+		const out: Record<string, unknown> = {};
+		for (const [k, v] of Object.entries(value)) {
+			if (seg === '*' || seg === k) {
+				const kept = without(v, more);
+				if (kept !== undefined) out[k] = kept;
+			} else out[k] = v;
+		}
+		return out;
+	}
+	return value;
+}
+
+/**
+ * Changed values at places that are not editable. Each pointer of `fields` that is not editable is checked at every
+ * place it names, by array item identity (so moving a value from one member to another counts as a change), and each
+ * place is judged by the longest matching pointer, as the panel judges it. Editable fields inside a locked one are left out
+ * of the comparison. A removed array item or key is not a change to its locked fields.
+ */
 function notEditableChanges(prev: SettingsDocument, next: SettingsDocument, fields: Record<string, FieldMeta>): SettingsFieldError[] {
 	const errors: SettingsFieldError[] = [];
-	for (const [pointer, meta] of Object.entries(fields)) {
-		if (meta.editable || !pointer.startsWith('/personal')) continue;
-		if (JSON.stringify(valuesAt(prev, pointer)) === JSON.stringify(valuesAt(next, pointer))) continue;
-		errors.push({ path: pointer, code: 'not_editable', message: meta.reason || 'This setting is not editable.' });
+	const seen = new Set<string>();
+	for (const [pattern, meta] of Object.entries(fields)) {
+		if (meta.editable) continue;
+		// Editable fields inside this locked one, as segments below it.
+		const holes = Object.entries(fields)
+			.filter(([p, m]) => m.editable && p.startsWith(`${pattern}/`))
+			.map(([p]) => fromPointer(p).slice(fromPointer(pattern).length));
+		const mask = (v: unknown) => JSON.stringify(holes.reduce((acc, hole) => without(acc, hole), v));
+		const before = new Map(matches(prev, pattern).map((m) => [m.id, m]));
+		const after = matches(next, pattern);
+		const afterIds = new Set(after.map((m) => m.id));
+		const afterParents = new Set(after.map((m) => m.parent));
+		const changed: Match[] = after.filter((m) => mask(m.value) !== mask(before.get(m.id)?.value));
+		// A value that is gone while its parent stays, such as a removed per-author entry.
+		for (const m of before.values()) if (!afterIds.has(m.id) && afterParents.has(m.parent) && m.value !== undefined) changed.push(m);
+		for (const m of changed) {
+			const own = fieldMeta(fields, m.pointer);
+			if (own.editable || seen.has(m.pointer)) continue;
+			seen.add(m.pointer);
+			errors.push({ path: m.pointer, code: 'not_editable', message: own.reason || meta.reason || 'This setting is not editable.' });
+		}
 	}
 	return errors;
 }
 
+/** The host fields that a settings request can set. The others (concurrency, refresh floors) stay as the server has them. */
+const HOST_FIELDS = ['hostname', 'label', 'bot'] as const;
+
+/**
+ * The deployment settings after a request: the current ones, with the request's hosts when it sends them. A host keeps its
+ * other fields; a field that the request sets outside HOST_FIELDS to a new value is refused.
+ */
+function nextDeployment(body: Record<string, unknown>, current: DeploymentSettings): { deployment: DeploymentSettings; errors: SettingsFieldError[] } {
+	const errors: SettingsFieldError[] = [];
+	if (body.deployment === undefined) return { deployment: current, errors };
+	if (!isObject(body.deployment)) return { deployment: current, errors: [{ path: '/deployment', code: 'invalid', message: '`deployment` must be an object with `hosts`' }] };
+	for (const key of Object.keys(body.deployment)) {
+		if (key !== 'hosts' && JSON.stringify(body.deployment[key]) !== JSON.stringify((current as unknown as Record<string, unknown>)[key])) {
+			errors.push({ path: toPointer(['deployment', key]), code: 'not_editable', message: 'Only the hosts of the deployment settings can be changed.' });
+		}
+	}
+	const sent = body.deployment.hosts;
+	if (sent === undefined) return { deployment: current, errors };
+	if (!isObject(sent)) return { deployment: { ...current, hosts: sent as DeploymentSettings['hosts'] }, errors };
+	const hosts: Record<string, unknown> = {};
+	for (const [key, h] of Object.entries(sent)) {
+		if (!isObject(h)) {
+			hosts[key] = h;
+			continue;
+		}
+		const was = Object.hasOwn(current.hosts, key) ? (current.hosts[key] as unknown as Record<string, unknown>) : {};
+		const out: Record<string, unknown> = { ...was };
+		for (const f of HOST_FIELDS) {
+			if (h[f] === undefined) delete out[f];
+			else out[f] = h[f];
+		}
+		for (const [f, v] of Object.entries(h)) {
+			if ((HOST_FIELDS as readonly string[]).includes(f) || JSON.stringify(v) === JSON.stringify(was[f])) continue;
+			errors.push({ path: toPointer(['deployment', 'hosts', key, f]), code: 'not_editable', message: `${f} is set in config.json on the server.` });
+		}
+		hosts[key] = out;
+	}
+	return { deployment: { ...current, hosts: hosts as DeploymentSettings['hosts'] }, errors };
+}
+
+/** The keys that a settings request must send in `personal`, all of them, so that a missing one never deletes a setting. */
+const PERSONAL_KEYS = ['me', 'team', 'repos', 'reviewTeams', 'linear', 'features'] as const;
+
 export interface PutContext {
 	current: SettingsResponse;
 	/** Refusals of the host for a value that the schema accepts, for example a repo the viewer may not watch. */
-	refuse?: (next: PersonalSettings, current: SettingsResponse) => SettingsFieldError[];
+	refuse?: (next: PersonalSettings, current: SettingsResponse, deployment: DeploymentSettings) => SettingsFieldError[];
 }
 
-export type PutResult = { ok: true; personal: PersonalSettings } | { ok: false; status: 400 | 409 | 422; body: SettingsErrorResponse };
+export type PutResult = { ok: true; personal: PersonalSettings; deployment: DeploymentSettings } | { ok: false; status: 400 | 409 | 422; body: SettingsErrorResponse };
 
 const refused = (status: 400 | 409 | 422, error: string, errors: SettingsFieldError[] = [], settings?: SettingsResponse): PutResult => ({
 	ok: false,
@@ -186,26 +336,28 @@ export function checkSettingsPut(body: unknown, { current, refuse }: PutContext)
 	if (!isObject(body) || typeof body.version !== 'string' || !isObject(body.personal)) {
 		return refused(400, 'bad request: send { "version": "<from GET /api/settings>", "personal": { … } }');
 	}
-	const extra = Object.keys(body).filter((k) => k !== 'version' && k !== 'personal');
+	const extra = Object.keys(body).filter((k) => k !== 'version' && k !== 'personal' && k !== 'deployment');
 	if (extra.length) {
-		const errors = extra.map((k): SettingsFieldError =>
-			k === 'deployment'
-				? { path: '/deployment', code: 'not_editable', message: fieldMeta(current.fields, '/deployment').reason || 'Deployment settings belong to the server.' }
-				: { path: toPointer([k]), code: 'invalid', message: `${k} is not part of a settings request` }
+		return refused(
+			422,
+			'Some settings were refused.',
+			extra.map((k): SettingsFieldError => ({ path: toPointer([k]), code: 'invalid', message: `${k} is not part of a settings request` }))
 		);
-		return refused(422, 'Some settings were refused.', errors);
 	}
 	if (body.version !== current.version) {
 		return refused(409, 'The settings changed since you loaded them (in another tab, or on the server). Load them again and repeat your change.', [], current);
 	}
-	const next: SettingsDocument = { personal: body.personal as unknown as PersonalSettings, deployment: current.deployment };
+	const personal = body.personal;
+	const missing = PERSONAL_KEYS.filter((k) => !Object.hasOwn(personal, k)).map(
+		(k): SettingsFieldError => ({ path: toPointer(['personal', k]), code: 'invalid', message: `send \`${k}\` too: a settings request has every personal setting, so a missing one is never deleted` })
+	);
+	if (missing.length) return refused(422, 'Some settings are not valid.', missing);
+	const { deployment, errors: hostErrors } = nextDeployment(body, current.deployment);
+	if (hostErrors.length) return refused(422, 'Some settings were refused.', hostErrors);
+	const next: SettingsDocument = { personal: personal as unknown as PersonalSettings, deployment };
 	const invalid = validate(SETTINGS_SCHEMA, next).map((e): SettingsFieldError => ({ path: e.pointer, code: 'invalid', message: e.message }));
 	if (invalid.length) return refused(422, 'Some settings are not valid.', invalid);
-	const errors = [
-		...notEditableChanges(current, next, current.fields),
-		...limitErrors(next.personal, current),
-		...(refuse?.(next.personal, current) ?? []),
-	];
+	const errors = [...notEditableChanges(current, next, current.fields), ...limitErrors(next.personal, current), ...(refuse?.(next.personal, current, next.deployment) ?? [])];
 	if (errors.length) return refused(422, 'Some settings were refused.', errors);
-	return { ok: true, personal: next.personal };
+	return { ok: true, personal: next.personal, deployment: next.deployment };
 }

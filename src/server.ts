@@ -19,15 +19,25 @@ const loaded = await loadConfig();
 const config = loaded.config;
 const store = createConfigStore(loaded.file, loaded.text, config);
 const port = Number(process.env.PORT || config.port || DEFAULT_PORT);
-const gh = createGh(config);
-const herdr = createHerdr(config);
+// The gh runner and herdr read the hosts when they are made (a semaphore and a hostname map per host), so a change to
+// the hosts makes them again. A reload that leaves the hosts as they were keeps them, with the rate budget they track.
+let gh = createGh(config);
+let herdr = createHerdr(config);
 // The PR service and the MCP handler keep the team and repos from when they were made, so a reload makes them again.
 let prs = createPrService(config, gh);
 let handleMcp = createMcpHandler(config, prs, herdr);
 let features = configFeatures(config);
+/** The hosts as the gh runner and herdr see them: review teams are personal settings and change neither. */
+const runnerHosts = (c: typeof config): string =>
+	JSON.stringify(Object.entries(c.hosts).map(([k, { reviewTeams: _teams, ...h }]) => [k, h]));
 store.onChange((next) => {
+	const hostsBefore = runnerHosts(config);
 	for (const key of Object.keys(config)) if (!(key in next)) delete (config as unknown as Record<string, unknown>)[key];
 	Object.assign(config, next);
+	if (runnerHosts(config) !== hostsBefore) {
+		gh = createGh(config);
+		herdr = createHerdr(config);
+	}
 	prs = createPrService(config, gh);
 	handleMcp = createMcpHandler(config, prs, herdr);
 	features = configFeatures(config);

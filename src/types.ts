@@ -59,6 +59,11 @@ export interface RepoConfig {
 	pushPolicy?: PushPolicy;
 	/** Optional: per-author policies in this repo, keyed by team id or login. They win over every other setting. */
 	pushPolicyByAuthor?: Record<string, PushPolicy>;
+	/**
+	 * Optional: the login of this repo's AI-review bot, or null when the repo has none. Without the field, the repo
+	 * uses its host's `bot`. Use it when the orgs on one host have different bots.
+	 */
+	bot?: string | null;
 }
 
 export interface LinearConfig {

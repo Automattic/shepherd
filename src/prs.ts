@@ -4,6 +4,8 @@ import { extractFollowUps, type FollowUpText } from './followups.ts';
 import type { GhRunner } from './gh.ts';
 import { mergedSearchSince } from './merged.ts';
 import { BATCH_MAX, buildDetailBatch, MERGED_SEARCH_QUERY, SEARCH_QUERY } from './queries.ts';
+import { linearKeyRegExp } from './linear.ts';
+import { allReviewBots, reviewBot } from './review-bot.ts';
 import {
 	SEVERITIES,
 	type BaseAge,
@@ -263,10 +265,8 @@ export function parseBotFinding(body: string): Pick<BotFinding, 'title' | 'sever
 export function extractLinear(text: string | null | undefined, keys: string[]): Set<string> {
 	const found = new Set<string>();
 	if (!text) return found;
-	if (keys.length) {
-		const keyRe = new RegExp(`\\b(${keys.join('|')})-(\\d+)\\b`, 'gi');
-		for (const m of text.matchAll(keyRe)) found.add(`${m[1]!.toUpperCase()}-${m[2]}`);
-	}
+	const keyRe = linearKeyRegExp(keys);
+	if (keyRe) for (const m of text.matchAll(keyRe)) found.add(`${m[1]!.toUpperCase()}-${m[2]}`);
 	for (const m of text.matchAll(/linear\.app\/[\w-]+\/issue\/([A-Za-z]+-\d+)/g)) found.add(m[1]!.toUpperCase());
 	return found;
 }
@@ -362,11 +362,10 @@ export function createPrService(config: Config, gh: GhRunner): PrService {
 	const loginFor = (member: TeamMember | undefined, hostKey: string): string | undefined => member?.logins[hostKey];
 	const linearKeys = config.linear?.keys ?? [];
 
-	const botLogins = new Set(
-		[...Object.values(config.hosts).map((h) => h.bot), ...(config.ignoreParticipants ?? [])]
-			.filter((l): l is string => Boolean(l))
-			.map((l) => l.toLowerCase())
-	);
+	const botLogins = new Set([
+		...allReviewBots(config),
+		...(config.ignoreParticipants ?? []).filter(Boolean).map((l) => l.toLowerCase()),
+	]);
 	const isBot = (login: string | undefined): boolean =>
 		!login || botLogins.has(login.toLowerCase()) || /\[bot\]$|-bot$|^app\//i.test(login);
 
@@ -553,13 +552,14 @@ export function createPrService(config: Config, gh: GhRunner): PrService {
 	// PRs whose detail batch failed, and when. Only `prefetchDetails` reads it: a call for one PR (the page's fallback, MCP) still tries.
 	const prefetchHeld = new Map<string, number>();
 
-	function shapeBot(hostKey: string, pr: RawDetailPr): BotSummary | null {
-		const bot = config.hosts[hostKey]?.bot;
+	function shapeBot(hostKey: string, owner: string, repo: string, pr: RawDetailPr): BotSummary | null {
+		const bot = reviewBot(config, hostKey, owner, repo);
 		if (!bot) return null;
+		const login = bot.toLowerCase();
 		const findings: BotFinding[] = [];
 		for (const t of pr.reviewThreads.nodes) {
 			const first = t.comments.nodes[0];
-			if (!first || first.author?.login !== bot || t.isResolved) continue;
+			if (!first || first.author?.login?.toLowerCase() !== login || t.isResolved) continue;
 			findings.push({
 				...parseBotFinding(first.body ?? ''),
 				outdated: t.isOutdated,
@@ -666,7 +666,7 @@ export function createPrService(config: Config, gh: GhRunner): PrService {
 				state: r.state,
 				submittedAt: r.submittedAt,
 			})),
-			bot: shapeBot(hostKey, pr),
+			bot: shapeBot(hostKey, owner, repo, pr),
 			participants,
 			authorLastActive: (pr.author && lastActive.get(pr.author.login)) ?? null,
 			lastActivity,
@@ -944,8 +944,8 @@ export function createPrService(config: Config, gh: GhRunner): PrService {
 	const followUpsCache = new Map<string, { at: number; value: FollowUp[] }>();
 	const followUpsInflight = new Map<string, Promise<FollowUp[]>>();
 
-	function shapeFollowUps(hostKey: string, pr: RawFollowUpPr): FollowUp[] {
-		const bot = config.hosts[hostKey]?.bot?.toLowerCase();
+	function shapeFollowUps(hostKey: string, owner: string, repo: string, pr: RawFollowUpPr): FollowUp[] {
+		const bot = reviewBot(config, hostKey, owner, repo)?.toLowerCase();
 		const texts: FollowUpText[] = [];
 		// A GitHub App such as github-actions has no `[bot]` suffix, but GitHub types it `Bot`. As in shapeParticipants,
 		// a login that is typed `Bot` anywhere in the PR is a bot everywhere in it.
@@ -994,7 +994,7 @@ export function createPrService(config: Config, gh: GhRunner): PrService {
 			return numbers.map((n, i): FollowUp[] | Error => {
 				const pr = data.repository![`p${i}`];
 				if (!pr) return new NotFoundError(`Pull request #${n} not found`);
-				const value = shapeFollowUps(host, pr);
+				const value = shapeFollowUps(host, owner, repo, pr);
 				cacheFollowUps(prKey(host, owner, repo, n), value);
 				return value;
 			});

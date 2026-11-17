@@ -90,8 +90,11 @@ const hue = (id: string): number => [...id].reduce((h, c) => (h * 31 + c.charCod
 const avatar = (m: Pick<TeamMember, 'id' | 'name'>, size = ''): string =>
 	`<span class="s-avatar${size}" style="--h:${hue(m.id || m.name || '?')}" aria-hidden="true">${esc(initials(m.name || m.id))}</span>`;
 
-const pill = (p: PushPolicy | undefined, unset: string): string =>
-	`<span class="s-pill ${p ? `s-tone-${p}` : 's-tone-unset'}">${esc(p ? PUSH_POLICY_LABELS[p] : unset)}</span>`;
+const pill = (p: PushPolicy | undefined, unset: string): string => {
+	// The value comes from the server; only a known policy becomes a class name.
+	const known = p !== undefined && (PUSH_POLICIES as readonly string[]).includes(p) ? p : undefined;
+	return `<span class="s-pill ${known ? `s-tone-${known}` : 's-tone-unset'}">${esc(known ? PUSH_POLICY_LABELS[known] : unset)}</span>`;
+};
 
 export function createSettingsPanel({ root, api, onSaved }: SettingsPanelDeps): { open(): Promise<void> } {
 	const dialog = document.createElement('dialog');
@@ -237,6 +240,7 @@ export function createSettingsPanel({ root, api, onSaved }: SettingsPanelDeps): 
 				${r.allAuthors ? '<span class="s-tag">everyone</span>' : ''}
 				${r.maxBaseAgeHours ? `<span class="s-tag">base &gt; ${esc(r.maxBaseAgeHours)}h</span>` : ''}
 				${overrides ? `<span class="s-tag">${overrides} override${overrides > 1 ? 's' : ''}</span>` : ''}
+				${r.bot !== undefined ? `<span class="s-tag" title="This repo's AI-review bot">${r.bot ? `bot: ${esc(r.bot)}` : 'no bot'}</span>` : ''}
 			</span>
 			${count ? `<span class="s-errcount" title="${count} to fix">${count}</span>` : ''}
 			${pill(r.pushPolicy, 'No default')}
@@ -259,6 +263,7 @@ export function createSettingsPanel({ root, api, onSaved }: SettingsPanelDeps): 
 					${field('Label', input(`${base}/short`, r.short), fieldErrors(`${base}/short`))}
 					${field('Flag a base older than', `<span class="s-suffix">${input(`${base}/maxBaseAgeHours`, r.maxBaseAgeHours ?? '', { kind: 'number' })}<span>hours</span></span>`, fieldErrors(`${base}/maxBaseAgeHours`))}
 					${field('Default push policy', policySelect(`${base}/pushPolicy`, r.pushPolicy, 'No default'), fieldErrors(`${base}/pushPolicy`), 'Combined with the author’s policy, the stricter one wins.')}
+					${botField(r, i)}
 				</div>
 				${toggleRow(toggle(`${base}/allAuthors`, r.allAuthors === true, 'flag', 'List PRs by everyone'), 'List PRs by everyone', 'Not only the people on your team.', fieldErrors(`${base}/allAuthors`))}
 				<div class="s-overrides" data-field="${base}/pushPolicyByAuthor">
@@ -266,10 +271,10 @@ export function createSettingsPanel({ root, api, onSaved }: SettingsPanelDeps): 
 					${Object.entries(byAuthor)
 						.map(([key, p]) => {
 							const ptr = toPointer(['personal', 'repos', i, 'pushPolicyByAuthor', key]);
-							return `<div class="s-override" data-field="${ptr}">
+							return `<div class="s-override" data-field="${esc(ptr)}">
 								<input type="text" class="s-input" list="s-author-ids" aria-label="Team id or login" placeholder="Team id or login" value="${esc(key)}" data-s-author-key="${esc(key)}" data-repo="${i}"${editable ? '' : ' disabled'}>
 								<i class="fa-solid fa-arrow-right s-muted" aria-hidden="true"></i>
-								<select class="s-select" aria-label="Push policy for ${esc(key)}" data-path="${ptr}" data-kind="string"${editable ? '' : ' disabled'}>
+								<select class="s-select" aria-label="Push policy for ${esc(key)}" data-path="${esc(ptr)}" data-kind="string"${editable ? '' : ' disabled'}>
 									${PUSH_POLICIES.map((x) => `<option value="${x}" ${p === x ? 'selected' : ''}>${esc(PUSH_POLICY_LABELS[x])}</option>`).join('')}
 								</select>
 								${editable ? `<button type="button" class="s-icon" aria-label="Remove ${esc(key)}" data-s-author-remove="${esc(key)}" data-repo="${i}"><i class="fa-solid fa-xmark"></i></button>` : ''}
@@ -288,11 +293,26 @@ export function createSettingsPanel({ root, api, onSaved }: SettingsPanelDeps): 
 		</div>`;
 	}
 
+	/** The repo's AI-review bot: its host's (no field), none (null), or another login. */
+	function botField(r: PersonalSettings['repos'][number], i: number): string {
+		const base = toPointer(['personal', 'repos', i]);
+		const hostBot = loaded!.deployment.hosts[r.host]?.bot;
+		const mode = r.bot === undefined ? 'host' : r.bot === null ? 'none' : 'login';
+		const off = disabled(`${base}/bot`);
+		const select = `<select class="s-select" aria-label="AI-review bot" data-s-bot-mode="${i}"${off}>
+			<option value="host" ${mode === 'host' ? 'selected' : ''}>${esc(hostBot ? `The host’s (${hostBot})` : 'The host’s (none)')}</option>
+			<option value="none" ${mode === 'none' ? 'selected' : ''}>None in this repo</option>
+			<option value="login" ${mode === 'login' ? 'selected' : ''}>Another bot…</option>
+		</select>`;
+		const login = mode === 'login' ? input(`${base}/bot`, r.bot ?? '', { placeholder: 'review-bot', label: 'AI-review bot login' }) : '';
+		return field(`${loaded!.deployment.aiReviewLabel} bot`, `<span class="s-bot">${select}${login}</span>`, fieldErrors(`${base}/bot`), 'Its unresolved review threads fill the AI-review column for this repo.');
+	}
+
 	function serverSection(): string {
 		const d = loaded!.deployment;
 		const l = d.limits;
 		const reason = meta('/deployment').reason;
-		const limit = (n: number | undefined) => (n !== undefined ? `up to ${n}` : 'no limit');
+		const limit = (n: number | undefined) => (n !== undefined ? `up to ${esc(n)}` : 'no limit');
 		return `${reason ? `<p class="s-muted"><i class="fa-solid fa-lock"></i> ${esc(reason)}</p>` : ''}
 		<div class="s-cards">${Object.entries(d.hosts)
 			.map(
@@ -308,7 +328,7 @@ export function createSettingsPanel({ root, api, onSaved }: SettingsPanelDeps): 
 			<dt>People</dt><dd>${limit(l.maxPeople)}</dd>
 			<dt>Repos</dt><dd>${limit(l.maxRepos)}</dd>
 			<dt>Bells</dt><dd>${limit(l.maxBells)}</dd>
-			<dt>Requests</dt><dd>${l.requestBudget ? `${l.requestBudget.requests} per ${l.requestBudget.perSeconds} seconds` : 'no limit'}</dd>
+			<dt>Requests</dt><dd>${l.requestBudget ? `${esc(l.requestBudget.requests)} per ${esc(l.requestBudget.perSeconds)} seconds` : 'no limit'}</dd>
 		</dl>`;
 	}
 
@@ -533,6 +553,18 @@ export function createSettingsPanel({ root, api, onSaved }: SettingsPanelDeps): 
 			renderFocus('[data-s-linear]');
 		}
 	});
+	// The repo's AI-review bot: its host's (no field), none, or a login typed in the field that appears.
+	dialog.addEventListener('change', (e) => {
+		const el = e.target;
+		if (!draft || !(el instanceof HTMLSelectElement) || el.dataset.sBotMode === undefined) return;
+		const i = Number(el.dataset.sBotMode);
+		const repo = draft.personal.repos[i];
+		if (!repo) return;
+		if (el.value === 'host') delete repo.bot;
+		else if (el.value === 'none') repo.bot = null;
+		else repo.bot = typeof repo.bot === 'string' ? repo.bot : '';
+		renderFocus(el.value === 'login' ? `[data-path="/personal/repos/${i}/bot"]` : `[data-s-bot-mode="${i}"]`);
+	});
 	// Renaming a per-author entry moves its policy to the new key, in the same place.
 	dialog.addEventListener('change', (e) => {
 		const el = e.target;
@@ -541,6 +573,16 @@ export function createSettingsPanel({ root, api, onSaved }: SettingsPanelDeps): 
 		const from = el.dataset.sAuthorKey;
 		const to = el.value.trim();
 		if (!repo?.pushPolicyByAuthor || to === from) return;
+		if (Object.hasOwn(repo.pushPolicyByAuthor, to)) {
+			// Two entries for one author would leave only one of them: keep the old key and say why.
+			el.value = from;
+			errors = [
+				...errors.filter((x) => x.path !== toPointer(['personal', 'repos', Number(el.dataset.repo), 'pushPolicyByAuthor', from])),
+				{ path: toPointer(['personal', 'repos', Number(el.dataset.repo), 'pushPolicyByAuthor', from]), code: 'invalid', message: `${to} already has a policy in this repo.` },
+			];
+			render();
+			return;
+		}
 		repo.pushPolicyByAuthor = Object.fromEntries(Object.entries(repo.pushPolicyByAuthor).map(([k, v]) => [k === from ? to : k, v]));
 		render();
 	});
@@ -590,7 +632,7 @@ export function createSettingsPanel({ root, api, onSaved }: SettingsPanelDeps): 
 			if (!repo) return;
 			const map = (repo.pushPolicyByAuthor ??= {});
 			// Start with the first person who has no entry yet; the key can be changed to any login.
-			const key = draft.personal.team.map((m) => m.id).find((id) => !(id in map)) ?? '';
+			const key = draft.personal.team.map((m) => m.id).find((id) => !Object.hasOwn(map, id)) ?? '';
 			map[key] = 'review-only';
 			render();
 		} else if (ds.sAuthorRemove !== undefined) {
