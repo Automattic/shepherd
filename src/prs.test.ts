@@ -71,8 +71,15 @@ test('a merged PR is approved by a human only when someone other than the author
 	expect(await approved([by('review-helper'), by('bob')])).toBe(true);
 	// An approval that arrives after the merge says nothing about what merged.
 	expect(await approved([by('bob', 'APPROVED', 'User', '2026-11-10T12:30:00Z')])).toBe(false);
-	// A login that `ignoreParticipants` or the `-bot` suffix marks as a bot does not count either.
+	// A login that the `-bot` suffix marks as a bot does not count either.
 	expect(await approved([by('deploy-bot')])).toBe(false);
+});
+
+test('a merged PR approved only by a login in ignoreParticipants is not approved by a human', async () => {
+	const ignoring: Config = { ...config, ignoreParticipants: ['Release-Robot'] };
+	const approved = async (reviews: Review[]) => (await createPrService(ignoring, fakeGh(1, reviews).gh).listMerged('github')).prs[0]!.approvedByHuman;
+	expect(await approved([by('release-robot')])).toBe(false);
+	expect(await approved([by('release-robot'), by('bob')])).toBe(true);
 });
 
 test('a merged PR with no known merger has none', async () => {

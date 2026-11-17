@@ -98,7 +98,7 @@ test('withoutApproval keeps the PRs with no approval, and is null when the serve
 	const not = { ...pr(local(17)), approvedByHuman: false };
 	expect(withoutApproval([approved, not])).toEqual([not]);
 	expect(withoutApproval([approved])).toEqual([]);
-	expect(withoutApproval([])).toEqual([]);
+	expect(withoutApproval([])).toBeNull();
 	// A server that predates the field sends neither value.
 	const old = { ...approved, approvedByHuman: undefined } as unknown as MergedPr;
 	expect(withoutApproval([old])).toBeNull();

@@ -1593,7 +1593,7 @@ function renderShipped(): void {
 	$('#shipped-range').innerHTML = MERGED_RANGES.map(
 		(r) => `<button role="radio" aria-checked="${S.mergedRange === r}" data-merged-range="${r}" title="${esc(MERGED_RANGE_TITLES[r])}">${esc(MERGED_RANGE_LABELS[r])}</button>`
 	).join('');
-	// Null when the server does not send `approvedByHuman`: then there is no chip, no label and no filter.
+	// Null when the server does not send `approvedByHuman`, or when the list is empty: then there is no chip, no label and no filter.
 	const unapproved = withoutApproval(list);
 	const noApproval = (p: MergedPr): boolean => p.approvedByHuman === false;
 	const onlyNoApproval = unapproved !== null && S.shippedNoApproval;
