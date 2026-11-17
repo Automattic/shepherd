@@ -79,6 +79,7 @@ export function settingsFromConfig(source: Config): SettingsDocument {
 					hostname: h.hostname,
 					label: h.label,
 					bot: h.bot,
+					...(h.botsByOwner !== undefined ? { botsByOwner: h.botsByOwner } : {}),
 					...(h.concurrency !== undefined ? { concurrency: h.concurrency } : {}),
 					...(h.rowRefreshFloorMs !== undefined ? { rowRefreshFloorMs: h.rowRefreshFloorMs } : {}),
 					...(h.rowRefreshLowBudgetMs !== undefined ? { rowRefreshLowBudgetMs: h.rowRefreshLowBudgetMs } : {}),
@@ -116,7 +117,7 @@ export function mergePersonal(onDisk: Record<string, unknown>, personal: Persona
 
 /**
  * The parsed config.json with the hosts of a settings request: hosts that the request does not have are removed, new ones
- * are added, and each host takes `hostname`, `label` and `bot` from the request. The other fields of a host
+ * are added, and each host takes `hostname`, `label`, `bot` and `botsByOwner` from the request. The other fields of a host
  * (`proxychains`, `concurrency`, the refresh floors, `reviewTeams`) stay as they are on disk.
  */
 export function mergeHosts(onDisk: Record<string, unknown>, hosts: DeploymentSettings['hosts']): Record<string, unknown> {
@@ -129,6 +130,8 @@ export function mergeHosts(onDisk: Record<string, unknown>, hosts: DeploymentSet
 		else delete next.label;
 		if (h.bot !== undefined) next.bot = h.bot;
 		else delete next.bot;
+		if (h.botsByOwner !== undefined && Object.keys(h.botsByOwner).length) next.botsByOwner = h.botsByOwner;
+		else delete next.botsByOwner;
 		out[key] = next;
 	}
 	return { ...onDisk, hosts: out };
@@ -275,7 +278,7 @@ function notEditableChanges(prev: SettingsDocument, next: SettingsDocument, fiel
 }
 
 /** The host fields that a settings request can set. The others (concurrency, refresh floors) stay as the server has them. */
-const HOST_FIELDS = ['hostname', 'label', 'bot'] as const;
+const HOST_FIELDS = ['hostname', 'label', 'bot', 'botsByOwner'] as const;
 
 /**
  * The deployment settings after a request: the current ones, with the request's hosts when it sends them. A host keeps its

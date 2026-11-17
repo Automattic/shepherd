@@ -29,8 +29,13 @@ export interface HostConfig {
 	proxychains?: string;
 	/** Cap on parallel `gh` processes for this host. */
 	concurrency?: number;
-	/** Login of an AI code-review bot on this host whose unresolved threads are counted, or null. */
+	/** Login of an AI code-review bot on this host whose unresolved threads are counted, or null. The default for every owner. */
 	bot: string | null;
+	/**
+	 * Optional: the AI-review bot of the repos of one owner (an org or a user) on this host, by owner login: a bot login,
+	 * or null for none. It wins over `bot`, so the orgs on one host can each have their own bot.
+	 */
+	botsByOwner?: Record<string, string | null>;
 	/**
 	 * Optional: GitHub teams ("org/team") on this host that the people in `team` review for.
 	 * A PR that requests one of them waits on every team member with a login here, except its author.
@@ -59,11 +64,6 @@ export interface RepoConfig {
 	pushPolicy?: PushPolicy;
 	/** Optional: per-author policies in this repo, keyed by team id or login. They win over every other setting. */
 	pushPolicyByAuthor?: Record<string, PushPolicy>;
-	/**
-	 * Optional: the login of this repo's AI-review bot, or null when the repo has none. Without the field, the repo
-	 * uses its host's `bot`. Use it when the orgs on one host have different bots.
-	 */
-	bot?: string | null;
 }
 
 export interface LinearConfig {
@@ -112,7 +112,7 @@ export interface PublicConfig {
 	team: TeamMember[];
 	/** Empty when the server has no fixed list of repos. The page then makes the repo chips from the listed PRs. */
 	repos: RepoConfig[];
-	hosts: Record<string, Pick<HostConfig, 'hostname' | 'label' | 'bot' | 'rowRefreshFloorMs' | 'rowRefreshLowBudgetMs'>>;
+	hosts: Record<string, Pick<HostConfig, 'hostname' | 'label' | 'bot' | 'botsByOwner' | 'rowRefreshFloorMs' | 'rowRefreshLowBudgetMs'>>;
 	linear: LinearConfig | null;
 	aiReviewLabel: string;
 	/**
@@ -156,7 +156,7 @@ export interface PersonalSettings {
 
 /** The settings of the server. The page shows them; a host marks them not editable. */
 export interface DeploymentSettings {
-	hosts: Record<string, Pick<HostConfig, 'hostname' | 'label' | 'bot' | 'concurrency' | 'rowRefreshFloorMs' | 'rowRefreshLowBudgetMs'>>;
+	hosts: Record<string, Pick<HostConfig, 'hostname' | 'label' | 'bot' | 'botsByOwner' | 'concurrency' | 'rowRefreshFloorMs' | 'rowRefreshLowBudgetMs'>>;
 	refresh: RefreshMode;
 	aiReviewLabel: string;
 	ignoreParticipants: string[];
@@ -205,7 +205,10 @@ export interface SettingsResponse extends SettingsDocument {
 export interface SettingsPutRequest {
 	/** The `version` of the settings that the edit started from. */
 	version: string;
+	/** Every personal setting, all six keys. */
 	personal: PersonalSettings;
+	/** Only where `fields` makes a host field editable: the hosts, of which a request sets `hostname`, `label`, `bot` and `botsByOwner`. */
+	deployment?: { hosts: DeploymentSettings['hosts'] };
 }
 
 /**

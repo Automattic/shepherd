@@ -1,0 +1,300 @@
+{
+  "name": "org-review-bot",
+  "host": "github",
+  "owner": "example-other-org",
+  "repo": "app",
+  "prs": [
+    {
+      "number": 101,
+      "head": "feature/bot-findings",
+      "base": "trunk"
+    }
+  ],
+  "data": {
+    "rateLimit": {
+      "remaining": 4990,
+      "limit": 5000,
+      "resetAt": "2026-11-10T15:00:00Z",
+      "cost": 1
+    },
+    "repository": {
+      "defaultBranchRef": {
+        "name": "trunk",
+        "target": {
+          "oid": "dddddddddddddddddddddddddddddddddddddddd"
+        }
+      },
+      "pr0": {
+        "number": 101,
+        "title": "Example change 101",
+        "url": "https://github.com/example-other-org/app/pull/101",
+        "state": "OPEN",
+        "merged": false,
+        "mergedAt": null,
+        "isDraft": false,
+        "updatedAt": "2026-11-10T14:00:00Z",
+        "createdAt": "2026-11-08T09:00:00Z",
+        "headRefName": "feature/bot-findings",
+        "baseRefName": "trunk",
+        "isCrossRepository": false,
+        "headRepositoryOwner": {
+          "login": "example-other-org"
+        },
+        "headRefOid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "baseRefOid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "baseRef": {
+          "target": {
+            "oid": "cccccccccccccccccccccccccccccccccccccccc"
+          }
+        },
+        "body": "Example change 101.",
+        "mergeable": "MERGEABLE",
+        "reviewDecision": null,
+        "additions": 12,
+        "deletions": 3,
+        "changedFiles": 2,
+        "author": {
+          "__typename": "User",
+          "login": "alice",
+          "avatarUrl": "https://avatars.example.com/alice?size=64",
+          "name": "Alice Example"
+        },
+        "statusCheckRollup": {
+          "state": "SUCCESS"
+        },
+        "reviewRequests": {
+          "nodes": []
+        },
+        "latestOpinionatedReviews": {
+          "nodes": []
+        },
+        "participants": {
+          "totalCount": 3,
+          "nodes": [
+            {
+              "login": "alice",
+              "name": "Alice Example",
+              "avatarUrl": "https://avatars.example.com/alice?size=64"
+            },
+            {
+              "login": "bob",
+              "name": "Bob Example",
+              "avatarUrl": "https://avatars.example.com/bob?size=64"
+            },
+            {
+              "login": "other-review-bot",
+              "name": "Review Bot",
+              "avatarUrl": "https://avatars.example.com/review-bot?size=64"
+            }
+          ]
+        },
+        "comments": {
+          "nodes": []
+        },
+        "reviews": {
+          "nodes": []
+        },
+        "commits": {
+          "nodes": []
+        },
+        "reviewThreads": {
+          "nodes": [
+            {
+              "isResolved": false,
+              "isOutdated": false,
+              "path": "src/a.ts",
+              "line": 10,
+              "comments": {
+                "nodes": [
+                  {
+                    "author": {
+                      "__typename": "Bot",
+                      "login": "other-review-bot"
+                    },
+                    "body": "**Missing null check** · fix here · critical\n\nThe value can be null here.\n\n<!-- ai-review:inline f-001 error_handling backend -->",
+                    "url": "https://github.com/example-other-org/app/pull/101#discussion_r1",
+                    "createdAt": "2026-11-10T10:01:00Z"
+                  }
+                ]
+              }
+            },
+            {
+              "isResolved": false,
+              "isOutdated": false,
+              "path": "src/a.ts",
+              "line": 20,
+              "comments": {
+                "nodes": [
+                  {
+                    "author": {
+                      "__typename": "Bot",
+                      "login": "other-review-bot"
+                    },
+                    "body": "**Unbounded loop** · fix here · high",
+                    "url": "https://github.com/example-other-org/app/pull/101#discussion_r2",
+                    "createdAt": "2026-11-10T10:02:00Z"
+                  }
+                ]
+              }
+            },
+            {
+              "isResolved": false,
+              "isOutdated": false,
+              "path": "src/a.ts",
+              "line": 30,
+              "comments": {
+                "nodes": [
+                  {
+                    "author": {
+                      "__typename": "Bot",
+                      "login": "other-review-bot"
+                    },
+                    "body": "**Unchecked input** · follow-up · medium",
+                    "url": "https://github.com/example-other-org/app/pull/101#discussion_r3",
+                    "createdAt": "2026-11-10T10:03:00Z"
+                  }
+                ]
+              }
+            },
+            {
+              "isResolved": false,
+              "isOutdated": false,
+              "path": "src/a.ts",
+              "line": 40,
+              "comments": {
+                "nodes": [
+                  {
+                    "author": {
+                      "__typename": "Bot",
+                      "login": "other-review-bot"
+                    },
+                    "body": "**Long function** · fix here · low",
+                    "url": "https://github.com/example-other-org/app/pull/101#discussion_r4",
+                    "createdAt": "2026-11-10T10:04:00Z"
+                  }
+                ]
+              }
+            },
+            {
+              "isResolved": false,
+              "isOutdated": false,
+              "path": "src/a.ts",
+              "line": 50,
+              "comments": {
+                "nodes": [
+                  {
+                    "author": {
+                      "__typename": "Bot",
+                      "login": "other-review-bot"
+                    },
+                    "body": "**Typo in comment**",
+                    "url": "https://github.com/example-other-org/app/pull/101#discussion_r5",
+                    "createdAt": "2026-11-10T10:05:00Z"
+                  }
+                ]
+              }
+            },
+            {
+              "isResolved": false,
+              "isOutdated": false,
+              "path": "src/a.ts",
+              "line": 60,
+              "comments": {
+                "nodes": [
+                  {
+                    "author": {
+                      "__typename": "Bot",
+                      "login": "other-review-bot"
+                    },
+                    "body": "**Rename variable** · nit · low",
+                    "url": "https://github.com/example-other-org/app/pull/101#discussion_r6",
+                    "createdAt": "2026-11-10T10:06:00Z"
+                  }
+                ]
+              }
+            },
+            {
+              "isResolved": false,
+              "isOutdated": false,
+              "path": "src/a.ts",
+              "line": 70,
+              "comments": {
+                "nodes": [
+                  {
+                    "author": {
+                      "__typename": "Bot",
+                      "login": "other-review-bot"
+                    },
+                    "body": "**Consider caching** · fix here · medium · below threshold",
+                    "url": "https://github.com/example-other-org/app/pull/101#discussion_r7",
+                    "createdAt": "2026-11-10T10:07:00Z"
+                  }
+                ]
+              }
+            },
+            {
+              "isResolved": false,
+              "isOutdated": true,
+              "path": "src/a.ts",
+              "line": 80,
+              "comments": {
+                "nodes": [
+                  {
+                    "author": {
+                      "__typename": "Bot",
+                      "login": "other-review-bot"
+                    },
+                    "body": "**Stale check** · fix here · high",
+                    "url": "https://github.com/example-other-org/app/pull/101#discussion_r8",
+                    "createdAt": "2026-11-10T10:08:00Z"
+                  }
+                ]
+              }
+            },
+            {
+              "isResolved": true,
+              "isOutdated": false,
+              "path": "src/a.ts",
+              "line": 90,
+              "comments": {
+                "nodes": [
+                  {
+                    "author": {
+                      "__typename": "Bot",
+                      "login": "other-review-bot"
+                    },
+                    "body": "**Already fixed** · fix here · critical",
+                    "url": "https://github.com/example-other-org/app/pull/101#discussion_r9",
+                    "createdAt": "2026-11-10T10:09:00Z"
+                  }
+                ]
+              }
+            },
+            {
+              "isResolved": false,
+              "isOutdated": false,
+              "path": "src/a.ts",
+              "line": 100,
+              "comments": {
+                "nodes": [
+                  {
+                    "author": {
+                      "__typename": "User",
+                      "login": "bob"
+                    },
+                    "body": "Please rename this.",
+                    "url": "https://github.com/example-other-org/app/pull/101#discussion_r10",
+                    "createdAt": "2026-11-10T10:10:00Z"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "dn0": {
+        "nodes": []
+      }
+    }
+  }
+}

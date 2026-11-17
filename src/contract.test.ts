@@ -235,7 +235,10 @@ test('contract output is the same on every run', async () => {
 	for (const f of first) expect([f.name, f.expected.fetchedAt]).toEqual([f.name, FIXED_FETCHED_AT]);
 	// The context is the same literal in every file, and the case is passed through unchanged.
 	const context = {
-		hosts: { ghe: { hostname: 'github.example.com', bot: 'review-bot' }, github: { hostname: 'github.com', bot: null } },
+		hosts: {
+			ghe: { hostname: 'github.example.com', bot: 'review-bot' },
+			github: { hostname: 'github.com', bot: null, botsByOwner: { 'example-other-org': 'other-review-bot' } },
+		},
 		linear: { workspace: 'example', keys: [] },
 	};
 	for (const f of first) {

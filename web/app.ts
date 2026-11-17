@@ -792,7 +792,7 @@ function cellApprovals(row: Row): string {
 
 function cellBot(row: Row): string {
 	const { host, owner, repo } = row.light;
-	if (!reviewBot(cfg, host, owner, repo)) return `<span class="muted" title="No ${esc(cfg.aiReviewLabel)} bot for ${esc(`${owner}/${repo}`)}">n/a</span>`;
+	if (!reviewBot(cfg, host, owner)) return `<span class="muted" title="No ${esc(cfg.aiReviewLabel)} bot for ${esc(owner)} on ${esc(cfg.hosts[host]?.hostname)}">n/a</span>`;
 	const d = row.detail;
 	if (!d) return skel(48);
 	const b = d.bot;

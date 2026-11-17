@@ -1,27 +1,27 @@
-// Which login is the AI-review bot of a repo. Shared by the server (detail shaping, participants, follow-ups, MCP)
-// and the browser client (the AI-review column), so both give the same answer.
+// Which login is the AI-review bot of a pull request. Shared by the server (detail shaping, participants, follow-ups, MCP)
+// and the browser client (the AI-review column), so both give the same answer. A host that ports the data layer applies
+// the same rule (docs/embedding.md).
 
-import type { RepoConfig } from './types.ts';
-
-interface BotConfig {
-	hosts: Record<string, { bot?: string | null }>;
-	repos: Pick<RepoConfig, 'host' | 'owner' | 'name' | 'bot'>[];
+interface BotHosts {
+	hosts: Record<string, { bot?: string | null; botsByOwner?: Record<string, string | null> }>;
 }
 
 /**
- * The AI-review bot of `owner/name` on `host`: the repo's `bot` when the repo sets one (a login, or null for none),
- * else the host's `bot`. Null when there is none. Repos match case-insensitively, as GitHub names do.
+ * The AI-review bot of a PR in `owner`'s repos on `host`: the host's `botsByOwner` entry for the owner (an org or a user)
+ * when it has one (a login, or null for none), else the host's `bot`. Null when there is none. Owners match
+ * case-insensitively, as GitHub names do.
  */
-export function reviewBot(config: BotConfig, host: string, owner: string, name: string): string | null {
+export function reviewBot(config: BotHosts, host: string, owner: string): string | null {
+	const h = config.hosts[host];
+	if (!h) return null;
 	const o = owner.toLowerCase();
-	const n = name.toLowerCase();
-	const repo = config.repos.find((r) => r.host === host && r.owner.toLowerCase() === o && r.name.toLowerCase() === n);
-	if (repo && repo.bot !== undefined) return repo.bot || null;
-	return config.hosts[host]?.bot || null;
+	const entry = Object.entries(h.botsByOwner ?? {}).find(([k]) => k.toLowerCase() === o);
+	if (entry) return entry[1] || null;
+	return h.bot || null;
 }
 
-/** Every AI-review bot login of the config, lowercased: the hosts' and the repos'. */
-export function allReviewBots(config: BotConfig): string[] {
-	const logins = [...Object.values(config.hosts).map((h) => h.bot), ...config.repos.map((r) => r.bot)];
+/** Every AI-review bot login of the config, lowercased: the hosts' defaults and their per-owner bots. */
+export function allReviewBots(config: BotHosts): string[] {
+	const logins = Object.values(config.hosts).flatMap((h) => [h.bot, ...Object.values(h.botsByOwner ?? {})]);
 	return [...new Set(logins.filter((l): l is string => Boolean(l)).map((l) => l.toLowerCase()))];
 }

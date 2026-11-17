@@ -553,7 +553,7 @@ export function createPrService(config: Config, gh: GhRunner): PrService {
 	const prefetchHeld = new Map<string, number>();
 
 	function shapeBot(hostKey: string, owner: string, repo: string, pr: RawDetailPr): BotSummary | null {
-		const bot = reviewBot(config, hostKey, owner, repo);
+		const bot = reviewBot(config, hostKey, owner);
 		if (!bot) return null;
 		const login = bot.toLowerCase();
 		const findings: BotFinding[] = [];
@@ -945,7 +945,7 @@ export function createPrService(config: Config, gh: GhRunner): PrService {
 	const followUpsInflight = new Map<string, Promise<FollowUp[]>>();
 
 	function shapeFollowUps(hostKey: string, owner: string, repo: string, pr: RawFollowUpPr): FollowUp[] {
-		const bot = reviewBot(config, hostKey, owner, repo)?.toLowerCase();
+		const bot = reviewBot(config, hostKey, owner)?.toLowerCase();
 		const texts: FollowUpText[] = [];
 		// A GitHub App such as github-actions has no `[bot]` suffix, but GitHub types it `Bot`. As in shapeParticipants,
 		// a login that is typed `Bot` anywhere in the PR is a bot everywhere in it.

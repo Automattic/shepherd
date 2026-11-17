@@ -10,7 +10,7 @@ import { FEATURES, type Feature } from '../src/features.ts';
 import { PUSH_POLICIES, PUSH_POLICY_LABELS } from '../src/push-policy.ts';
 import { fromPointer, toPointer } from '../src/schema.ts';
 import { fieldMeta } from '../src/settings.ts';
-import type { PersonalSettings, PushPolicy, SettingsErrorResponse, SettingsFieldError, SettingsResponse, TeamMember } from '../src/types.ts';
+import type { DeploymentSettings, PersonalSettings, PushPolicy, SettingsErrorResponse, SettingsFieldError, SettingsResponse, TeamMember } from '../src/types.ts';
 
 export interface SettingsPanelDeps {
 	/** The mount element. The panel renders into a <dialog> inside it, so the dashboard styles apply. */
@@ -39,7 +39,7 @@ const SECTIONS: [key: Section, label: string, icon: string, blurb: string][] = [
 	['review', 'Review teams', 'fa-user-group', 'GitHub teams the people above review for. A request to one of these teams counts as a request to them.'],
 	['linear', 'Linear', 'fa-ticket', 'Turn ticket keys in titles, branches and descriptions into links.'],
 	['features', 'Features', 'fa-toggle-on', 'Parts of the dashboard that you can turn off.'],
-	['server', 'Server', 'fa-server', 'Set by whoever runs this Shepherd. Shown for reference.'],
+	['server', 'Server', 'fa-server', 'The GitHub hosts and their AI-review bots, and the settings of whoever runs this Shepherd.'],
 ];
 
 /** The section that shows the field at `pointer`. A pointer that no section has goes to "You". */
@@ -104,7 +104,7 @@ export function createSettingsPanel({ root, api, onSaved }: SettingsPanelDeps): 
 
 	let loaded: SettingsResponse | null = null;
 	/** The working copy that the form edits: `{ personal }`, so pointers match the API's. */
-	let draft: { personal: PersonalSettings } | null = null;
+	let draft: { personal: PersonalSettings; deployment: DeploymentSettings } | null = null;
 	let errors: SettingsFieldError[] = [];
 	let notice: { kind: 'error' | 'ok'; html: string } | null = null;
 	let busy = false;
@@ -121,9 +121,11 @@ export function createSettingsPanel({ root, api, onSaved }: SettingsPanelDeps): 
 		return m.editable ? '' : ` disabled title="${esc(m.reason || 'Not editable')}"`;
 	};
 	const viewer = (): TeamMember | undefined => draft!.personal.team.find((m) => m.id === draft!.personal.me);
-	const hostKeys = (): string[] => Object.keys(loaded!.deployment.hosts);
-	const hostLabel = (key: string): string => loaded!.deployment.hosts[key]?.label || key;
-	const dirty = (): boolean => !!loaded && !!draft && JSON.stringify(draft.personal) !== JSON.stringify(loaded.personal);
+	// The hosts of the draft, so a host added in this edit shows up in the logins, repos and review teams at once.
+	const hostKeys = (): string[] => Object.keys(draft!.deployment.hosts);
+	const hostLabel = (key: string): string => draft!.deployment.hosts[key]?.label || key;
+	const dirty = (): boolean =>
+		!!loaded && !!draft && (JSON.stringify(draft.personal) !== JSON.stringify(loaded.personal) || JSON.stringify(draft.deployment.hosts) !== JSON.stringify(loaded.deployment.hosts));
 	const errorsUnder = (pointer: string): number => errors.filter((e) => e.path === pointer || e.path.startsWith(`${pointer}/`)).length;
 
 	/** The errors for exactly this field. render() lists the errors that no field showed at the top of the section. */
@@ -139,7 +141,7 @@ export function createSettingsPanel({ root, api, onSaved }: SettingsPanelDeps): 
 	const field = (label: string, control: string, errs: string, hint = ''): string =>
 		`<label class="s-field"><span class="s-label">${esc(label)}</span>${control}${hint ? `<span class="s-hint">${esc(hint)}</span>` : ''}${errs}</label>`;
 
-	const input = (pointer: string, value: unknown, o: { kind?: 'string' | 'list' | 'number'; placeholder?: string; attrs?: string; label?: string } = {}): string => {
+	const input = (pointer: string, value: unknown, o: { kind?: 'string' | 'list' | 'number' | 'nullable'; placeholder?: string; attrs?: string; label?: string } = {}): string => {
 		const number = o.kind === 'number';
 		return `<input type="${number ? 'number' : 'text'}"${number ? ' min="1" step="1"' : ''} class="s-input" data-path="${esc(pointer)}" data-kind="${o.kind ?? 'string'}" value="${esc(value)}"${o.placeholder ? ` placeholder="${esc(o.placeholder)}"` : ''}${o.label ? ` aria-label="${esc(o.label)}"` : ''}${disabled(pointer)}${o.attrs ?? ''}>`;
 	};
@@ -240,7 +242,6 @@ export function createSettingsPanel({ root, api, onSaved }: SettingsPanelDeps): 
 				${r.allAuthors ? '<span class="s-tag">everyone</span>' : ''}
 				${r.maxBaseAgeHours ? `<span class="s-tag">base &gt; ${esc(r.maxBaseAgeHours)}h</span>` : ''}
 				${overrides ? `<span class="s-tag">${overrides} override${overrides > 1 ? 's' : ''}</span>` : ''}
-				${r.bot !== undefined ? `<span class="s-tag" title="This repo's AI-review bot">${r.bot ? `bot: ${esc(r.bot)}` : 'no bot'}</span>` : ''}
 			</span>
 			${count ? `<span class="s-errcount" title="${count} to fix">${count}</span>` : ''}
 			${pill(r.pushPolicy, 'No default')}
@@ -254,7 +255,7 @@ export function createSettingsPanel({ root, api, onSaved }: SettingsPanelDeps): 
 					${field(
 						'Host',
 						`<select class="s-select" data-path="${base}/host" data-kind="string"${disabled(`${base}/host`)}>${hostKeys()
-							.map((h) => `<option value="${esc(h)}" ${r.host === h ? 'selected' : ''}>${esc(loaded!.deployment.hosts[h]!.hostname)}</option>`)
+							.map((h) => `<option value="${esc(h)}" ${r.host === h ? 'selected' : ''}>${esc(draft!.deployment.hosts[h]?.hostname || h)}</option>`)
 							.join('')}</select>`,
 						fieldErrors(`${base}/host`)
 					)}
@@ -263,7 +264,6 @@ export function createSettingsPanel({ root, api, onSaved }: SettingsPanelDeps): 
 					${field('Label', input(`${base}/short`, r.short), fieldErrors(`${base}/short`))}
 					${field('Flag a base older than', `<span class="s-suffix">${input(`${base}/maxBaseAgeHours`, r.maxBaseAgeHours ?? '', { kind: 'number' })}<span>hours</span></span>`, fieldErrors(`${base}/maxBaseAgeHours`))}
 					${field('Default push policy', policySelect(`${base}/pushPolicy`, r.pushPolicy, 'No default'), fieldErrors(`${base}/pushPolicy`), 'Combined with the author’s policy, the stricter one wins.')}
-					${botField(r, i)}
 				</div>
 				${toggleRow(toggle(`${base}/allAuthors`, r.allAuthors === true, 'flag', 'List PRs by everyone'), 'List PRs by everyone', 'Not only the people on your team.', fieldErrors(`${base}/allAuthors`))}
 				<div class="s-overrides" data-field="${base}/pushPolicyByAuthor">
@@ -293,35 +293,76 @@ export function createSettingsPanel({ root, api, onSaved }: SettingsPanelDeps): 
 		</div>`;
 	}
 
-	/** The repo's AI-review bot: its host's (no field), none (null), or another login. */
-	function botField(r: PersonalSettings['repos'][number], i: number): string {
-		const base = toPointer(['personal', 'repos', i]);
-		const hostBot = loaded!.deployment.hosts[r.host]?.bot;
-		const mode = r.bot === undefined ? 'host' : r.bot === null ? 'none' : 'login';
-		const off = disabled(`${base}/bot`);
-		const select = `<select class="s-select" aria-label="AI-review bot" data-s-bot-mode="${i}"${off}>
-			<option value="host" ${mode === 'host' ? 'selected' : ''}>${esc(hostBot ? `The host’s (${hostBot})` : 'The host’s (none)')}</option>
-			<option value="none" ${mode === 'none' ? 'selected' : ''}>None in this repo</option>
-			<option value="login" ${mode === 'login' ? 'selected' : ''}>Another bot…</option>
-		</select>`;
-		const login = mode === 'login' ? input(`${base}/bot`, r.bot ?? '', { placeholder: 'review-bot', label: 'AI-review bot login' }) : '';
-		return field(`${loaded!.deployment.aiReviewLabel} bot`, `<span class="s-bot">${select}${login}</span>`, fieldErrors(`${base}/bot`), 'Its unresolved review threads fill the AI-review column for this repo.');
+	/** True when this server lets the viewer change the hosts, or at least their bots. */
+	const hostsEditable = (): boolean => meta('/deployment/hosts').editable || hostKeys().some((k) => meta(toPointer(['deployment', 'hosts', k, 'bot'])).editable);
+
+	/** One host, as fields: the key (fixed once saved), the host name, the label, the default bot and the bots per owner. */
+	function hostCard(k: string): string {
+		const h = draft!.deployment.hosts[k]!;
+		const base = toPointer(['deployment', 'hosts', k]);
+		const saved = Object.hasOwn(loaded!.deployment.hosts, k);
+		const listEditable = meta('/deployment/hosts').editable;
+		const byOwner = h.botsByOwner ?? {};
+		const ownersEditable = meta(`${base}/botsByOwner`).editable;
+		const fileOnly = [
+			h.concurrency !== undefined ? `up to ${esc(h.concurrency)} gh processes` : '',
+			h.rowRefreshFloorMs ? `rows refresh at most every ${esc(Math.round(h.rowRefreshFloorMs / 1000))}s` : '',
+		].filter(Boolean);
+		return `<div class="s-card s-host" data-field="${esc(base)}">
+			<div class="s-grid">
+				${field('Key', `<input type="text" class="s-input" value="${esc(k)}" aria-label="Host key" data-s-host-key="${esc(k)}"${saved || !listEditable ? ' readonly' : ''}>`, '', saved ? 'Logins, repos and review teams name the host by this key.' : 'Short, for example "ghe". Letters, digits, - and _.')}
+				${field('Host name', input(`${base}/hostname`, h.hostname, { placeholder: 'github.com' }), fieldErrors(`${base}/hostname`))}
+				${field('Label', input(`${base}/label`, h.label ?? '', { placeholder: 'GitHub' }), fieldErrors(`${base}/label`), 'Shown next to logins and repos.')}
+				${field(`${loaded!.deployment.aiReviewLabel} bot`, input(`${base}/bot`, h.bot ?? '', { kind: 'nullable', placeholder: 'none' }), fieldErrors(`${base}/bot`), 'The default for every org on this host. Leave it empty for none.')}
+			</div>
+			<div class="s-overrides" data-field="${esc(base)}/botsByOwner">
+				<div class="s-overrides-head"><strong>Bots per org</strong><span class="s-hint">An org (or user) whose repos have another ${esc(loaded!.deployment.aiReviewLabel)} bot, or none.</span></div>
+				${Object.entries(byOwner)
+					.map(([owner, bot]) => {
+						const ptr = toPointer(['deployment', 'hosts', k, 'botsByOwner', owner]);
+						return `<div class="s-override" data-field="${esc(ptr)}">
+							<input type="text" class="s-input" aria-label="Org" placeholder="org" value="${esc(owner)}" data-s-org-key="${esc(owner)}" data-host="${esc(k)}"${ownersEditable ? '' : ' disabled'}>
+							<i class="fa-solid fa-arrow-right s-muted" aria-hidden="true"></i>
+							<input type="text" class="s-input" aria-label="Bot for ${esc(owner)}" placeholder="none" value="${esc(bot ?? '')}" data-path="${esc(ptr)}" data-kind="nullable"${ownersEditable ? '' : ' disabled'}>
+							${ownersEditable ? `<button type="button" class="s-icon" aria-label="Remove ${esc(owner)}" data-s-org-remove="${esc(owner)}" data-host="${esc(k)}"><i class="fa-solid fa-xmark"></i></button>` : ''}
+							${fieldErrors(ptr)}
+						</div>`;
+					})
+					.join('')}
+				${ownersEditable ? `<button type="button" class="s-link" data-s-org-add="${esc(k)}"><i class="fa-solid fa-plus"></i> Add an org</button>` : ''}
+			</div>
+			${fieldErrors(base)}${fieldErrors(`${base}/botsByOwner`)}
+			${fileOnly.length ? `<p class="s-hint"><i class="fa-solid fa-lock"></i> In config.json: ${fileOnly.join(', ')}.</p>` : ''}
+			${listEditable ? `<div class="s-row-actions"><button type="button" class="s-danger" data-s-host-remove="${esc(k)}"><i class="fa-regular fa-trash-can"></i> Remove host</button></div>` : ''}
+		</div>`;
 	}
 
 	function serverSection(): string {
 		const d = loaded!.deployment;
 		const l = d.limits;
-		const reason = meta('/deployment').reason;
 		const limit = (n: number | undefined) => (n !== undefined ? `up to ${esc(n)}` : 'no limit');
-		return `${reason ? `<p class="s-muted"><i class="fa-solid fa-lock"></i> ${esc(reason)}</p>` : ''}
-		<div class="s-cards">${Object.entries(d.hosts)
-			.map(
-				([k, h]) => `<div class="s-card">
-				<div class="s-card-title">${esc(h.label || k)} <code>${esc(k)}</code></div>
-				<dl class="s-dl"><dt>Hostname</dt><dd>${esc(h.hostname)}</dd><dt>AI-review bot</dt><dd>${esc(h.bot ?? '—')}</dd><dt>Row refresh floor</dt><dd>${h.rowRefreshFloorMs ? `${Math.round(h.rowRefreshFloorMs / 1000)}s` : 'default'}</dd></dl>
-			</div>`
-			)
-			.join('')}</div>
+		const editable = hostsEditable();
+		const listReason = meta('/deployment/hosts').reason;
+		const hosts = editable
+			? `${listReason ? `<p class="s-muted"><i class="fa-solid fa-lock"></i> ${esc(listReason)}</p>` : ''}
+				${fieldErrors('/deployment/hosts')}
+				<div class="s-hosts">${hostKeys().map(hostCard).join('')}</div>
+				${meta('/deployment/hosts').editable ? '<button type="button" class="s-add" data-s-host-add><i class="fa-solid fa-plus"></i> Add a host</button>' : ''}`
+			: `<div class="s-cards">${Object.entries(d.hosts)
+					.map(
+						([k, h]) => `<div class="s-card">
+						<div class="s-card-title">${esc(h.label || k)} <code>${esc(k)}</code></div>
+						<dl class="s-dl"><dt>Hostname</dt><dd>${esc(h.hostname)}</dd><dt>AI-review bot</dt><dd>${esc(h.bot ?? '—')}</dd>${Object.entries(h.botsByOwner ?? {})
+							.map(([owner, bot]) => `<dt>Bot for ${esc(owner)}</dt><dd>${esc(bot ?? 'none')}</dd>`)
+							.join('')}<dt>Row refresh floor</dt><dd>${h.rowRefreshFloorMs ? `${esc(Math.round(h.rowRefreshFloorMs / 1000))}s` : 'default'}</dd></dl>
+					</div>`
+					)
+					.join('')}</div>`;
+		const reason = meta('/deployment/limits').reason;
+		return `<h3 class="s-subhead">GitHub hosts</h3>
+		${hosts}
+		<h3 class="s-subhead">This server</h3>
+		${reason ? `<p class="s-muted"><i class="fa-solid fa-lock"></i> ${esc(reason)}</p>` : ''}
 		<dl class="s-dl">
 			<dt>Refresh mode</dt><dd><code>${esc(d.refresh)}</code></dd>
 			<dt>AI-review label</dt><dd>${esc(d.aiReviewLabel)}</dd>
@@ -412,7 +453,7 @@ export function createSettingsPanel({ root, api, onSaved }: SettingsPanelDeps): 
 						const on = k === view.section;
 						return `<button type="button" class="s-nav${on ? ' on' : ''}" data-s-section="${k}"${on ? ' aria-current="page"' : ''}>
 							<i class="fa-solid ${ic}"></i><span>${esc(l)}</span>
-							${n ? `<span class="s-errcount" title="${n} to fix">${n}</span>` : counts[k] ? `<span class="s-count">${esc(counts[k])}</span>` : k === 'server' ? '<i class="fa-solid fa-lock s-lock" title="Read-only"></i>' : ''}
+							${n ? `<span class="s-errcount" title="${n} to fix">${n}</span>` : counts[k] ? `<span class="s-count">${esc(counts[k])}</span>` : k === 'server' && !hostsEditable() ? '<i class="fa-solid fa-lock s-lock" title="Read-only"></i>' : ''}
 						</button>`;
 					}).join('')}
 					<p class="s-rail-foot">Bells, filters, sort and the refresh interval stay in this browser.</p>
@@ -473,7 +514,7 @@ export function createSettingsPanel({ root, api, onSaved }: SettingsPanelDeps): 
 
 	function show(settings: SettingsResponse): void {
 		loaded = settings;
-		draft = { personal: structuredClone(settings.personal) };
+		draft = { personal: structuredClone(settings.personal), deployment: structuredClone(settings.deployment) };
 		render();
 	}
 
@@ -486,7 +527,8 @@ export function createSettingsPanel({ root, api, onSaved }: SettingsPanelDeps): 
 			const res = await api('/api/settings', {
 				method: 'PUT',
 				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({ version: loaded.version, personal: draft.personal }),
+				// The hosts go only to a server that lets the viewer change them; a host that locks them never gets them.
+				body: JSON.stringify({ version: loaded.version, personal: draft.personal, ...(hostsEditable() ? { deployment: { hosts: draft.deployment.hosts } } : {}) }),
 			});
 			const body: unknown = await res.json().catch(() => undefined);
 			busy = false;
@@ -526,6 +568,8 @@ export function createSettingsPanel({ root, api, onSaved }: SettingsPanelDeps): 
 		if (kind === 'list') value = list(String(raw));
 		else if (kind === 'number') value = String(raw).trim() === '' ? undefined : Number(raw);
 		else if (kind === 'optional') value = raw === '' ? undefined : raw;
+		// A bot field left empty is no bot.
+		else if (kind === 'nullable') value = String(raw).trim() === '' ? null : String(raw).trim();
 		else if (kind === 'flag') value = raw === true ? true : undefined;
 		// A feature that is on has no entry, as in config.json.
 		else if (kind === 'feature') value = raw === true ? undefined : false;
@@ -553,17 +597,37 @@ export function createSettingsPanel({ root, api, onSaved }: SettingsPanelDeps): 
 			renderFocus('[data-s-linear]');
 		}
 	});
-	// The repo's AI-review bot: its host's (no field), none, or a login typed in the field that appears.
+	// A new host's key, and an org of a host's bots per org: renaming moves the entry to the new key, in the same place.
 	dialog.addEventListener('change', (e) => {
 		const el = e.target;
-		if (!draft || !(el instanceof HTMLSelectElement) || el.dataset.sBotMode === undefined) return;
-		const i = Number(el.dataset.sBotMode);
-		const repo = draft.personal.repos[i];
-		if (!repo) return;
-		if (el.value === 'host') delete repo.bot;
-		else if (el.value === 'none') repo.bot = null;
-		else repo.bot = typeof repo.bot === 'string' ? repo.bot : '';
-		renderFocus(el.value === 'login' ? `[data-path="/personal/repos/${i}/bot"]` : `[data-s-bot-mode="${i}"]`);
+		if (!draft || !(el instanceof HTMLInputElement)) return;
+		const hosts = draft.deployment.hosts;
+		const rename = <T,>(map: Record<string, T>, from: string, to: string): Record<string, T> =>
+			Object.fromEntries(Object.entries(map).map(([k, v]) => [k === from ? to : k, v]));
+		const refuse = (path: string, message: string) => {
+			errors = [...errors.filter((x) => x.path !== path), { path, code: 'invalid', message }];
+			render();
+		};
+		if (el.dataset.sHostKey !== undefined) {
+			const from = el.dataset.sHostKey;
+			const to = el.value.trim();
+			if (to === from) return;
+			if (!to || Object.hasOwn(hosts, to)) return refuse(toPointer(['deployment', 'hosts', from]), to ? `There is already a host "${to}".` : 'A host needs a key.');
+			draft.deployment.hosts = rename(hosts, from, to);
+			if (Object.hasOwn(draft.personal.reviewTeams, from)) draft.personal.reviewTeams = rename(draft.personal.reviewTeams, from, to);
+			renderFocus(`[data-s-host-key="${CSS.escape(to)}"]`);
+		} else if (el.dataset.sOrgKey !== undefined && el.dataset.host !== undefined) {
+			const host = hosts[el.dataset.host];
+			const from = el.dataset.sOrgKey;
+			const to = el.value.trim();
+			if (!host?.botsByOwner || to === from) return;
+			if (Object.hasOwn(host.botsByOwner, to)) {
+				el.value = from;
+				return refuse(toPointer(['deployment', 'hosts', el.dataset.host, 'botsByOwner', from]), `${to} already has a bot on this host.`);
+			}
+			host.botsByOwner = rename(host.botsByOwner, from, to);
+			render();
+		}
 	});
 	// Renaming a per-author entry moves its policy to the new key, in the same place.
 	dialog.addEventListener('change', (e) => {
@@ -640,6 +704,33 @@ export function createSettingsPanel({ root, api, onSaved }: SettingsPanelDeps): 
 			if (repo?.pushPolicyByAuthor) {
 				delete repo.pushPolicyByAuthor[ds.sAuthorRemove];
 				if (!Object.keys(repo.pushPolicyByAuthor).length) delete repo.pushPolicyByAuthor;
+			}
+			errors = [];
+			render();
+		} else if ('sHostAdd' in ds) {
+			const hosts = draft.deployment.hosts;
+			let key = 'host';
+			for (let n = 2; Object.hasOwn(hosts, key); n++) key = `host${n}`;
+			hosts[key] = { hostname: '', label: '', bot: null };
+			renderFocus(`[data-path="${toPointer(['deployment', 'hosts', key, 'hostname'])}"]`);
+		} else if (ds.sHostRemove !== undefined) {
+			delete draft.deployment.hosts[ds.sHostRemove];
+			// Errors point at hosts that are gone. A host still in use is refused at save, at the logins and repos that use it.
+			errors = [];
+			render();
+		} else if (ds.sOrgAdd !== undefined) {
+			const host = draft.deployment.hosts[ds.sOrgAdd];
+			if (!host) return;
+			const map = (host.botsByOwner ??= {});
+			let key = 'org';
+			for (let n = 2; Object.hasOwn(map, key); n++) key = `org${n}`;
+			map[key] = null;
+			renderFocus(`[data-s-org-key="${key}"][data-host="${CSS.escape(ds.sOrgAdd)}"]`);
+		} else if (ds.sOrgRemove !== undefined && ds.host !== undefined) {
+			const host = draft.deployment.hosts[ds.host];
+			if (host?.botsByOwner) {
+				delete host.botsByOwner[ds.sOrgRemove];
+				if (!Object.keys(host.botsByOwner).length) delete host.botsByOwner;
 			}
 			errors = [];
 			render();

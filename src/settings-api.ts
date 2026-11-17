@@ -36,6 +36,7 @@ export function localSettings(store: ConfigStore, env: Record<string, string | u
 		fields['/deployment/hosts'] = { editable: false, reason: ENTERPRISE_TOKEN_REASON };
 		fields['/deployment/hosts/*/label'] = { editable: true };
 		fields['/deployment/hosts/*/bot'] = { editable: true };
+		fields['/deployment/hosts/*/botsByOwner'] = { editable: true };
 	}
 	// A feature that the server turns off stays off, so its switch would change nothing.
 	if (!configFeatures({ ...config, features: {} }).herdr) {

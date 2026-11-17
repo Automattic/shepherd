@@ -18,7 +18,7 @@ const CASES_DIR = join(ROOT, 'contract', 'cases');
 const CONTEXT = {
 	hosts: {
 		ghe: { hostname: 'github.example.com', bot: 'review-bot' as string | null },
-		github: { hostname: 'github.com', bot: null as string | null },
+		github: { hostname: 'github.com', bot: null as string | null, botsByOwner: { 'example-other-org': 'other-review-bot' } as Record<string, string | null> },
 	},
 	linear: { workspace: 'example', keys: [] as string[] },
 };

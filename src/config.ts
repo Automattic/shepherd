@@ -120,7 +120,7 @@ export function publicConfig(config: Config): PublicConfig {
 		hosts: Object.fromEntries(
 			Object.entries(config.hosts).map(([k, h]) => [
 				k,
-				{ hostname: h.hostname, label: h.label, bot: h.bot, rowRefreshFloorMs: h.rowRefreshFloorMs, rowRefreshLowBudgetMs: h.rowRefreshLowBudgetMs },
+				{ hostname: h.hostname, label: h.label, bot: h.bot, ...(h.botsByOwner ? { botsByOwner: h.botsByOwner } : {}), rowRefreshFloorMs: h.rowRefreshFloorMs, rowRefreshLowBudgetMs: h.rowRefreshLowBudgetMs },
 			])
 		),
 		linear: config.linear ?? null,

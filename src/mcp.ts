@@ -289,7 +289,7 @@ export function createMcpHandler(config: Config, prs: PrService, herdr: HerdrSer
 					repo: `${r.owner}/${r.name}`,
 					host: hostname(r.host),
 					// The repo's own bot, or its host's: the login whose review threads count as AI review here.
-					aiReviewBot: reviewBot(config, r.host, r.owner, r.name),
+					aiReviewBot: reviewBot(config, r.host, r.owner),
 					pushPolicy: r.pushPolicy ?? null,
 					...(r.pushPolicyByAuthor ? { pushPolicyByAuthor: r.pushPolicyByAuthor } : {}),
 				})),

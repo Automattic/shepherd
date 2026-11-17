@@ -17,6 +17,8 @@ const positiveInteger = (message: string): SchemaNode => ({ type: 'integer', min
 
 /** A GitHub login, or a GitHub App's login with the `[bot]` suffix. Also used for a team id that keys a per-author policy. */
 const LOGIN = '^[A-Za-z0-9][A-Za-z0-9_.-]*(\\[bot\\])?$';
+/** A GitHub org or user name. */
+const OWNER = '^[A-Za-z0-9][A-Za-z0-9-]*$';
 /** A host name with an optional port. It never starts with `-`, so `gh` cannot read it as a flag. */
 const HOSTNAME = '^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?(:[0-9]{1,5})?$';
 /** A key of `hosts`. It is part of JSON pointers and of each login and repo, so only plain characters. */
@@ -65,7 +67,6 @@ const repo: SchemaNode = {
 			propertyNames: { pattern: LOGIN, 'x-message': '{item} pushPolicyByAuthor needs a team id or login for each policy, not "{key}"' },
 			additionalProperties: pushPolicy(`{item} pushPolicyByAuthor."{key}" must be one of ${POLICY_LIST}`),
 		},
-		bot: { type: ['string', 'null'], pattern: LOGIN, 'x-message': '{item} needs "bot" to be a login, or null for none, or no such field' },
 	},
 };
 
@@ -77,6 +78,12 @@ const host: SchemaNode = {
 		hostname: { type: 'string', pattern: HOSTNAME, 'x-message': '{parent} needs a hostname, such as github.com' },
 		label: { type: 'string', 'x-message': '{path} must be a string' },
 		bot: { type: ['string', 'null'], pattern: LOGIN, 'x-message': '{path} must be a login or null' },
+		botsByOwner: {
+			type: 'object',
+			'x-message': '{path} must be an object of owner (an org or a user) to bot login or null, or no such field',
+			propertyNames: { pattern: OWNER, 'x-message': '{parent} has "{key}", which is not an org or user name' },
+			additionalProperties: { type: ['string', 'null'], pattern: LOGIN, 'x-message': '{path} must be a bot login, or null for none' },
+		},
 		concurrency: positiveInteger('{path} must be a whole number, 1 or more, or no such field'),
 		rowRefreshFloorMs: { type: 'number', minimum: MIN_ROW_REFRESH_MS, 'x-message': `{path} ${MS}` },
 		rowRefreshLowBudgetMs: { type: 'number', minimum: MIN_ROW_REFRESH_MS, 'x-message': `{path} ${MS}` },

@@ -7,7 +7,7 @@
 | `port` | Port to listen on. `PORT` in the environment wins. Defaults to `5050`. |
 | `me` | The `id` of the team member the dashboard treats as "you". |
 | `team[]` | `id`, `name`, `short` (the label on screen), and `logins`: one login per host key, for example `{ "github": "octocat", "work": "ocat" }`. Optional `pushPolicy`: how this person wants to receive changes on their PRs (`review-only`, `stacked-pr` or `push`; see [Push policies](push-policy.md)). |
-| `hosts.<key>` | `hostname`, `label`, `concurrency` (the cap on parallel `gh` processes, default 4), `bot` (the AI-review bot's login, or `null`; see [AI-review bots](#ai-review-bots)), optional `proxychains` (a proxychains config path; see [GitHub Enterprise and proxies](github-enterprise.md)), optional `reviewTeams` (see [Review teams](review-teams.md)), and optional `rowRefreshFloorMs` and `rowRefreshLowBudgetMs` (see [Refresh rules](#refresh-rules)). |
+| `hosts.<key>` | `hostname`, `label`, `concurrency` (the cap on parallel `gh` processes, default 4), `bot` (the AI-review bot's login, or `null`; see [AI-review bots](#ai-review-bots)), optional `botsByOwner` (another bot for the repos of some orgs; same section), optional `proxychains` (a proxychains config path; see [GitHub Enterprise and proxies](github-enterprise.md)), optional `reviewTeams` (see [Review teams](review-teams.md)), and optional `rowRefreshFloorMs` and `rowRefreshLowBudgetMs` (see [Refresh rules](#refresh-rules)). |
 | `repos[]` | `host` (a key from `hosts`), `owner`, `name`, and `short` (the label on screen). Optional `maxBaseAgeHours`: flag PRs whose base is older than this many hours. Optional `allAuthors`: `true` lists every open PR in the repo, including PRs by people outside `team` (see [PRs from outside the team](#prs-from-outside-the-team)). Optional `pushPolicy` and `pushPolicyByAuthor` (keyed by team `id` or login): how authors in this repo want to receive changes (see [Push policies](push-policy.md)). |
 | `linear` | Optional. `workspace` (the slug in Linear URLs) and `keys` (team prefixes to find in titles and branch names). Use `null` to turn ticket links off. |
 | `aiReviewLabel` | Optional. The name shown for the AI-review column and tile. Defaults to `AI review`. |
@@ -26,17 +26,18 @@ The gear button opens the settings panel. It edits `config.json` through `GET` a
 | Group | Settings | Who changes them |
 | --- | --- | --- |
 | Personal | `team` and each person's `logins`, `repos` (with `allAuthors`, `maxBaseAgeHours`, `pushPolicy` and `pushPolicyByAuthor`), the review teams (`hosts.<key>.reviewTeams`), `linear` and `features` | You, in the panel or in `config.json` |
-| Deployment | `hosts` (hostname, label, bot, `concurrency`, `proxychains`, `rowRefreshFloorMs`, `rowRefreshLowBudgetMs`), `port`, `herdr`, `refresh`, `aiReviewLabel`, `ignoreParticipants`, `limits`, and the token | The person who runs the server, in `config.json` |
+| Hosts | Each host's `hostname`, `label`, `bot` and `botsByOwner`; adding and removing hosts | You, in the panel's Server section or in `config.json` |
+| Deployment | The other host fields (`concurrency`, `proxychains`, `rowRefreshFloorMs`, `rowRefreshLowBudgetMs`), `port`, `herdr`, `refresh`, `aiReviewLabel`, `ignoreParticipants`, `limits`, and the token | The person who runs the server, in `config.json` |
 
-The panel lists its sections on the left: You, People, Repos, Review teams, Linear, Features and Server. It shows one section at a time. People and repos are rows with their logins and push policy; click a row to edit it. When a save is refused, the panel opens the section and the row of the first refused field, and the list of sections shows how many fields to fix in each one. On a narrow screen, the sections are tabs above the panel.
+The panel lists its sections on the left: You, People, Repos, Review teams, Linear, Features and Server. It shows one section at a time. People and repos are rows with their logins and push policy; click a row to edit it. The Server section edits the GitHub hosts and their AI-review bots, and shows the other server settings. When a save is refused, the panel opens the section and the row of the first refused field, and the list of sections shows how many fields to fix in each one. On a narrow screen, the sections are tabs above the panel.
 
-Each field in the settings has an `editable` flag. The panel shows a field that is not editable read-only, with the reason. On this server, `me` and every deployment setting are not editable in the panel, and `features.herdr` is not editable when `"herdr": { "enabled": false }`. A `PUT /api/settings` that changes a field that is not editable is refused, also when it is sent on purpose.
+Each field in the settings has an `editable` flag. The panel shows a field that is not editable read-only, with the reason. On this server, `me` and the deployment settings are not editable in the panel, apart from the host fields in the table above, and `features.herdr` is not editable when `"herdr": { "enabled": false }`. When the server runs with `GH_ENTERPRISE_TOKEN` or `GITHUB_ENTERPRISE_TOKEN` set, the panel cannot add or remove hosts or change a host name, because `gh` sends that token to any GitHub Enterprise host; a host's label and bots stay editable. A `PUT /api/settings` that changes a field that is not editable is refused, also when it is sent on purpose.
 
 Push policies are personal settings too. In the panel you can set the `pushPolicy` of anyone on your team, a repo's default `pushPolicy`, and a repo's `pushPolicyByAuthor` entries (add an author by team id or login). They record how each person wants to receive changes, so set them to what that person asked for.
 
-A save writes a new `config.json` (a temp file, then a rename), so the old file stays when a write fails. It keeps the keys that the panel does not show, such as `proxychains` and `port`, but it writes the file again with two-space indents. The server applies a save at once, without a restart.
+A save writes a new `config.json` (a temp file with the same permissions, then a rename), so the old file stays when a write fails. When `config.json` is a symlink, the save writes to the file it points to. It keeps the keys that the panel does not show, such as `proxychains` and `port`, but it writes the file again with two-space indents. The server applies a save at once, without a restart.
 
-The server also reads `config.json` again when it changes on disk, at most once a second, on the next API or MCP request. A change to a personal setting applies without a restart. A change to a deployment setting applies only after a restart; until then, the panel says so. When the file on disk has a problem, the server keeps the last good settings and the panel lists the problems. At startup, a file with a problem still stops the server.
+The server also reads `config.json` again when it changes on disk, at most once a second, on the next API or MCP request. A change to a personal setting or to `hosts` applies without a restart. A change to another deployment setting applies only after a restart; until then, the panel says so. When the file on disk has a problem, the server keeps the last good settings and the panel lists the problems. At startup, a file with a problem still stops the server.
 
 When two tabs, or a tab and an edit on disk, change the settings at the same time, the second save is refused, and the panel offers to load the current settings. Each settings response has a `version`, and a `PUT` sends the `version` that it started from.
 
@@ -125,6 +126,12 @@ Set `bot` on a host to the login of a bot that leaves inline review comments. Sh
 
 ```text
 **Throttle check is not atomic** · fix here · medium
+```
+
+When the orgs on one host use different bots, give the host `botsByOwner`: the bot login for each org (or user) whose repos have another bot, or `null` for none. The host's `bot` stays the bot of every other owner:
+
+```json
+"github": { "hostname": "github.com", "label": "GitHub", "bot": null, "botsByOwner": { "example-org": "example-review-bot", "other-org": "other-review-bot" } }
 ```
 
 Severities are `critical`, `high`, `medium`, `low` and `info`. A tag of `nit`, or a tail that starts with `below`, marks a finding as minor. Comments in any other shape still count, as `info`.

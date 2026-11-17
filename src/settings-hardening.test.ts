@@ -133,32 +133,24 @@ describe('Linear keys in text', () => {
 	});
 });
 
-describe('AI-review bots per repo', () => {
+describe('AI-review bots per owner', () => {
 	const c = {
-		hosts: { github: { bot: 'host-bot' }, ghe: { bot: null } },
-		repos: [
-			{ host: 'github', owner: 'Org-A', name: 'App', bot: 'org-a-bot' },
-			{ host: 'github', owner: 'org-b', name: 'site', bot: null },
-			{ host: 'github', owner: 'org-c', name: 'lib' },
-		],
+		hosts: {
+			github: { bot: 'host-bot', botsByOwner: { 'Org-A': 'org-a-bot', 'org-b': null } },
+			ghe: { bot: null },
+		},
 	};
 
-	test("a repo's own bot wins, null turns it off, and no field means the host's", () => {
-		expect(reviewBot(c, 'github', 'org-a', 'app')).toBe('org-a-bot');
-		expect(reviewBot(c, 'github', 'org-b', 'site')).toBeNull();
-		expect(reviewBot(c, 'github', 'org-c', 'lib')).toBe('host-bot');
-		expect(reviewBot(c, 'github', 'org-d', 'untracked')).toBe('host-bot');
-		expect(reviewBot(c, 'ghe', 'org-a', 'app')).toBeNull();
+	test("an owner's bot wins, null turns it off, and other owners get the host's", () => {
+		expect(reviewBot(c, 'github', 'org-a')).toBe('org-a-bot');
+		expect(reviewBot(c, 'github', 'org-b')).toBeNull();
+		expect(reviewBot(c, 'github', 'org-c')).toBe('host-bot');
+		expect(reviewBot(c, 'ghe', 'org-a')).toBeNull();
+		expect(reviewBot(c, 'gitlab', 'org-a')).toBeNull();
 	});
 
 	test('every bot login, for leaving bots out of participants', () => {
 		expect(allReviewBots(c).sort()).toEqual(['host-bot', 'org-a-bot']);
-	});
-
-	test('a repo bot is a login or null', () => {
-		expect(put((p) => (p.repos[0]!.bot = 'org-bot')).ok).toBe(true);
-		expect(put((p) => (p.repos[0]!.bot = null)).ok).toBe(true);
-		expect(errorsOf(put((p) => (p.repos[0]!.bot = 'not a login')))).toEqual([{ path: '/personal/repos/0/bot', code: 'invalid' }]);
 	});
 });
 
@@ -187,6 +179,13 @@ describe('hosts in a settings request', () => {
 		expect(r.ok).toBe(true);
 		expect(r.ok && r.deployment.hosts.gitlabish).toEqual({ hostname: 'git.example.org', label: 'Example', bot: 'example-bot' });
 		expect(r.ok && r.deployment.hosts.ghe).toEqual({ hostname: 'github.example.net', label: 'GHE', bot: 'review-bot', concurrency: 2 });
+	});
+
+	test('a host can give owners their own bot', () => {
+		const r = withHosts((h) => (h.github!.botsByOwner = { 'other-org': 'other-bot', 'quiet-org': null }));
+		expect(r.ok && r.deployment.hosts.github!.botsByOwner).toEqual({ 'other-org': 'other-bot', 'quiet-org': null });
+		expect(errorsOf(withHosts((h) => (h.github!.botsByOwner = { 'not an org': 'x' })))).toEqual([{ path: '/deployment/hosts/github/botsByOwner/not an org', code: 'invalid' }]);
+		expect(errorsOf(withHosts((h) => (h.github!.botsByOwner = { 'other-org': 'not a login' })))).toEqual([{ path: '/deployment/hosts/github/botsByOwner/other-org', code: 'invalid' }]);
 	});
 
 	test('fields that start processes or set limits stay as they are', () => {
@@ -247,11 +246,12 @@ describe('the local server and its config.json', () => {
 		const { personal, deployment } = settingsFromConfig(store.config);
 		deployment.hosts.extra = { hostname: 'git.example.org', label: 'Extra', bot: 'extra-bot' };
 		deployment.hosts.ghe!.bot = 'new-bot';
+		deployment.hosts.ghe!.botsByOwner = { 'other-org': 'other-bot' };
 		personal.reviewTeams.extra = ['example-org/extra'];
 		await store.save(personal, store.version, deployment.hosts);
 		const saved = JSON.parse(await readFile(file, 'utf8')) as Config;
 		expect(saved.hosts.github).toEqual({ hostname: 'github.com', label: 'GitHub', bot: null, proxychains: '~/proxy.conf', reviewTeams: ['example-org/reviewers'] });
-		expect(saved.hosts.ghe).toEqual({ hostname: 'github.example.com', label: 'GHE', bot: 'new-bot', concurrency: 2 });
+		expect(saved.hosts.ghe).toEqual({ hostname: 'github.example.com', label: 'GHE', bot: 'new-bot', concurrency: 2, botsByOwner: { 'other-org': 'other-bot' } });
 		expect(saved.hosts.extra).toEqual({ hostname: 'git.example.org', label: 'Extra', bot: 'extra-bot', reviewTeams: ['example-org/extra'] });
 		// Hosts apply at once.
 		expect(store.config.hosts.extra?.hostname).toBe('git.example.org');
