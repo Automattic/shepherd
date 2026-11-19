@@ -4,7 +4,7 @@ The same process answers MCP at `http://127.0.0.1:5050/mcp`. It uses the Streama
 
 | Tool | Use it for | Arguments |
 | --- | --- | --- |
-| `review_queue` | "What is waiting on me?" or on someone else, with the reason for each PR (`requested`, `team`, `turn` or `author`) | `person` (default `me`), `reasons` (a list; only PRs with at least one of these reasons, for example `["requested", "team"]`. Each PR still lists all of its reasons in `waitingBecause`) |
+| `review_queue` | "What is waiting on me?" or on someone else, with the reason for each PR (`requested`, `team`, `turn`, `author` or `reply`) | `person` (default `me`), `reasons` (a list; only PRs with at least one of these reasons, for example `["requested", "team"]`. Each PR still lists all of its reasons in `waitingBecause`) |
 | `list_prs` | The team's open PRs (in the tracked repos, or in any repo on hosts in [any-repo mode](configuration.md#prs-in-any-repo)), plus every open PR in repos with `allAuthors`, filtered | `author`, `repo`, `waiting_on`, `include_drafts`, `include_dormant`, `has_ai_review_findings`, `review_team_requested`, `limit` |
 | `merged_prs` | "What did we ship this week?": the team's merged PRs with a count per person, in the server's time zone. Each PR has `mergedBy` and `approvedByHuman` (false when no person other than the author approved it; an approval from a bot does not count), and `followUps`, the number of non-blocking asks left on it that the code hasn't changed since (see [Follow-ups](dashboard.md#follow-ups)), or null when they could not be fetched | `range` (`this-week`, `last-week` or `last-30-days`; default `this-week`), `author`, `repo`, `include_follow_ups` (list them as `followUpItems`) |
 | `get_pr` | One PR in full: every unresolved AI-review finding, whether the bot's last review covers the newest commit, participants with last-active times, who acted last (and whether that was you or the author), stack, checks, follow-ups (who, where, the line and a link; `followUpsMaybeDone` counts the ones the code may have handled since, which are left out), and any herdr panes working on it | `url`, or `repo` and `number` |
@@ -33,7 +33,7 @@ claude mcp add --transport http --scope user shepherd http://127.0.0.1:5050/mcp 
   --header "Authorization: Bearer $SHEPHERD_TOKEN"
 ```
 
-A script, such as a cron job that starts a review for each PR that asks for your review, can call a tool with one POST. The server is stateless, so it needs no `initialize` first. The `author` and `turn` reasons are not review requests, so leave them out:
+A script, such as a cron job that starts a review for each PR that asks for your review, can call a tool with one POST. The server is stateless, so it needs no `initialize` first. The `author`, `turn` and `reply` reasons are not review requests, so leave them out:
 
 ```sh
 out=$(curl -sf http://127.0.0.1:5050/mcp -H 'content-type: application/json' \

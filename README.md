@@ -6,10 +6,10 @@
 
 Shepherd tracks your team's open pull requests across one or more GitHub hosts (github.com and any GitHub Enterprise Server) in one table. It answers the questions a lead asks several times a day:
 
-- **What is waiting on me?** PRs that request your review or your review team's, PRs where someone else had the last word (unless you already approved), and your own PRs with requested changes, marked in orange.
+- **What is waiting on me?** PRs that request your review or your review team's, your PRs where someone else had the last word, your own PRs with requested changes, and PRs you're assigned to where the author answered since your last post, marked in orange.
 - **What is ready to go out?** Approved work with no conflicts or failed checks, and with an AI review that covers the head and has no open "fix" thread, sits at the top with a green border. Approved work that is blocked follows with a dark cyan border. Approvers and change requests are named.
 - **What has the AI reviewer flagged that nobody has resolved?** The count of unresolved threads opened by your code-review bot, split into "fix" and "minor", with links to each finding.
-- **Who do I ping, and is it my turn?** Everyone who has commented, reviewed or committed, most recently active first, plus who acted last. When someone else had the last word on a PR you're part of and you haven't already approved it, it's marked as your turn.
+- **Who do I ping, and is it my turn?** Everyone who has commented, reviewed or committed, most recently active first, plus who acted last. When someone else had the last word on a PR you wrote, it's marked as your turn. Someone else's PR waits on you only when your review, or your review team's, is requested, or when you're assigned to it and the author has answered since your last post.
 - **How does this work fit together?** Stacked PRs share one row, and each row links its Linear tickets and related PRs.
 
 Rows refresh on their own, one at a time, and update in place. The same data is available to agents over [MCP](docs/mcp.md).
@@ -153,8 +153,8 @@ Every key, with defaults, is in [Configuration](docs/configuration.md).
 | Red banner: **The dashboard could not load /api/config** | The API at `/api/config` sent an error, or a page that is not JSON. A host that embeds the client must serve the Shepherd API at `/api/` on the same origin. See [Build the client for another host](CONTRIBUTING.md#build-the-client-for-another-host). |
 | Red banner: **Dashboard server could not be reached** | The server stopped. Start it again with `bun run start`. |
 | A row shows a red triangle instead of the refresh icon | That row's last reload failed; hover it to read why. The row keeps its last data and tries again on the next tick. |
-| "Waiting on you" differs from GitHub's review count | Shepherd counts direct review requests, PRs where it's your turn, and your PRs with requested changes. Requests to a team count only when the team is in the host's `reviewTeams`; other teams show as grey chips. See [What "waiting on" means](docs/dashboard.md#what-waiting-on-means). |
-| A PR you expect is missing | Check the filters, then **Drafts** and **Dormant 60d+**. Only PRs by people in `team`, PRs that request a review from someone whose bell is on, and PRs that request one of the `reviewTeams`, are tracked. |
+| "Waiting on you" differs from GitHub's review count | Shepherd counts direct review requests, PRs where it's your turn, your PRs with requested changes, and PRs you're assigned to where the author replied after your last post. Requests to a team count only when the team is in the host's `reviewTeams`; other teams show as grey chips. See [What "waiting on" means](docs/dashboard.md#what-waiting-on-means). |
+| A PR you expect is missing | Check the filters, then **Drafts** and **Dormant 60d+**. Only PRs by people in `team`, PRs that request a review from someone whose bell is on or have them as an assignee, and PRs that request one of the `reviewTeams`, are tracked. |
 | A teammate's avatar shows initials | They have no `github` login in `logins`; avatars come from github.com. |
 | A bot appears in Participants | Add its login to `ignoreParticipants` and restart. |
 | The rate badge in the header turns red | Fewer than 500 github.com points are left this hour. Refreshing slows down by itself and recovers at the reset time shown when you hover the badge. See [How refreshing works](docs/refreshing.md). |

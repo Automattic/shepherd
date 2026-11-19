@@ -354,6 +354,9 @@ test('contract: review requests and reviews', () => {
 		{ login: 'carol', name: null },
 	]);
 	expect(e.requested.teams).toEqual([{ slug: 'core-reviewers', combinedSlug: 'example-org/core-reviewers', name: 'Core Reviewers', reviewTeam: false }]);
+	expect(e.assignees).toEqual(['dana']);
+	// Dana was asked and reviewed (no removal event); Erin's request was removed; team and null reviewers don't count.
+	expect(e.assignedReviewers).toEqual(['bob', 'carol', 'dana']);
 	expect(e.reviews).toEqual([
 		{ login: 'dana', state: 'APPROVED', submittedAt: '2026-11-10T11:00:00Z' },
 		{ login: 'ghost', state: 'CHANGES_REQUESTED', submittedAt: '2026-11-10T12:00:00Z' }, // a deleted account

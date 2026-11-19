@@ -47,7 +47,7 @@ Bells, the filters, the sort order, the refresh interval and the theme are not i
 
 ## PRs from outside the team
 
-By default Shepherd lists open PRs written by people in `team`, plus PRs that request a review from someone whose bell is on or from one of the host's [`reviewTeams`](review-teams.md). A PR by a contributor outside the team that requests nobody, and that no bell catches, never appears.
+By default Shepherd lists open PRs written by people in `team`, plus PRs that request a review from someone whose bell is on or from one of the host's [`reviewTeams`](review-teams.md), and PRs that have someone whose bell is on as an assignee. A PR by a contributor outside the team that requests nobody, and that no bell catches, never appears.
 
 Set `allAuthors: true` on a repo to list every open PR in it, whoever wrote it:
 
@@ -76,7 +76,7 @@ The person who runs the server can set `defaultOrgs` on a host. It is a server s
 "github": { "hostname": "github.com", "label": "GitHub", "bot": null, "defaultOrgs": ["example-org", "other-org"] }
 ```
 
-The org scope covers every search on the host: the team's open PRs, review requests from bells, [review teams](review-teams.md), [Shipped](dashboard.md#shipped) and the follow-ups endpoint. It does not limit reads of one PR by its link: the row refresh (`/api/pr`) and the MCP `get_pr` tool with a `url` read any PR on a configured host that the server's GitHub login can read, as they did before. The listed repos keep their settings (`short`, `allAuthors`, `maxBaseAgeHours` and the push policies). A repo that is not listed has the repo name as its label, no base-age limit and no repo push policy. Each search still returns at most 500 PRs.
+The org scope covers every search on the host: the team's open PRs, review requests and assignments from bells, [review teams](review-teams.md), [Shipped](dashboard.md#shipped) and the follow-ups endpoint. It does not limit reads of one PR by its link: the row refresh (`/api/pr`) and the MCP `get_pr` tool with a `url` read any PR on a configured host that the server's GitHub login can read, as they did before. The listed repos keep their settings (`short`, `allAuthors`, `maxBaseAgeHours` and the push policies). A repo that is not listed has the repo name as its label, no base-age limit and no repo push policy. Each search still returns at most 500 PRs.
 
 In the settings panel, the Repos section has a switch for each host ("Any repo on …") and a field for its orgs. When a host is in any-repo mode, the dashboard shows a filter chip for each repo that has PRs, and the Repos section of the panel lists the repos that are not listed under **Add more repos**. Click one to add it to your repos with its name as the label, then Save. When the host had no listed repos and searched its `defaultOrgs`, adding a repo from **Add more repos** also turns **Any repo** on with those orgs, so the host keeps searching them. **Add a repo** does not: the host then searches only its listed repos.
 

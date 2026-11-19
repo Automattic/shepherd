@@ -8,7 +8,7 @@
 | **Waiting on** | Reviewers asked directly, plus an orange **You** pill whenever the PR is waiting on you for any reason (hover it for why). A red **Author** pill means changes were requested and the author hasn't pushed since. Teammates whose bell is on get an orange ring. Team requests (for example from CODEOWNERS) are grey chips. When the team is one of your `reviewTeams`, the **You** pill gets a team icon. |
 | **Approvals** | Who approved (green check) and who asked for changes (red cross), with names. |
 | **AI review** | Unresolved review threads opened by the AI-review bot of the PR's org: the host's `botsByOwner` entry for the org, or else its `bot`. **fix** means severity medium or higher and not a nit; **minor** covers everything else. Click the count to list every finding with its file and a link. An orange clock and **Behind** mean that the bot's last review is older than the newest commit, so it does not cover the head (see [Is the review current?](configuration.md#is-the-review-current)). Shows "n/a" when the org has no bot. The column name comes from `aiReviewLabel`. |
-| **Participants** | Everyone who commented, reviewed or committed, except the author and bots, most recently active first. Hover an avatar to see when that person was last active. Below them, a small line shows who acted last (author included) and how: comment, review or push. It turns orange as **your turn** when someone else had the last word on a PR you wrote or took part in, unless your approval still stands. |
+| **Participants** | Everyone who commented, reviewed or committed, except the author and bots, most recently active first. Hover an avatar to see when that person was last active. Below them, a small line shows who acted last (author included) and how: comment, review or push. It turns orange as **your turn** when someone else had the last word on a PR you wrote, or when the author answered on a PR you're assigned to. |
 | **Status** | Draft, checks, merge conflicts, a thumbs-up when the review decision is approved, how old the base is (see below), and lines added and removed. |
 | **Updated** | When the PR last changed. Hover the row for a refresh button that reloads just that row. |
 
@@ -83,9 +83,10 @@ Follow-ups load only while Shipped is open, for the PRs in the range shown. The 
 A PR is waiting on someone when any of these is true:
 
 - **Requested:** GitHub lists them as a pending reviewer, asked directly rather than through a team. Submitting any review clears it; the author can re-request it.
-- **Team:** the PR requests a review from one of the host's `reviewTeams` (see [Review teams](review-teams.md)). It counts for every team member except the author. It doesn't count on drafts, for someone also asked directly, or for someone whose approval still stands.
-- **Their turn:** someone else commented, reviewed or pushed most recently on a PR they wrote or took part in.
+- **Team:** the PR requests a review from one of the host's `reviewTeams` (see [Review teams](review-teams.md)). It counts for every team member except the author. It doesn't count on drafts, for someone also asked directly, or for someone whose approval still stands. It also doesn't count for someone who commented, reviewed or pushed after the author's last activity, until the author answers.
+- **Their turn:** someone else commented, reviewed or pushed most recently on a PR they wrote. Taking part in someone else's PR doesn't count unless they're assigned to it (see **Reply**).
 - **Author:** they wrote it, someone requested changes, and nothing has been pushed since.
+- **Reply:** they're assigned to someone else's PR, and its author commented, reviewed or pushed after their last comment, review or push. Assigned means they're in the PR's Assignees, or their review was asked for directly and they have since given it (GitHub clears the request when they review). It stops once their approval stands, and drafts don't count. Removing yourself as a reviewer while the request is still pending takes the PR off your list; after you review, approving is the way off. A team request doesn't make you assigned, and when the author's activity is unknown (for example, commits not linked to their account), it doesn't fire. The dashboard also finds PRs that you're an assignee of outside the team's PRs, with an `assignee:` search for each person whose bell is on. It doesn't find a PR by someone outside the team once your direct request has cleared, because no search matches it then.
 
 The **Waiting on you** tile, the orange left bar, the sort order and each person's hourglass all use this definition, as does the `review_queue` MCP tool. The rules live in `src/waiting.ts`.
 
@@ -107,7 +108,7 @@ A PR counts as approved when GitHub's review decision is approved, or when at le
 - **People.** Each person has three buttons:
   - **Name** (with their PR count): show only PRs they wrote.
   - **Hourglass** (with a count): show only PRs waiting on them, for any reason in [What "waiting on" means](#what-waiting-on-means).
-  - **Bell:** add PRs from anyone that request that person's review, and ring them in orange in **Waiting on**. Yours is on by default.
+  - **Bell:** add PRs from anyone that request that person's review or have them as an assignee, and ring them in orange in **Waiting on**. Yours is on by default.
 
   Selecting several names shows PRs by any of them, and the same goes for hourglasses. Names and hourglasses combine, so Miguel's name plus your hourglass shows Miguel's PRs waiting on you. An hourglass only sees PRs already on the dashboard, so turn on that person's bell to include PRs from outside the team.
 - **Repo and approval chips.** These narrow the list. With none selected in a cluster, nothing is filtered; select any combination to show only those.

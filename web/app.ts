@@ -35,7 +35,7 @@ import { findListed, parseRepoKey, reconcileRepoFilter, repoChipLabels, repoKey,
 import { reviewBot } from '../src/review-bot.ts';
 import { rowMaxAge } from '../src/row-refresh.ts';
 import { mountShell } from './shell.ts';
-import { changesRequestedPending, isTurnOf, WAIT_REASON_TEXT, waitReasons, type WaitReason } from '../src/waiting.ts';
+import { awaitsReply, changesRequestedPending, isTurnOf, WAIT_REASON_TEXT, waitReasons, type WaitReason } from '../src/waiting.ts';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -196,7 +196,8 @@ const MERGED_RANGE_TITLES: Record<MergedRange, string> = {
 };
 
 /** Why a pull request waits on someone, for the tooltips. The rules live in src/waiting.ts. */
-const WAIT_REASONS_TITLE = 'as a requested reviewer, as the author with changes requested, or when someone else had the last word';
+const WAIT_REASONS_TITLE =
+	"as a requested reviewer or review-team member, as the author when someone else had the last word or changes were requested, or as an assignee or reviewer when the author answered since their last post";
 /** The refresh interval that stops the automatic refresh. The refresh button still checks the list. */
 const PAUSED = 0;
 /** When the refresh is paused, a row counts as old after this long, as with the 1m interval. */
@@ -849,7 +850,7 @@ const ACTIVITY_ICONS: Record<LastActivity['kind'], string> = {
 
 /**
  * Who acted last (author included, bots excluded). Marked as "your turn" when someone else
- * had the last word on a PR you wrote or took part in.
+ * had the last word on a PR you wrote, or the author answered on a PR you're assigned to.
  */
 function lastActivityLine(row: Row): string {
 	const d = row.detail;
@@ -858,7 +859,7 @@ function lastActivityLine(row: Row): string {
 	const host = row.light.host;
 	const mine = isMe(a.login, host);
 	const me = meMember();
-	const yourTurn = me ? isTurnOf(d, me) : false;
+	const yourTurn = me ? isTurnOf(d, me) || awaitsReply(d, me) : false;
 	const isAuthor = a.login === d.author.login;
 	const who = mine ? 'You' : displayName(a.login);
 	const verb = { comment: 'commented', review: 'reviewed', commit: 'pushed' }[a.kind];
@@ -1186,7 +1187,7 @@ function renderChrome(): void {
 	const tilesEl = $('#tiles');
 	if (tilesEl.innerHTML !== html) tilesEl.innerHTML = html;
 
-	// People: filter by person; bell toggles "show PRs that request this person's review".
+	// People: filter by person; bell toggles "show PRs that request this person's review or have them as an assignee".
 	const inScopeRows = [...rows.values()].filter(inScope);
 	const people = cfg.team
 		.map((m) => {
@@ -1199,7 +1200,7 @@ function renderChrome(): void {
 			return `<span class="person ${on ? 'on' : ''}">
 				<button class="p-main" data-person="${esc(m.id)}" title="Show only pull requests ${m.id === cfg.me ? 'you' : esc(m.name)} wrote">${avatar(Object.values(m.logins)[0] ?? '', Object.keys(m.logins)[0] ?? '')}${esc(m.short)} <span class="count">${n}</span></button>
 				<button class="p-wait ${waiting ? 'on' : ''}" data-wait="${esc(m.id)}" title="Show only pull requests waiting on ${esc(who)} (${waitN}): ${WAIT_REASONS_TITLE}"><i class="fa-${waiting ? 'solid' : 'regular'} fa-hourglass-half"></i>${waitN ? `<span class="count">${waitN}</span>` : ''}</button>
-				<button class="p-bell ${bell ? 'on' : ''}" data-bell="${esc(m.id)}" title="${bell ? 'Hide' : 'Include'} pull requests that request a review from ${esc(who)}"><i class="fa-${bell ? 'solid' : 'regular'} fa-bell"></i></button>
+				<button class="p-bell ${bell ? 'on' : ''}" data-bell="${esc(m.id)}" title="${bell ? 'Hide' : 'Include'} pull requests that request a review from ${esc(who)} or have ${esc(who)} as an assignee"><i class="fa-${bell ? 'solid' : 'regular'} fa-bell"></i></button>
 			</span>`;
 		})
 		.join('');
@@ -1461,7 +1462,11 @@ async function refreshList({ force = false }: { force?: boolean } = {}): Promise
 		for (const row of rows.values()) {
 			if (row.gone || seen.has(row.key) || hostErrors[row.light.host]) continue;
 			const stillWanted =
-				row.light.authoredByTeam || row.light.inAllAuthorsRepo || row.light.teamRequested || row.light.requestedFor.some((id) => reviewers().includes(id));
+				row.light.authoredByTeam ||
+				row.light.inAllAuthorsRepo ||
+				row.light.teamRequested ||
+				row.light.requestedFor.some((id) => reviewers().includes(id)) ||
+				(row.light.assignedTo ?? []).some((id) => reviewers().includes(id));
 			if (!stillWanted) {
 				removeRow(row); // a review-request toggle was switched off
 				continue;

@@ -4,7 +4,7 @@ After a list call, the server fetches the details of the rows that lack them in 
 
 On each tick, the page:
 
-1. Fetches the list of open PRs: the team's PRs, every open PR in repos with `allAuthors`, plus one search for each person whose bell is on.
+1. Fetches the list of open PRs: the team's PRs, every open PR in repos with `allAuthors`, plus two searches for each person whose bell is on: PRs that request their review, and PRs they're an assignee of.
 2. Reloads any row whose **updated** time changed.
 3. Reloads any row older than the interval, with a floor of 20 seconds on hosts without a rate limit and 2 minutes on github.com.
 

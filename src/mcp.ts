@@ -425,7 +425,7 @@ export function createMcpHandler(config: Config, prs: PrService, herdr: HerdrSer
 			name: 'review_queue',
 			title: 'Review queue for a person',
 			description:
-				`Open PRs in ${scopeText} that are waiting on one person (default: "me", the dashboard owner), with the reason for each: "requested" (their review is directly requested), "team" (a review team they belong to is requested; never on their own PRs, drafts or PRs they approved), "turn" (someone else had the last word on a PR they wrote or took part in, and they have not already approved it), or "author" (they wrote it, changes were requested, and nothing was pushed since). Use it to answer "what is waiting on me?" or "on ${exampleMember}?". Set reasons to keep only PRs with at least one of those reasons, for example ["requested", "team"] for the reviews asked of them; each PR still lists all of its reasons. PRs idle for more than 60 days are left out unless their review, or a review team's, is requested.`,
+				`Open PRs in ${scopeText} that are waiting on one person (default: "me", the dashboard owner), with the reason for each: "requested" (their review is directly requested), "team" (a review team they belong to is requested; never on their own PRs, drafts or PRs they approved, nor while they posted after the author's last activity), "turn" (someone else had the last word on a PR they wrote; taking part in someone else's PR does not count), "author" (they wrote it, changes were requested, and nothing was pushed since), or "reply" (they are assigned to someone else's PR, as an assignee or as a reviewer asked directly who has since reviewed, and the author commented, reviewed or pushed after their last post; not once they approved or the request was removed). Use it to answer "what is waiting on me?" or "on ${exampleMember}?". Set reasons to keep only PRs with at least one of those reasons, for example ["requested", "team"] for the reviews asked of them; each PR still lists all of its reasons. PRs idle for more than 60 days are left out unless their review, or a review team's, is requested.`,
 			inputSchema: {
 				type: 'object',
 				properties: {
@@ -443,9 +443,9 @@ export function createMcpHandler(config: Config, prs: PrService, herdr: HerdrSer
 				const person = requireMember(str(args, 'person') ?? 'me');
 				const only = reasons(args, 'reasons') ?? WAIT_REASONS;
 				const { prs: all, errors } = await collect([person.id]);
-				// "turn" and "author" depend on activity, not just requests, so they need the details of every non-dormant PR.
-				// "requested" and "team" need a review request, which the list already shows.
-				const byActivity = only.includes('turn') || only.includes('author');
+				// "turn", "author" and "reply" depend on activity, not just requests, so they need the details of every
+				// non-dormant PR. "requested" and "team" need a review request, which the list already shows.
+				const byActivity = only.includes('turn') || only.includes('author') || only.includes('reply');
 				const candidates = all.filter(
 					(p) =>
 						p.requestedFor.includes(person.id) || p.teamRequested || (byActivity && Date.now() - new Date(p.updatedAt).getTime() <= DORMANT_MS)

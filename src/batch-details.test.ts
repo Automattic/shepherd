@@ -77,7 +77,7 @@ function fakeGh(world: World, now = iso()): Fake {
 		isDraft: false, updatedAt: s.updatedAt ?? now, createdAt: now, headRefName: s.head ?? `feature-${s.number}`, baseRefName: s.base ?? 'main',
 		isCrossRepository: false, headRepositoryOwner: null, headRefOid: `head-${s.number}`, baseRefOid: 'base-oid', baseRef: { target: { oid: 'base-oid' } },
 		body: null, mergeable: 'MERGEABLE', reviewDecision: null, additions: 1, deletions: 0, changedFiles: 1, author: { login: 'alice' },
-		statusCheckRollup: null, reviewRequests: { nodes: [] }, latestOpinionatedReviews: { nodes: [] }, participants: { totalCount: 0, nodes: [] },
+		statusCheckRollup: null, reviewRequests: { nodes: [] }, assignees: { nodes: [] }, timelineItems: { nodes: [] }, latestOpinionatedReviews: { nodes: [] }, participants: { totalCount: 0, nodes: [] },
 		comments: { nodes: [] }, reviews: { nodes: [] }, commits: { nodes: [] }, reviewThreads: { nodes: [] },
 	});
 	const mini = (host: string, owner: string, name: string, p: { number: number; title: string }) => ({
