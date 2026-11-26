@@ -66,13 +66,14 @@ export function inScope(config: ScopeConfig, host: string, owner: string, name: 
  * `org:a repo:b/c` finds PRs in the org and in the repo. Null means nothing to search (a host in listed mode with no repos
  * that `repos` picks). `repos` picks the listed repos to name (all of them by default); in any-repo mode every listed repo
  * outside the orgs is named, since the search covers them anyway.
+ * In any-repo mode the search leaves out archived repos (`archived:false`).
  */
 export function scopeQualifiers(config: ScopeConfig, hostKey: string, repos: (r: RepoConfig) => boolean = () => true): string | null {
 	const orgs = anyRepoOrgs(config, hostKey);
 	const listed = config.repos.filter((r) => r.host === hostKey && (orgs !== null || repos(r)));
 	// Listed repos inside an allowed org are already covered by its `org:`.
 	const extra = orgs ? listed.filter((r) => !orgs.some((o) => lower(o) === lower(r.owner))) : listed;
-	const parts = [...(orgs ?? []).map((o) => `org:${o}`), ...extra.map((r) => `repo:${r.owner}/${r.name}`)];
+	const parts = [...(orgs ?? []).map((o) => `org:${o}`), ...extra.map((r) => `repo:${r.owner}/${r.name}`), ...(orgs ? ['archived:false'] : [])];
 	return parts.length ? parts.join(' ') : null;
 }
 
