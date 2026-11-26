@@ -59,7 +59,7 @@ Use it on repos where the team reviews most outside work. On a busy repo it fill
 
 ## PRs in any repo
 
-By default a host finds PRs only in the repos listed in `repos`. Set `anyRepo` on a host to find the team's PRs in any repo of some orgs (or users) on that host:
+By default a host finds PRs only in the repos listed in `repos`. Set `anyRepo` on a host to find the team's PRs in any non-archived repo of some orgs (or users) on that host:
 
 ```json
 "github": { "hostname": "github.com", "label": "GitHub", "bot": null, "anyRepo": { "orgs": ["example-org", "other-org"] } }

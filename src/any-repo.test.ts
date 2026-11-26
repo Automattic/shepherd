@@ -47,8 +47,8 @@ describe('scope helpers', () => {
 	});
 
 	test('any repo names the orgs, plus listed repos outside them (GitHub ORs repo: and org:)', () => {
-		expect(scopeQualifiers(config([app, outside], { orgs: ['example-org'] }), 'github')).toBe('org:example-org repo:partner-org/lib');
-		expect(scopeQualifiers(config([], { orgs: ['example-org', 'other-org'] }), 'github')).toBe('org:example-org org:other-org');
+		expect(scopeQualifiers(config([app, outside], { orgs: ['example-org'] }), 'github')).toBe('org:example-org repo:partner-org/lib archived:false');
+		expect(scopeQualifiers(config([], { orgs: ['example-org', 'other-org'] }), 'github')).toBe('org:example-org org:other-org archived:false');
 	});
 
 	test('there is no "every repo on the host": an empty org list is listed mode', () => {
@@ -64,13 +64,13 @@ describe('scope helpers', () => {
 		expect(searchHostKeys(c)).toEqual(['github']);
 		c.team[0]!.logins.ghe = 'alice-ent';
 		expect(defaultScope(c, 'ghe')).toEqual(['example-org']);
-		expect(scopeQualifiers(c, 'ghe')).toBe('org:example-org');
+		expect(scopeQualifiers(c, 'ghe')).toBe('org:example-org archived:false');
 		expect(searchHostKeys(c).sort()).toEqual(['ghe', 'github']);
 		expect(inScope(c, 'ghe', 'Example-Org', 'anything')).toBe(true);
 		expect(inScope(c, 'ghe', 'anyone', 'anything')).toBe(false);
 		// The person's own setting wins over the server's defaults.
 		c.hosts.ghe = { ...c.hosts.ghe!, anyRepo: { orgs: ['other-org'] } };
-		expect(scopeQualifiers(c, 'ghe')).toBe('org:other-org');
+		expect(scopeQualifiers(c, 'ghe')).toBe('org:other-org archived:false');
 		expect(publicConfig(c).hosts.ghe?.anyRepo).toEqual({ orgs: ['other-org'] });
 	});
 
@@ -110,10 +110,10 @@ describe('listHost and listMerged in any-repo mode', () => {
 		const { prs, queries } = service(config([app, outside], { orgs: ['example-org'] }));
 		await prs.listHost('github', ['alice']);
 		expect(queries.sort()).toEqual([
-			'is:pr is:open draft:false org:example-org repo:partner-org/lib team-review-requested:example-org/reviewers',
-			'is:pr is:open org:example-org repo:partner-org/lib assignee:alice',
-			'is:pr is:open org:example-org repo:partner-org/lib author:alice',
-			'is:pr is:open org:example-org repo:partner-org/lib user-review-requested:alice',
+			'is:pr is:open draft:false org:example-org repo:partner-org/lib archived:false team-review-requested:example-org/reviewers',
+			'is:pr is:open org:example-org repo:partner-org/lib archived:false assignee:alice',
+			'is:pr is:open org:example-org repo:partner-org/lib archived:false author:alice',
+			'is:pr is:open org:example-org repo:partner-org/lib archived:false user-review-requested:alice',
 		]);
 	});
 
@@ -121,8 +121,8 @@ describe('listHost and listMerged in any-repo mode', () => {
 		const { prs, queries } = service(config([open], { orgs: ['example-org'] }));
 		await prs.listHost('github', []);
 		expect(queries.sort()).toEqual([
-			'is:pr is:open draft:false org:example-org team-review-requested:example-org/reviewers',
-			'is:pr is:open org:example-org author:alice',
+			'is:pr is:open draft:false org:example-org archived:false team-review-requested:example-org/reviewers',
+			'is:pr is:open org:example-org archived:false author:alice',
 			'is:pr is:open repo:example-org/open',
 		]);
 	});
@@ -131,7 +131,7 @@ describe('listHost and listMerged in any-repo mode', () => {
 		const { prs, queries } = service(config([], { orgs: ['example-org'] }));
 		await prs.listMerged('github');
 		expect(queries).toHaveLength(1);
-		expect(queries[0]).toMatch(/^is:pr is:merged merged:>=\S+ org:example-org author:alice sort:updated-desc$/);
+		expect(queries[0]).toMatch(/^is:pr is:merged merged:>=\S+ org:example-org archived:false author:alice sort:updated-desc$/);
 	});
 });
 
